@@ -10,6 +10,7 @@ from src.robustness_tests import (
     calculate_weighted_geometric_index,
     compare_weighting_methods,
     sensitivity_test,
+    calculate_baseline_jesi,
 )
 
 
@@ -172,6 +173,36 @@ def test_compare_weighting_methods():
         result["JAS_baseline"] - result["equal_weight"],
         rel_tol=1e-9,
     )
+
+
+def test_sensitivity_increases_jesi_when_pillar_increases():
+    """
+    Increasing a pillar score should increase the JESI score.
+    """
+
+    pillars = {
+        "G": 0.8,
+        "P": 0.7,
+        "C": 0.6,
+        "R": 0.5,
+        "A": 0.4,
+    }
+
+    result = sensitivity_test(
+        pillars,
+        pillar="G",
+        change=0.10,
+    )
+
+    assert result["modified_jesi"] > result["baseline_jesi"]
+
+    assert math.isclose(
+        result["change_in_jesi"],
+        result["modified_jesi"] - result["baseline_jesi"],
+        rel_tol=1e-9,
+    )
+
+
 def test_sensitivity_decreases_jesi_when_pillar_decreases():
     """
     Decreasing a pillar score should decrease the JESI score.
@@ -198,6 +229,8 @@ def test_sensitivity_decreases_jesi_when_pillar_decreases():
         result["modified_jesi"] - result["baseline_jesi"],
         rel_tol=1e-9,
     )
+
+
 def test_weighted_geometric_index_rejects_pillar_name_mismatch():
     """
     The index should reject mismatched pillar and weight names.
@@ -230,29 +263,37 @@ def test_weighted_geometric_index_rejects_pillar_name_mismatch():
         raise AssertionError(
             "The index should reject mismatched pillar and weight names."
         )
-def test_sensitivity_increases_jesi_when_pillar_increases():
+
+
+def test_baseline_jesi_matches_weighted_geometric_index():
     """
-    Increasing a pillar score should increase the JESI score.
+    The baseline JESI should match the weighted geometric calculation
+    using JAS strategic weights.
     """
 
     pillars = {
-        "G": 0.8,
+        "G": 0.9,
         "P": 0.7,
-        "C": 0.6,
-        "R": 0.5,
-        "A": 0.4,
+        "C": 0.8,
+        "R": 0.6,
+        "A": 0.5,
     }
 
-    result = sensitivity_test(
+    direct = calculate_weighted_geometric_index(
         pillars,
-        pillar="G",
-        change=0.10,
+        {
+            "G": 0.20,
+            "P": 0.25,
+            "C": 0.20,
+            "R": 0.20,
+            "A": 0.15,
+        },
     )
 
-    assert result["modified_jesi"] > result["baseline_jesi"]
+    baseline = calculate_baseline_jesi(pillars)
 
     assert math.isclose(
-        result["change_in_jesi"],
-        result["modified_jesi"] - result["baseline_jesi"],
+        baseline,
+        direct,
         rel_tol=1e-9,
     )
