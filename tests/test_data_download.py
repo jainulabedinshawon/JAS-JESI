@@ -1,0 +1,106 @@
+"""
+Tests for the JESI data download module.
+JAS Unified Economic Strength Index (JESI)
+Master Version 1.0
+"""
+
+import pandas as pd
+
+from src.data_download import (
+    download_world_bank_indicator,
+    download_multiple_indicators,
+)
+
+
+def test_download_world_bank_indicator(monkeypatch):
+    """
+    Test World Bank indicator download using
+    a mocked API response.
+    """
+
+    class MockResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [
+                {
+                    "page": 1,
+                    "pages": 1,
+                },
+                [
+                    {
+                        "country": {
+                            "value": "Bangladesh"
+                        },
+                        "date": "2023",
+                        "value": 6.0,
+                    }
+                ],
+            ]
+
+    def mock_get(*args, **kwargs):
+        return MockResponse()
+
+    monkeypatch.setattr(
+        "src.data_download.requests.get",
+        mock_get,
+    )
+
+    result = download_world_bank_indicator(
+        country="BGD",
+        indicator="NY.GDP.MKTP.KD.ZG",
+        start_year=2023,
+        end_year=2023,
+    )
+
+    assert isinstance(result, pd.DataFrame)
+    assert len(result) == 1
+    assert result.iloc[0]["country"] == "Bangladesh"
+    assert result.iloc[0]["year"] == 2023
+    assert result.iloc[0]["value"] == 6.0
+    assert result.iloc[0]["indicator"] == "NY.GDP.MKTP.KD.ZG"
+
+
+def test_download_world_bank_indicator_empty(monkeypatch):
+    """
+    Test that an empty World Bank response
+    returns an empty DataFrame.
+    """
+
+    class MockResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [
+                {
+                    "page": 1,
+                    "pages": 1,
+                },
+                [],
+            ]
+
+    def mock_get(*args, **kwargs):
+        return MockResponse()
+
+    monkeypatch.setattr(
+        "src.data_download.requests.get",
+        mock_get,
+    )
+
+    result = download_world_bank_indicator(
+        country="BGD",
+        indicator="INVALID",
+        start_year=2023,
+        end_year=2023,
+    )
+
+    assert isinstance(result, pd.DataFrame)
+    assert result.empty
+    assert list(result.columns) == [
+        "country",
+        "year",
+        "value",
+        "indicator",
+    ]
