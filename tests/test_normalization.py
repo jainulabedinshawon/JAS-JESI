@@ -1,4 +1,4 @@
-"""
+9"""
 Tests for the JESI normalization module.
 JAS Unified Economic Strength Index (JESI)
 Master Version 1.0
@@ -99,4 +99,23 @@ def test_normalize_positive_clipped():
         value=25,
         minimum=50,
         maximum=100,
+    ) == 0.0
+    
+def test_normalize_negative_clipped():
+    """
+    Negative normalization should be constrained to the 0–1 range.
+    """
+
+    from src.normalization import normalize_negative_clipped
+
+    assert normalize_negative_clipped(
+        value=-25,
+        minimum=0,
+        maximum=50,
+    ) == 1.0
+
+    assert normalize_negative_clipped(
+        value=75,
+        minimum=0,
+        maximum=50,
     ) == 0.0
