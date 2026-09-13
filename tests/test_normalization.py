@@ -65,3 +65,20 @@ def test_normalize_positive_rejects_equal_bounds():
         raise AssertionError(
             "Normalization should reject equal minimum and maximum values."
         )
+def test_normalize_negative_rejects_equal_bounds():
+    """
+    Negative normalization should reject equal minimum and maximum values.
+    """
+
+    try:
+        normalize_negative(
+            value=50,
+            minimum=50,
+            maximum=50,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(
+            "Normalization should reject equal minimum and maximum values."
+        )
