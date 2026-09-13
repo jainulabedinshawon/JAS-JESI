@@ -10,6 +10,7 @@ from src.data_cleaning import (
     validate_required_columns,
     convert_value_to_numeric,
     remove_duplicate_records,
+    sort_by_country_and_year,
 )
 
 
@@ -89,3 +90,45 @@ def test_remove_duplicate_records():
     assert len(result) == 2
     assert result.iloc[0]["country"] == "Bangladesh"
     assert result.iloc[1]["country"] == "India"
+
+
+def test_sort_by_country_and_year():
+    """
+    Records should be sorted by country and year.
+    """
+
+    dataframe = pd.DataFrame(
+        {
+            "country": [
+                "India",
+                "Bangladesh",
+                "Bangladesh",
+            ],
+            "year": [
+                2023,
+                2024,
+                2023,
+            ],
+            "value": [
+                7.0,
+                6.5,
+                6.0,
+            ],
+        }
+    )
+
+    result = sort_by_country_and_year(
+        dataframe
+    )
+
+    assert list(result["country"]) == [
+        "Bangladesh",
+        "Bangladesh",
+        "India",
+    ]
+
+    assert list(result["year"]) == [
+        2023,
+        2024,
+        2023,
+    ]
