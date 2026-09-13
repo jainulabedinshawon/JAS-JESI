@@ -198,7 +198,38 @@ def test_sensitivity_decreases_jesi_when_pillar_decreases():
         result["modified_jesi"] - result["baseline_jesi"],
         rel_tol=1e-9,
     )
+def test_weighted_geometric_index_rejects_pillar_name_mismatch():
+    """
+    The index should reject mismatched pillar and weight names.
+    """
 
+    pillars = {
+        "G": 0.8,
+        "P": 0.7,
+        "C": 0.6,
+        "R": 0.5,
+        "X": 0.4,
+    }
+
+    weights = {
+        "G": 0.20,
+        "P": 0.25,
+        "C": 0.20,
+        "R": 0.20,
+        "A": 0.15,
+    }
+
+    try:
+        calculate_weighted_geometric_index(
+            pillars,
+            weights,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(
+            "The index should reject mismatched pillar and weight names."
+        )
 def test_sensitivity_increases_jesi_when_pillar_increases():
     """
     Increasing a pillar score should increase the JESI score.
