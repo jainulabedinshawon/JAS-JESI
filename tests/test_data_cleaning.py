@@ -12,6 +12,7 @@ from src.data_cleaning import (
     remove_duplicate_records,
     sort_by_country_and_year,
     remove_invalid_years,
+    validate_missing_values,
     clean_indicator_data,
 )
 
@@ -172,6 +173,54 @@ def test_remove_invalid_years():
         2023,
         2024,
     ]
+
+
+def test_validate_missing_values():
+    """
+    Missing values should be counted correctly.
+    """
+
+    dataframe = pd.DataFrame(
+        {
+            "value": [
+                6.0,
+                None,
+                7.5,
+                None,
+            ]
+        }
+    )
+
+    result = validate_missing_values(
+        dataframe,
+        "value",
+    )
+
+    assert result == 2
+
+
+def test_validate_missing_values_does_not_modify_data():
+    """
+    Missing-value validation should not modify the data.
+    """
+
+    dataframe = pd.DataFrame(
+        {
+            "value": [
+                6.0,
+                None,
+                7.5,
+            ]
+        }
+    )
+
+    result = validate_missing_values(
+        dataframe,
+        "value",
+    )
+
+    assert result == 1
+    assert pd.isna(dataframe["value"].iloc[1])
 
 
 def test_clean_indicator_data():
