@@ -11,6 +11,7 @@ from src.data_cleaning import (
     convert_value_to_numeric,
     remove_duplicate_records,
     sort_by_country_and_year,
+    remove_invalid_years,
 )
 
 
@@ -131,4 +132,42 @@ def test_sort_by_country_and_year():
         2023,
         2024,
         2023,
+    ]
+
+
+def test_remove_invalid_years():
+    """
+    Invalid year observations should be removed.
+    """
+
+    dataframe = pd.DataFrame(
+        {
+            "country": [
+                "Bangladesh",
+                "India",
+                "Nepal",
+                "Pakistan",
+            ],
+            "year": [
+                2023,
+                1899,
+                2101,
+                2024,
+            ],
+            "value": [
+                6.0,
+                7.0,
+                5.0,
+                6.5,
+            ],
+        }
+    )
+
+    result = remove_invalid_years(
+        dataframe
+    )
+
+    assert list(result["year"]) == [
+        2023,
+        2024,
     ]
