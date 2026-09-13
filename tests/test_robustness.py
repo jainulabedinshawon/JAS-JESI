@@ -172,7 +172,32 @@ def test_compare_weighting_methods():
         result["JAS_baseline"] - result["equal_weight"],
         rel_tol=1e-9,
     )
+def test_sensitivity_decreases_jesi_when_pillar_decreases():
+    """
+    Decreasing a pillar score should decrease the JESI score.
+    """
 
+    pillars = {
+        "G": 0.8,
+        "P": 0.7,
+        "C": 0.6,
+        "R": 0.5,
+        "A": 0.4,
+    }
+
+    result = sensitivity_test(
+        pillars,
+        pillar="G",
+        change=-0.10,
+    )
+
+    assert result["modified_jesi"] < result["baseline_jesi"]
+
+    assert math.isclose(
+        result["change_in_jesi"],
+        result["modified_jesi"] - result["baseline_jesi"],
+        rel_tol=1e-9,
+    )
 
 def test_sensitivity_increases_jesi_when_pillar_increases():
     """
