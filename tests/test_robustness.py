@@ -11,6 +11,7 @@ from src.robustness_tests import (
     compare_weighting_methods,
     sensitivity_test,
     calculate_baseline_jesi,
+    calculate_equal_weight_jesi,
 )
 
 
@@ -294,6 +295,40 @@ def test_baseline_jesi_matches_weighted_geometric_index():
 
     assert math.isclose(
         baseline,
+        direct,
+        rel_tol=1e-9,
+    )
+
+
+def test_equal_weight_jesi_matches_weighted_geometric_index():
+    """
+    The equal-weight JESI should match the weighted geometric calculation
+    using equal pillar weights.
+    """
+
+    pillars = {
+        "G": 0.9,
+        "P": 0.7,
+        "C": 0.8,
+        "R": 0.6,
+        "A": 0.5,
+    }
+
+    direct = calculate_weighted_geometric_index(
+        pillars,
+        {
+            "G": 0.20,
+            "P": 0.20,
+            "C": 0.20,
+            "R": 0.20,
+            "A": 0.20,
+        },
+    )
+
+    equal_weight = calculate_equal_weight_jesi(pillars)
+
+    assert math.isclose(
+        equal_weight,
         direct,
         rel_tol=1e-9,
     )
