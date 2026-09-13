@@ -9,7 +9,6 @@ economic indicator data from public APIs.
 
 import requests
 import pandas as pd
-from io import StringIO
 
 
 WORLD_BANK_API = "https://api.worldbank.org/v2/country"
