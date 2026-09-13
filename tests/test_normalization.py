@@ -1,4 +1,4 @@
-9"""
+"""
 Tests for the JESI normalization module.
 JAS Unified Economic Strength Index (JESI)
 Master Version 1.0
@@ -47,7 +47,8 @@ def test_clip_normalized():
     assert clip_normalized(1.2) == 1.0
     assert clip_normalized(-0.2) == 0.0
     assert clip_normalized(0.6) == 0.6
-    
+
+
 def test_normalize_positive_rejects_equal_bounds():
     """
     Positive normalization should reject equal minimum and maximum values.
@@ -65,6 +66,8 @@ def test_normalize_positive_rejects_equal_bounds():
         raise AssertionError(
             "Normalization should reject equal minimum and maximum values."
         )
+
+
 def test_normalize_negative_rejects_equal_bounds():
     """
     Negative normalization should reject equal minimum and maximum values.
@@ -82,6 +85,8 @@ def test_normalize_negative_rejects_equal_bounds():
         raise AssertionError(
             "Normalization should reject equal minimum and maximum values."
         )
+
+
 def test_normalize_positive_clipped():
     """
     Positive normalization should be constrained to the 0–1 range.
@@ -100,7 +105,8 @@ def test_normalize_positive_clipped():
         minimum=50,
         maximum=100,
     ) == 0.0
-    
+
+
 def test_normalize_negative_clipped():
     """
     Negative normalization should be constrained to the 0–1 range.
