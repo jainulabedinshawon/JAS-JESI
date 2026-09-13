@@ -107,12 +107,32 @@ def remove_invalid_years(
     return dataframe.reset_index(drop=True)
 
 
+def validate_missing_values(
+    dataframe,
+    column="value",
+):
+    """
+    Count missing values in an indicator column.
+
+    Missing observations are reported but not modified.
+    """
+    if column not in dataframe.columns:
+        raise ValueError(
+            f"Column '{column}' not found in dataframe."
+        )
+
+    return dataframe[column].isna().sum()
+
+
 def clean_indicator_data(
     dataframe,
     required_columns=None,
 ):
     """
     Apply the basic JESI data-cleaning pipeline.
+
+    Missing values are preserved and are not
+    automatically imputed or fabricated.
     """
     dataframe = dataframe.copy()
 
