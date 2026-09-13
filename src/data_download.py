@@ -3,7 +3,7 @@ JESI Data Download Module
 JAS Unified Economic Strength Index (JESI)
 Master Version 1.0
 
-This module provides basic functions for downloading
+This module provides reproducible functions for downloading
 economic indicator data from public APIs.
 """
 
@@ -50,14 +50,23 @@ def download_world_bank_indicator(
         f"&date={start_year}:{end_year}"
     )
 
-    response = requests.get(url, timeout=30)
+    response = requests.get(
+        url,
+        timeout=30,
+    )
+
     response.raise_for_status()
 
     data = response.json()
 
     if len(data) < 2 or not data[1]:
         return pd.DataFrame(
-            columns=["country", "year", "value", "indicator"]
+            columns=[
+                "country",
+                "year",
+                "value",
+                "indicator",
+            ]
         )
 
     records = []
@@ -65,7 +74,12 @@ def download_world_bank_indicator(
     for item in data[1]:
         records.append(
             {
-                "country": item.get("country", {}).get("value"),
+                "country": item.get(
+                    "country",
+                    {},
+                ).get(
+                    "value"
+                ),
                 "year": int(item["date"]),
                 "value": item.get("value"),
                 "indicator": indicator,
@@ -75,11 +89,18 @@ def download_world_bank_indicator(
     return pd.DataFrame(records)
 
 
-def save_dataframe(dataframe, filepath):
+def save_dataframe(
+    dataframe,
+    filepath,
+):
     """
     Save downloaded data to a CSV file.
     """
-    dataframe.to_csv(filepath, index=False)
+
+    dataframe.to_csv(
+        filepath,
+        index=False,
+    )
 
 
 def download_multiple_indicators(
@@ -90,7 +111,8 @@ def download_multiple_indicators(
 ):
     """
     Download multiple World Bank indicators
-    and combine them into a single DataFrame.
+    for a single country and combine them
+    into a single DataFrame.
     """
 
     frames = []
@@ -108,4 +130,65 @@ def download_multiple_indicators(
     if not frames:
         return pd.DataFrame()
 
-    return pd.concat(frames, ignore_index=True)
+    return pd.concat(
+        frames,
+        ignore_index=True,
+    )
+
+
+def download_country_indicators(
+    countries,
+    indicators,
+    start_year,
+    end_year,
+):
+    """
+    Download multiple indicators for multiple countries.
+
+    Parameters
+    ----------
+    countries : list
+        ISO3 country codes,
+        e.g. ["BGD", "IND", "VNM"].
+
+    indicators : list
+        World Bank indicator codes.
+
+    start_year : int
+        First year of the requested period.
+
+    end_year : int
+        Last year of the requested period.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Combined country-level indicator data.
+    """
+
+    frames = []
+
+    for country in countries:
+        data = download_multiple_indicators(
+            country=country,
+            indicators=indicators,
+            start_year=start_year,
+            end_year=end_year,
+        )
+
+        frames.append(data)
+
+    if not frames:
+        return pd.DataFrame(
+            columns=[
+                "country",
+                "year",
+                "value",
+                "indicator",
+            ]
+        )
+
+    return pd.concat(
+        frames,
+        ignore_index=True,
+    )
