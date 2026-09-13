@@ -8,6 +8,7 @@ import math
 
 from src.robustness_tests import (
     calculate_weighted_geometric_index,
+    compare_weighting_methods,
 )
 
 
@@ -42,6 +43,8 @@ def test_weighted_geometric_index_all_maximum():
         100.0,
         rel_tol=1e-9,
     )
+
+
 def test_weighted_geometric_index_all_zero():
     """
     If all pillar scores are 0.0, the index should equal 0.0.
@@ -73,6 +76,8 @@ def test_weighted_geometric_index_all_zero():
         0.0,
         rel_tol=1e-9,
     )
+
+
 def test_weighted_geometric_index_rejects_invalid_score():
     """
     The index should reject pillar scores outside the 0–1 range.
@@ -105,6 +110,8 @@ def test_weighted_geometric_index_rejects_invalid_score():
         raise AssertionError(
             "The index should reject scores outside the 0–1 range."
         )
+
+
 def test_weighted_geometric_index_rejects_invalid_weights():
     """
     The index should reject weights that do not sum to 1.
@@ -137,3 +144,30 @@ def test_weighted_geometric_index_rejects_invalid_weights():
         raise AssertionError(
             "The index should reject weights that do not sum to 1."
         )
+
+
+def test_compare_weighting_methods():
+    """
+    The weighting comparison should return both JESI scores
+    and their difference.
+    """
+
+    pillars = {
+        "G": 0.9,
+        "P": 0.7,
+        "C": 0.8,
+        "R": 0.6,
+        "A": 0.5,
+    }
+
+    result = compare_weighting_methods(pillars)
+
+    assert "JAS_baseline" in result
+    assert "equal_weight" in result
+    assert "difference" in result
+
+    assert math.isclose(
+        result["difference"],
+        result["JAS_baseline"] - result["equal_weight"],
+        rel_tol=1e-9,
+    )
