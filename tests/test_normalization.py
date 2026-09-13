@@ -47,3 +47,21 @@ def test_clip_normalized():
     assert clip_normalized(1.2) == 1.0
     assert clip_normalized(-0.2) == 0.0
     assert clip_normalized(0.6) == 0.6
+    
+def test_normalize_positive_rejects_equal_bounds():
+    """
+    Positive normalization should reject equal minimum and maximum values.
+    """
+
+    try:
+        normalize_positive(
+            value=50,
+            minimum=50,
+            maximum=50,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(
+            "Normalization should reject equal minimum and maximum values."
+        )
