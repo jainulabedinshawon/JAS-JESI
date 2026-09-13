@@ -82,3 +82,21 @@ def test_normalize_negative_rejects_equal_bounds():
         raise AssertionError(
             "Normalization should reject equal minimum and maximum values."
         )
+def test_normalize_positive_clipped():
+    """
+    Positive normalization should be constrained to the 0–1 range.
+    """
+
+    from src.normalization import normalize_positive_clipped
+
+    assert normalize_positive_clipped(
+        value=125,
+        minimum=50,
+        maximum=100,
+    ) == 1.0
+
+    assert normalize_positive_clipped(
+        value=25,
+        minimum=50,
+        maximum=100,
+    ) == 0.0
