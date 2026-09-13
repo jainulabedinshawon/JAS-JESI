@@ -65,3 +65,24 @@ def test_jesi_rejects_invalid_score():
         raise AssertionError(
             "JESI should reject scores outside the 0–1 range."
         )
+
+
+def test_jesi_rejects_missing_pillar():
+    """
+    JESI should reject incomplete pillar scores.
+    """
+    pillars = {
+        "G": 0.8,
+        "P": 0.8,
+        "C": 0.8,
+        "R": 0.8,
+    }
+
+    try:
+        calculate_jesi(pillars)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(
+            "JESI should reject missing pillar scores."
+        )
