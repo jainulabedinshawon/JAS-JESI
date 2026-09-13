@@ -105,3 +105,35 @@ def test_weighted_geometric_index_rejects_invalid_score():
         raise AssertionError(
             "The index should reject scores outside the 0–1 range."
         )
+def test_weighted_geometric_index_rejects_invalid_weights():
+    """
+    The index should reject weights that do not sum to 1.
+    """
+
+    pillars = {
+        "G": 0.8,
+        "P": 0.8,
+        "C": 0.8,
+        "R": 0.8,
+        "A": 0.8,
+    }
+
+    weights = {
+        "G": 0.20,
+        "P": 0.25,
+        "C": 0.20,
+        "R": 0.20,
+        "A": 0.20,
+    }
+
+    try:
+        calculate_weighted_geometric_index(
+            pillars,
+            weights,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(
+            "The index should reject weights that do not sum to 1."
+        )
