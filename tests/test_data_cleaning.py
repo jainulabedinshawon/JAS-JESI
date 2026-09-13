@@ -12,6 +12,7 @@ from src.data_cleaning import (
     remove_duplicate_records,
     sort_by_country_and_year,
     remove_invalid_years,
+    clean_indicator_data,
 )
 
 
@@ -170,4 +171,61 @@ def test_remove_invalid_years():
     assert list(result["year"]) == [
         2023,
         2024,
+    ]
+
+
+def test_clean_indicator_data():
+    """
+    The complete JESI cleaning pipeline should
+    convert values, remove duplicates and invalid
+    years, and sort the observations.
+    """
+
+    dataframe = pd.DataFrame(
+        {
+            "country": [
+                "India",
+                "Bangladesh",
+                "Bangladesh",
+                "Nepal",
+            ],
+            "year": [
+                2023,
+                2024,
+                2024,
+                1899,
+            ],
+            "value": [
+                "7.0",
+                "6.5",
+                "6.5",
+                "5.0",
+            ],
+        }
+    )
+
+    result = clean_indicator_data(
+        dataframe,
+        required_columns=[
+            "country",
+            "year",
+            "value",
+        ],
+    )
+
+    assert len(result) == 2
+
+    assert list(result["country"]) == [
+        "Bangladesh",
+        "India",
+    ]
+
+    assert list(result["year"]) == [
+        2024,
+        2023,
+    ]
+
+    assert list(result["value"]) == [
+        6.5,
+        7.0,
     ]
