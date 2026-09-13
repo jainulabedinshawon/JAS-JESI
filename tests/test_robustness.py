@@ -42,3 +42,34 @@ def test_weighted_geometric_index_all_maximum():
         100.0,
         rel_tol=1e-9,
     )
+def test_weighted_geometric_index_all_zero():
+    """
+    If all pillar scores are 0.0, the index should equal 0.0.
+    """
+
+    pillars = {
+        "G": 0.0,
+        "P": 0.0,
+        "C": 0.0,
+        "R": 0.0,
+        "A": 0.0,
+    }
+
+    weights = {
+        "G": 0.20,
+        "P": 0.25,
+        "C": 0.20,
+        "R": 0.20,
+        "A": 0.15,
+    }
+
+    result = calculate_weighted_geometric_index(
+        pillars,
+        weights,
+    )
+
+    assert math.isclose(
+        result,
+        0.0,
+        rel_tol=1e-9,
+    )
