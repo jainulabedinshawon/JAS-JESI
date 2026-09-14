@@ -14,13 +14,6 @@ Resilience indicators:
     3. Current Account Balance (% GDP)
        Source: World Bank
 
-Countries:
-    Bangladesh
-    India
-    Viet Nam
-    Indonesia
-    Malaysia
-
 Period:
     2015–2024
 """
@@ -31,14 +24,9 @@ import pandas as pd
 import requests
 
 
-# ============================================================
-# Configuration
-# ============================================================
-
 WORLD_BANK_API = (
     "https://api.worldbank.org/v2/country"
 )
-
 
 COUNTRIES = {
     "BGD": "Bangladesh",
@@ -48,32 +36,23 @@ COUNTRIES = {
     "MYS": "Malaysia",
 }
 
-
 WORLD_BANK_INDICATORS = [
     "FI.RES.TOTL.MO",
     "BN.CAB.XOKA.GD.ZS",
 ]
 
-
-# IMF WEO indicator:
-# General Government Gross Debt (% GDP)
 IMF_DEBT_INDICATOR = "GGXWDG_NGDP"
-
 
 START_YEAR = 2015
 END_YEAR = 2024
 
-
-# IMF Excel file is located in repository root.
 IMF_FILE = Path(
     "WEOApr2026all.xlsx"
 )
 
-
 OUTPUT_DIR = Path(
     "data/raw"
 )
-
 
 OUTPUT_FILE = (
     OUTPUT_DIR
@@ -81,17 +60,12 @@ OUTPUT_FILE = (
 )
 
 
-# ============================================================
-# World Bank
-# ============================================================
-
 def download_world_bank_indicator(
     country,
     indicator,
 ):
     """
-    Download one World Bank indicator
-    for one country.
+    Download one World Bank indicator.
     """
 
     url = (
@@ -128,9 +102,81 @@ def download_world_bank_indicator(
     return records
 
 
-# ============================================================
-# IMF WEO
-# ============================================================
+def find_imf_header_row(file_path):
+    """
+    Find the actual header row in the IMF WEO Excel file.
+
+    The April 2026 WEO workbook may contain title/
+    metadata rows before the actual table header.
+    """
+
+    preview = pd.read_excel(
+        file_path,
+        sheet_name=0,
+        header=None,
+        nrows=30,
+    )
+
+    for row_number in range(
+        len(preview)
+    ):
+
+        row = preview.iloc[
+            row_number
+        ].astype(str)
+
+        row_text = " | ".join(
+            row.tolist()
+        ).lower()
+
+        if (
+            "subject descriptor" in row_text
+            and "country" in row_text
+        ):
+            return row_number
+
+    raise ValueError(
+        "Could not locate the IMF WEO "
+        "table header row."
+    )
+
+
+def find_column(
+    dataframe,
+    possible_names,
+):
+    """
+    Find a column using several possible names.
+    """
+
+    normalized = {
+        str(column)
+        .strip()
+        .lower()
+        .replace(
+            "\n",
+            " ",
+        ): column
+        for column in dataframe.columns
+    }
+
+    for name in possible_names:
+
+        key = (
+            name
+            .strip()
+            .lower()
+            .replace(
+                "\n",
+                " ",
+            )
+        )
+
+        if key in normalized:
+            return normalized[key]
+
+    return None
+
 
 def download_imf_debt_data():
     """
@@ -154,76 +200,173 @@ def download_imf_debt_data():
         f"IMF file: {IMF_FILE}"
     )
 
+    header_row = find_imf_header_row(
+        IMF_FILE
+    )
+
+    print(
+        f"Detected IMF header row: "
+        f"{header_row}"
+    )
+
     data = pd.read_excel(
         IMF_FILE,
-        sheet_name="Countries",
+        sheet_name=0,
+        header=header_row,
     )
+
+    data.columns = [
+        str(column).strip()
+        for column in data.columns
+    ]
 
     print(
         f"IMF dataset rows: {len(data)}"
     )
 
-    required_columns = [
-        "ISO",
-        "Country",
-        "WEO Subject Code",
-        "Subject Descriptor",
-    ]
+    print(
+        "Detected columns:"
+    )
 
-    missing_columns = [
-        column
-        for column in required_columns
-        if column not in data.columns
-    ]
+    print(
+        list(data.columns[:12])
+    )
 
-    if missing_columns:
+    country_column = find_column(
+        data,
+        [
+            "Country",
+            "Country Name",
+        ],
+    )
+
+    subject_code_column = find_column(
+        data,
+        [
+            "WEO Subject Code",
+            "Subject Code",
+        ],
+    )
+
+    subject_descriptor_column = find_column(
+        data,
+        [
+            "Subject Descriptor",
+        ],
+    )
+
+    iso_column = find_column(
+        data,
+        [
+            "ISO",
+            "ISO Code",
+        ],
+    )
+
+    if (
+        country_column is None
+        or subject_code_column is None
+        or subject_descriptor_column is None
+    ):
 
         raise ValueError(
-            "Missing IMF WEO columns: "
-            f"{missing_columns}"
+            "Could not identify required IMF WEO "
+            "columns. Detected columns: "
+            f"{list(data.columns)}"
         )
 
+    print()
+    print(
+        "IMF columns detected:"
+    )
+
+    print(
+        f"Country: {country_column}"
+    )
+
+    print(
+        f"Subject Code: {subject_code_column}"
+    )
+
+    print(
+        f"Subject Descriptor: "
+        f"{subject_descriptor_column}"
+    )
+
+    print(
+        f"ISO: {iso_column}"
+    )
+
     debt = data[
-        data["WEO Subject Code"]
+        data[subject_code_column]
+        .astype(str)
+        .str.strip()
         == IMF_DEBT_INDICATOR
     ].copy()
 
     if debt.empty:
 
+        debt = data[
+            data[subject_descriptor_column]
+            .astype(str)
+            .str.contains(
+                "general government gross debt",
+                case=False,
+                na=False,
+            )
+        ].copy()
+
+    if debt.empty:
+
         raise ValueError(
-            "IMF WEO indicator not found: "
-            f"{IMF_DEBT_INDICATOR}"
+            "Could not find General Government "
+            "Gross Debt in IMF WEO dataset."
         )
 
+    print()
     print(
-        "IMF debt indicator found:"
-    )
-
-    print(
-        debt[
-            [
-                "ISO",
-                "Country",
-                "WEO Subject Code",
-                "Subject Descriptor",
-            ]
-        ].head()
+        "IMF debt rows found: "
+        f"{len(debt)}"
     )
 
     records = []
 
-    for country_code in COUNTRIES:
+    for country_code, country_name in (
+        COUNTRIES.items()
+    ):
 
-        country_data = debt[
-            debt["ISO"]
-            == country_code
-        ]
+        if iso_column is not None:
+
+            country_data = debt[
+                debt[iso_column]
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                == country_code
+            ]
+
+        else:
+
+            country_data = debt[
+                debt[country_column]
+                .astype(str)
+                .str.strip()
+                .isin(
+                    [
+                        country_name,
+                        "Vietnam"
+                        if country_code == "VNM"
+                        else country_name,
+                    ]
+                )
+            ]
 
         if country_data.empty:
 
             raise ValueError(
                 "Country not found in IMF WEO: "
-                f"{country_code}"
+                f"{country_name} "
+                f"({country_code})"
             )
 
         row = country_data.iloc[0]
@@ -235,23 +378,26 @@ def download_imf_debt_data():
 
             year_column = str(year)
 
-            if year_column not in debt.columns:
+            if (
+                year_column
+                not in data.columns
+            ):
 
                 raise ValueError(
                     "Year column not found "
                     f"in IMF WEO: {year_column}"
                 )
 
-            value = row[year_column]
+            value = row[
+                year_column
+            ]
 
             if pd.isna(value):
                 value = None
 
             records.append(
                 {
-                    "country": COUNTRIES[
-                        country_code
-                    ],
+                    "country": country_name,
                     "year": year,
                     "value": value,
                     "indicator": IMF_DEBT_INDICATOR,
@@ -260,10 +406,6 @@ def download_imf_debt_data():
 
     return records
 
-
-# ============================================================
-# Main pipeline
-# ============================================================
 
 def main():
 
@@ -279,20 +421,18 @@ def main():
         f"Years: {START_YEAR}-{END_YEAR}"
     )
 
-    # --------------------------------------------------------
-    # World Bank
-    # --------------------------------------------------------
+    records = []
 
     print()
     print(
         "Downloading World Bank indicators..."
     )
 
-    records = []
-
     for country in COUNTRIES:
 
-        for indicator in WORLD_BANK_INDICATORS:
+        for indicator in (
+            WORLD_BANK_INDICATORS
+        ):
 
             country_records = (
                 download_world_bank_indicator(
@@ -309,12 +449,6 @@ def main():
         f"World Bank rows: {len(records)}"
     )
 
-    # --------------------------------------------------------
-    # IMF
-    # --------------------------------------------------------
-
-    print()
-
     imf_debt = (
         download_imf_debt_data()
     )
@@ -326,10 +460,6 @@ def main():
     records.extend(
         imf_debt
     )
-
-    # --------------------------------------------------------
-    # Build dataframe
-    # --------------------------------------------------------
 
     data = pd.DataFrame(
         records,
@@ -351,10 +481,6 @@ def main():
         drop=True
     )
 
-    # --------------------------------------------------------
-    # Save
-    # --------------------------------------------------------
-
     OUTPUT_DIR.mkdir(
         parents=True,
         exist_ok=True,
@@ -364,10 +490,6 @@ def main():
         OUTPUT_FILE,
         index=False,
     )
-
-    # --------------------------------------------------------
-    # Summary
-    # --------------------------------------------------------
 
     print()
     print(
