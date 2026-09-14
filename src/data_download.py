@@ -165,7 +165,66 @@ def download_country_indicators(
     pandas.DataFrame
         Combined country-level indicator data.
     """
+def download_productivity_data(
+    countries,
+    start_year,
+    end_year,
+):
+    """
+    Download the World Bank GDP per person employed
+    indicator for multiple countries.
 
+    Indicator:
+        SL.GDP.PCAP.EM.KD
+
+    Unit:
+        Constant 2021 PPP dollars.
+    """
+
+    return download_country_indicators(
+        countries=countries,
+        indicators=[
+            "SL.GDP.PCAP.EM.KD",
+        ],
+        start_year=start_year,
+        end_year=end_year,
+    )
+
+
+def calculate_tfp_growth(
+    dataframe,
+):
+    """
+    Calculate annual TFP growth from PWT TFP levels.
+
+    Expected columns:
+        country
+        year
+        tfp
+
+    Returns
+    -------
+    pandas.DataFrame
+        Country-year TFP growth data.
+    """
+
+    dataframe = dataframe.copy()
+
+    dataframe = dataframe.sort_values(
+        [
+            "country",
+            "year",
+        ]
+    )
+
+    dataframe["tfp_growth"] = (
+        dataframe
+        .groupby("country")["tfp"]
+        .pct_change()
+        * 100
+    )
+
+    return dataframe
     frames = []
 
     for country in countries:
