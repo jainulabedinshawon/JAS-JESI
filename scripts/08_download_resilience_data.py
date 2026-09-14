@@ -104,23 +104,11 @@ def download_world_bank_indicator(
 
 def find_imf_table():
     """
-    Locate the WEO country table inside the IMF workbook.
+    Locate the IMF WEO country table.
 
-    Supports both:
-
-    1. Legacy IMF WEO schema
-       - Country
-       - WEO Subject Code
-       - Subject Descriptor
-
-    2. New IMF WEO April 2026 schema
-       - COUNTRY
-       - SERIES_CODE
-       - COUNTRY.ID
-       - INDICATOR
-
-    The workbook can contain several sheets and
-    metadata rows before the actual country table.
+    Supports:
+        - April 2026 IMF WEO schema
+        - Legacy IMF WEO schema
     """
 
     print()
@@ -141,10 +129,8 @@ def find_imf_table():
             f"  - {sheet}"
         )
 
-    # New IMF WEO April 2026 schema
-    # is checked first because it is the
-    # current schema.
     header_candidates = [
+        # New April 2026 schema
         (
             "country.id",
             "series_code",
@@ -153,8 +139,16 @@ def find_imf_table():
             "country",
             "series_code",
         ),
+        (
+            "country.id",
+            "indicator.id",
+        ),
+        (
+            "country",
+            "indicator.id",
+        ),
 
-        # Legacy WEO schemas
+        # Legacy schemas
         (
             "country",
             "subject descriptor",
@@ -272,9 +266,6 @@ def find_column(
 ):
     """
     Find a column using several possible names.
-
-    Matching is case-insensitive and ignores
-    newline differences.
     """
 
     normalized = {}
@@ -318,14 +309,11 @@ def find_year_column(
     """
     Find an IMF year column.
 
-    IMF Excel files can expose year headers as:
-
+    Supports:
         2015
         2015.0
         2015.00
         2015.000
-
-    This function supports all of these formats.
     """
 
     candidates = {
@@ -343,6 +331,35 @@ def find_year_column(
     return None
 
 
+def normalize_text(
+    value,
+):
+    """
+    Normalize text for robust IMF matching.
+    """
+
+    if pd.isna(value):
+        return ""
+
+    return (
+        str(value)
+        .strip()
+        .lower()
+        .replace(
+            "_",
+            " ",
+        )
+        .replace(
+            "-",
+            " ",
+        )
+        .replace(
+            "%",
+            " percent ",
+        )
+    )
+
+
 def normalize_country_id(
     value,
 ):
@@ -352,8 +369,6 @@ def normalize_country_id(
         BGD
         bgd
         BGD.0
-
-    into a clean three-letter code.
     """
 
     if pd.isna(value):
@@ -365,20 +380,291 @@ def normalize_country_id(
         .upper()
     )
 
-    # Handle Excel-style numeric-looking
-    # values defensively.
     if text.endswith(".0"):
         text = text[:-2]
 
     return text
 
 
+def find_imf_debt_rows(
+    data,
+    subject_code_column,
+    subject_descriptor_column,
+):
+    """
+    Identify General Government Gross Debt rows.
+
+    Strategy:
+
+    1. Try GGXWDG_NGDP in every likely code column.
+    2. Try indicator ID.
+    3. Try exact / broad indicator description matching.
+    """
+
+    print()
+    print(
+        "Searching IMF dataset for "
+        "General Government Gross Debt..."
+    )
+
+    debt = pd.DataFrame()
+
+    # --------------------------------------------------
+    # Possible code columns
+    # --------------------------------------------------
+
+    code_columns = []
+
+    for possible_name in [
+        "WEO Subject Code",
+        "Subject Code",
+        "SERIES_CODE",
+        "Series Code",
+        "INDICATOR.ID",
+        "Indicator ID",
+    ]:
+
+        column = find_column(
+            data,
+            [possible_name],
+        )
+
+        if (
+            column is not None
+            and column not in code_columns
+        ):
+
+            code_columns.append(
+                column
+            )
+
+    print()
+    print(
+        "IMF indicator/code columns checked:"
+    )
+
+    for column in code_columns:
+        print(
+            f"  - {column}"
+        )
+
+    # --------------------------------------------------
+    # Strategy 1:
+    # Search indicator code
+    # --------------------------------------------------
+
+    for column in code_columns:
+
+        candidate = data[
+            data[column]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            == IMF_DEBT_INDICATOR
+        ].copy()
+
+        if not candidate.empty:
+
+            debt = candidate
+
+            print()
+            print(
+                "Debt indicator found by code:"
+            )
+
+            print(
+                f"  Column: {column}"
+            )
+
+            print(
+                f"  Code: {IMF_DEBT_INDICATOR}"
+            )
+
+            return debt
+
+    # --------------------------------------------------
+    # Strategy 2:
+    # Search indicator description
+    # --------------------------------------------------
+
+    description_columns = []
+
+    for possible_name in [
+        "Subject Descriptor",
+        "INDICATOR",
+        "Indicator",
+        "INDICATOR.Description",
+        "Indicator Description",
+    ]:
+
+        column = find_column(
+            data,
+            [possible_name],
+        )
+
+        if (
+            column is not None
+            and column not in description_columns
+        ):
+
+            description_columns.append(
+                column
+            )
+
+    print()
+    print(
+        "IMF description columns checked:"
+    )
+
+    for column in description_columns:
+        print(
+            f"  - {column}"
+        )
+
+    # Exact-ish phrase first
+    for column in description_columns:
+
+        text = (
+            data[column]
+            .apply(normalize_text)
+        )
+
+        candidate = data[
+            text.str.contains(
+                "general government gross debt",
+                case=False,
+                na=False,
+            )
+        ].copy()
+
+        if not candidate.empty:
+
+            debt = candidate
+
+            print()
+            print(
+                "Debt indicator found by description:"
+            )
+
+            print(
+                f"  Column: {column}"
+            )
+
+            print(
+                "  Match: general government "
+                "gross debt"
+            )
+
+            return debt
+
+    # --------------------------------------------------
+    # Strategy 3:
+    # More flexible description search
+    # --------------------------------------------------
+
+    for column in description_columns:
+
+        text = (
+            data[column]
+            .apply(normalize_text)
+        )
+
+        candidate = data[
+            text.str.contains(
+                "gross debt",
+                case=False,
+                na=False,
+            )
+            &
+            text.str.contains(
+                "government",
+                case=False,
+                na=False,
+            )
+        ].copy()
+
+        if not candidate.empty:
+
+            debt = candidate
+
+            print()
+            print(
+                "Debt indicator found by "
+                "flexible description search:"
+            )
+
+            print(
+                f"  Column: {column}"
+            )
+
+            return debt
+
+    # --------------------------------------------------
+    # Diagnostic output
+    # --------------------------------------------------
+
+    print()
+    print(
+        "DEBUG: Could not find debt indicator."
+    )
+
+    for column in code_columns:
+
+        print()
+        print(
+            f"Unique values from {column}:"
+        )
+
+        print(
+            data[column]
+            .dropna()
+            .astype(str)
+            .drop_duplicates()
+            .head(50)
+            .tolist()
+        )
+
+    for column in description_columns:
+
+        print()
+        print(
+            f"Possible debt-related values from "
+            f"{column}:"
+        )
+
+        text = (
+            data[column]
+            .astype(str)
+        )
+
+        mask = (
+            text.str.contains(
+                "debt",
+                case=False,
+                na=False,
+            )
+        )
+
+        print(
+            data.loc[
+                mask,
+                column,
+            ]
+            .drop_duplicates()
+            .head(50)
+            .tolist()
+        )
+
+    return pd.DataFrame()
+
+
 def download_imf_debt_data():
     """
     Read General Government Gross Debt (% GDP)
-    from the IMF April 2026 WEO Excel dataset.
+    from IMF WEO April 2026.
 
-    Supports both legacy and new IMF WEO schemas.
+    Supports the new April 2026 IMF Data Portal
+    workbook schema and legacy WEO schemas.
     """
 
     print()
@@ -431,7 +717,7 @@ def download_imf_debt_data():
     )
 
     print(
-        list(data.columns[:25])
+        list(data.columns[:30])
     )
 
     # --------------------------------------------------
@@ -448,7 +734,7 @@ def download_imf_debt_data():
     )
 
     # --------------------------------------------------
-    # Detect IMF indicator / series code
+    # Detect subject / series code
     # --------------------------------------------------
 
     subject_code_column = find_column(
@@ -458,6 +744,8 @@ def download_imf_debt_data():
             "Subject Code",
             "SERIES_CODE",
             "Series Code",
+            "INDICATOR.ID",
+            "Indicator ID",
         ],
     )
 
@@ -471,6 +759,8 @@ def download_imf_debt_data():
             "Subject Descriptor",
             "INDICATOR",
             "Indicator",
+            "INDICATOR.Description",
+            "Indicator Description",
         ],
     )
 
@@ -488,19 +778,20 @@ def download_imf_debt_data():
         ],
     )
 
-    # --------------------------------------------------
-    # Validate required columns
-    # --------------------------------------------------
+    if country_column is None:
+
+        raise ValueError(
+            "Could not identify IMF country column."
+        )
 
     if (
-        country_column is None
-        or subject_code_column is None
-        or subject_descriptor_column is None
+        subject_code_column is None
+        and subject_descriptor_column is None
     ):
 
         raise ValueError(
-            "Could not identify required IMF "
-            "WEO columns.\n\n"
+            "Could not identify IMF indicator "
+            "columns.\n\n"
             "Detected columns:\n"
             f"{list(data.columns)}"
         )
@@ -515,11 +806,12 @@ def download_imf_debt_data():
     )
 
     print(
-        f"Subject Code: {subject_code_column}"
+        f"Subject / Series Code: "
+        f"{subject_code_column}"
     )
 
     print(
-        f"Subject Descriptor: "
+        f"Indicator Description: "
         f"{subject_descriptor_column}"
     )
 
@@ -528,39 +820,24 @@ def download_imf_debt_data():
     )
 
     # --------------------------------------------------
-    # Find General Government Gross Debt
+    # Find debt rows
     # --------------------------------------------------
 
-    debt = data[
-        data[subject_code_column]
-        .astype(str)
-        .str.strip()
-        == IMF_DEBT_INDICATOR
-    ].copy()
-
-    # Fallback:
-    # Search by indicator description if
-    # SERIES_CODE / WEO Subject Code is not
-    # populated as expected.
-    if debt.empty:
-
-        debt = data[
-            data[subject_descriptor_column]
-            .astype(str)
-            .str.contains(
-                "general government gross debt",
-                case=False,
-                na=False,
-            )
-        ].copy()
+    debt = find_imf_debt_rows(
+        data,
+        subject_code_column,
+        subject_descriptor_column,
+    )
 
     if debt.empty:
 
         raise ValueError(
             "Could not find General Government "
             "Gross Debt in IMF WEO dataset.\n\n"
-            "Expected indicator code: "
-            f"{IMF_DEBT_INDICATOR}"
+            f"Expected indicator code: "
+            f"{IMF_DEBT_INDICATOR}\n\n"
+            "The diagnostic output above shows "
+            "the available IMF indicator values."
         )
 
     print()
@@ -572,7 +849,7 @@ def download_imf_debt_data():
     records = []
 
     # --------------------------------------------------
-    # Process each country
+    # Process countries
     # --------------------------------------------------
 
     for country_code, country_name in (
@@ -582,8 +859,8 @@ def download_imf_debt_data():
         country_data = pd.DataFrame()
 
         # --------------------------------------------------
-        # Preferred method:
-        # ISO / COUNTRY.ID matching
+        # Preferred:
+        # ISO / COUNTRY.ID
         # --------------------------------------------------
 
         if iso_column is not None:
@@ -602,7 +879,7 @@ def download_imf_debt_data():
 
         # --------------------------------------------------
         # Fallback:
-        # Country name matching
+        # Country name
         # --------------------------------------------------
 
         if country_data.empty:
@@ -621,18 +898,14 @@ def download_imf_debt_data():
                 )
 
             country_names_normalized = [
-                str(name)
-                .strip()
-                .lower()
+                normalize_text(name)
                 for name
                 in possible_country_names
             ]
 
             country_data = debt[
                 debt[country_column]
-                .astype(str)
-                .str.strip()
-                .str.lower()
+                .apply(normalize_text)
                 .isin(
                     country_names_normalized
                 )
@@ -654,8 +927,8 @@ def download_imf_debt_data():
 
             print()
             print(
-                "Warning: multiple IMF rows found "
-                f"for {country_name} "
+                "Warning: multiple IMF debt rows "
+                f"found for {country_name} "
                 f"({country_code})."
             )
 
@@ -666,7 +939,7 @@ def download_imf_debt_data():
         row = country_data.iloc[0]
 
         # --------------------------------------------------
-        # Extract requested years
+        # Extract years
         # --------------------------------------------------
 
         for year in range(
@@ -684,16 +957,50 @@ def download_imf_debt_data():
                 raise ValueError(
                     "Year column not found "
                     f"in IMF WEO: {year}\n"
-                    f"Available columns include: "
-                    f"{list(data.columns[-25:])}"
+                    f"Available columns: "
+                    f"{list(data.columns[-30:])}"
                 )
 
             value = row[
                 year_column
             ]
 
+            # IMF can use strings such as
+            # "n/a" or blank values.
             if pd.isna(value):
+
                 value = None
+
+            elif isinstance(value, str):
+
+                cleaned_value = (
+                    value
+                    .strip()
+                    .lower()
+                )
+
+                if cleaned_value in {
+                    "",
+                    "n/a",
+                    "na",
+                    "nan",
+                    "--",
+                }:
+
+                    value = None
+
+                else:
+
+                    try:
+                        value = float(
+                            value.replace(
+                                ",",
+                                "",
+                            )
+                        )
+
+                    except ValueError:
+                        pass
 
             records.append(
                 {
@@ -705,6 +1012,107 @@ def download_imf_debt_data():
             )
 
     return records
+
+
+def validate_output(
+    data,
+):
+    """
+    Validate the final resilience dataset.
+    """
+
+    expected_countries = set(
+        COUNTRIES.values()
+    )
+
+    actual_countries = set(
+        data["country"]
+        .dropna()
+        .unique()
+    )
+
+    missing_countries = (
+        expected_countries
+        - actual_countries
+    )
+
+    if missing_countries:
+
+        raise ValueError(
+            "Missing countries in final dataset: "
+            f"{sorted(missing_countries)}"
+        )
+
+    expected_years = set(
+        range(
+            START_YEAR,
+            END_YEAR + 1,
+        )
+    )
+
+    actual_years = set(
+        data["year"]
+        .dropna()
+        .astype(int)
+        .unique()
+    )
+
+    missing_years = (
+        expected_years
+        - actual_years
+    )
+
+    if missing_years:
+
+        raise ValueError(
+            "Missing years in final dataset: "
+            f"{sorted(missing_years)}"
+        )
+
+    expected_indicators = set(
+        WORLD_BANK_INDICATORS
+        + [
+            IMF_DEBT_INDICATOR
+        ]
+    )
+
+    actual_indicators = set(
+        data["indicator"]
+        .dropna()
+        .unique()
+    )
+
+    missing_indicators = (
+        expected_indicators
+        - actual_indicators
+    )
+
+    if missing_indicators:
+
+        raise ValueError(
+            "Missing indicators in final dataset: "
+            f"{sorted(missing_indicators)}"
+        )
+
+    print()
+    print(
+        "Validation checks passed."
+    )
+
+    print(
+        f"Countries validated: "
+        f"{len(actual_countries)}"
+    )
+
+    print(
+        f"Years validated: "
+        f"{START_YEAR}-{END_YEAR}"
+    )
+
+    print(
+        f"Indicators validated: "
+        f"{len(actual_indicators)}"
+    )
 
 
 def main():
@@ -794,7 +1202,15 @@ def main():
     )
 
     # --------------------------------------------------
-    # Save output
+    # Validate
+    # --------------------------------------------------
+
+    validate_output(
+        data
+    )
+
+    # --------------------------------------------------
+    # Save
     # --------------------------------------------------
 
     OUTPUT_DIR.mkdir(
@@ -808,7 +1224,7 @@ def main():
     )
 
     # --------------------------------------------------
-    # Validation / reporting
+    # Final report
     # --------------------------------------------------
 
     print()
