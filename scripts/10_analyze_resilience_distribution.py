@@ -1,37 +1,33 @@
 """
-JAS Unified Economic Strength Index (JESI)
-Resilience Distribution Analysis — Version 1.0
+JESI Resilience Distribution Analysis
 
-Purpose
--------
-Analyze the empirical distributions of the JESI Resilience indicators
-before defining nonlinear scoring rules.
+Purpose:
+    Analyze the empirical distribution of the three resilience indicators
+    for Bangladesh, India, Viet Nam, Indonesia, and Malaysia over 2015-2024.
 
-Indicators
-----------
-1. FI.RES.TOTL.MO  -> FX Reserves / Import Cover
-2. GGXWDG_NGDP     -> General Government Gross Debt / GDP
-3. BN.CAB.XOKA.GD.ZS -> Current Account Balance / GDP
+This script does NOT calculate final JESI scores.
+It provides descriptive statistics and empirical reference zones that can
+later be used to calibrate nonlinear resilience scoring.
 
-Countries
----------
-BGD - Bangladesh
-IND - India
-VNM - Viet Nam
-IDN - Indonesia
-MYS - Malaysia
+Input:
+    data/raw/resilience_indicators_2015_2024.csv
 
-Period
-------
-2015–2024
+Expected input columns:
+    country
+    year
+    value
+    indicator
 
-This script DOES NOT calculate final JESI scores.
-It produces descriptive statistics and candidate empirical
-reference information for later methodological calibration.
+Outputs:
+    data/processed/resilience_pooled_descriptive_statistics.csv
+    data/processed/resilience_country_statistics.csv
+    data/processed/resilience_pooled_percentiles.csv
+    data/processed/resilience_country_year_extremes.csv
+    data/processed/resilience_candidate_reference_zones.csv
+    data/processed/resilience_nonlinear_indicator_notes.csv
 """
 
 from pathlib import Path
-import sys
 
 import pandas as pd
 
@@ -40,688 +36,481 @@ import pandas as pd
 # Configuration
 # ---------------------------------------------------------------------
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-INPUT_FILE = (
-    PROJECT_ROOT
-    / "data"
-    / "raw"
-    / "resilience_indicators_2015_2024.csv"
+INPUT_FILE = BASE_DIR / "data" / "raw" / (
+    "resilience_indicators_2015_2024.csv"
 )
 
-OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
+OUTPUT_DIR = BASE_DIR / "data" / "processed"
 
-COUNTRIES = {
-    "BGD": "Bangladesh",
-    "IND": "India",
-    "VNM": "Viet Nam",
-    "IDN": "Indonesia",
-    "MYS": "Malaysia",
+EXPECTED_COUNTRIES = {
+    "Bangladesh",
+    "India",
+    "Viet Nam",
+    "Indonesia",
+    "Malaysia",
 }
 
-INDICATORS = {
+EXPECTED_YEARS = set(range(2015, 2025))
+
+EXPECTED_INDICATORS = {
+    "FI.RES.TOTL.MO",
+    "GGXWDG_NGDP",
+    "BN.CAB.XOKA.GD.ZS",
+}
+
+INDICATOR_NAMES = {
     "FI.RES.TOTL.MO": "FX Reserves / Import Cover",
-    "GGXWDG_NGDP": "General Government Gross Debt / GDP",
+    "GGXWDG_NGDP": "Government Gross Debt / GDP",
     "BN.CAB.XOKA.GD.ZS": "Current Account Balance / GDP",
 }
 
-EXPECTED_YEARS = list(range(2015, 2025))
-
 
 # ---------------------------------------------------------------------
-# Utility functions
+# Helper functions
 # ---------------------------------------------------------------------
 
-def fail(message: str) -> None:
-    """Print an error message and stop execution."""
-    print(f"ERROR: {message}")
-    sys.exit(1)
+def validate_input(df):
+    """Validate the structure and coverage of the input dataset."""
 
-
-def load_data() -> pd.DataFrame:
-    """Load and validate the resilience dataset."""
-    print("=" * 72)
-    print("JESI RESILIENCE DISTRIBUTION ANALYSIS")
-    print("=" * 72)
-
-    print("\nInput file:")
-    print(INPUT_FILE)
-
-    if not INPUT_FILE.exists():
-        fail(f"Input file not found: {INPUT_FILE}")
-
-    try:
-        df = pd.read_csv(INPUT_FILE)
-    except Exception as exc:
-        fail(f"Could not read CSV file: {exc}")
-
-    print(f"\nLoaded rows: {len(df)}")
-    print(f"Columns: {list(df.columns)}")
-
-    required_columns = {"country_code", "year", "indicator", "value"}
+    required_columns = {
+        "country",
+        "year",
+        "value",
+        "indicator",
+    }
 
     missing_columns = required_columns - set(df.columns)
 
     if missing_columns:
-        fail(
-            "Missing required columns: "
-            + ", ".join(sorted(missing_columns))
+        raise ValueError(
+            f"Missing required columns: "
+            f"{', '.join(sorted(missing_columns))}"
         )
 
-    # Standardize data types.
-    df["country_code"] = df["country_code"].astype(str).str.strip().str.upper()
-
-    df["year"] = pd.to_numeric(
-        df["year"],
-        errors="coerce"
-    )
-
-    df["indicator"] = (
-        df["indicator"]
-        .astype(str)
-        .str.strip()
-    )
-
-    df["value"] = pd.to_numeric(
-        df["value"],
-        errors="coerce"
-    )
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
 
     if df["year"].isna().any():
-        fail("Found invalid or missing year values.")
+        raise ValueError("Found invalid year values.")
 
     if df["value"].isna().any():
-        fail("Found missing or non-numeric indicator values.")
+        raise ValueError("Found missing or non-numeric indicator values.")
 
     df["year"] = df["year"].astype(int)
+
+    countries = set(df["country"].unique())
+    years = set(df["year"].unique())
+    indicators = set(df["indicator"].unique())
+
+    unexpected_countries = countries - EXPECTED_COUNTRIES
+    unexpected_years = years - EXPECTED_YEARS
+    unexpected_indicators = indicators - EXPECTED_INDICATORS
+
+    if unexpected_countries:
+        raise ValueError(
+            f"Unexpected countries found: {sorted(unexpected_countries)}"
+        )
+
+    if unexpected_years:
+        raise ValueError(
+            f"Unexpected years found: {sorted(unexpected_years)}"
+        )
+
+    if unexpected_indicators:
+        raise ValueError(
+            f"Unexpected indicators found: {sorted(unexpected_indicators)}"
+        )
+
+    expected_rows = (
+        len(EXPECTED_COUNTRIES)
+        * len(EXPECTED_YEARS)
+        * len(EXPECTED_INDICATORS)
+    )
+
+    if len(df) != expected_rows:
+        raise ValueError(
+            f"Unexpected row count: {len(df)}. "
+            f"Expected {expected_rows}."
+        )
+
+    duplicates = df.duplicated(
+        subset=["country", "year", "indicator"]
+    )
+
+    if duplicates.any():
+        raise ValueError(
+            "Duplicate country-year-indicator records found."
+        )
 
     return df
 
 
-def validate_dataset(df: pd.DataFrame) -> None:
-    """Validate expected countries, years and indicators."""
-
-    print("\n" + "-" * 72)
-    print("DATASET VALIDATION")
-    print("-" * 72)
-
-    expected_country_codes = set(COUNTRIES.keys())
-    expected_indicators = set(INDICATORS.keys())
-    expected_years = set(EXPECTED_YEARS)
-
-    actual_country_codes = set(df["country_code"].unique())
-    actual_indicators = set(df["indicator"].unique())
-    actual_years = set(df["year"].unique())
-
-    unexpected_countries = actual_country_codes - expected_country_codes
-    missing_countries = expected_country_codes - actual_country_codes
-
-    unexpected_indicators = actual_indicators - expected_indicators
-    missing_indicators = expected_indicators - actual_indicators
-
-    unexpected_years = actual_years - expected_years
-    missing_years = expected_years - actual_years
-
-    if unexpected_countries:
-        fail(
-            "Unexpected country codes found: "
-            + ", ".join(sorted(unexpected_countries))
-        )
-
-    if missing_countries:
-        fail(
-            "Missing country codes: "
-            + ", ".join(sorted(missing_countries))
-        )
-
-    if unexpected_indicators:
-        fail(
-            "Unexpected indicators found: "
-            + ", ".join(sorted(unexpected_indicators))
-        )
-
-    if missing_indicators:
-        fail(
-            "Missing indicators: "
-            + ", ".join(sorted(missing_indicators))
-        )
-
-    if unexpected_years:
-        fail(
-            "Unexpected years found: "
-            + ", ".join(map(str, sorted(unexpected_years)))
-        )
-
-    if missing_years:
-        fail(
-            "Missing years: "
-            + ", ".join(map(str, sorted(missing_years)))
-        )
-
-    # Check duplicate country-year-indicator observations.
-    duplicate_mask = df.duplicated(
-        subset=["country_code", "year", "indicator"],
-        keep=False,
-    )
-
-    if duplicate_mask.any():
-        duplicates = df.loc[
-            duplicate_mask,
-            ["country_code", "year", "indicator"]
-        ].drop_duplicates()
-
-        print("\nDuplicate records detected:")
-        print(duplicates.to_string(index=False))
-
-        fail("Duplicate country-year-indicator records found.")
-
-    expected_rows = (
-        len(COUNTRIES)
-        * len(EXPECTED_YEARS)
-        * len(INDICATORS)
-    )
-
-    if len(df) != expected_rows:
-        fail(
-            f"Unexpected number of rows. "
-            f"Expected {expected_rows}, found {len(df)}."
-        )
-
-    print("Countries: OK")
-    print("Indicators: OK")
-    print("Years: OK")
-    print("Duplicate check: OK")
-    print(f"Expected rows: {expected_rows}")
-    print(f"Actual rows:   {len(df)}")
-
-
-def percentile_table(series: pd.Series) -> pd.DataFrame:
-    """Return selected empirical percentiles."""
-    percentiles = [0, 1, 5, 10, 25, 50, 75, 90, 95, 99, 100]
-
-    values = series.quantile(
-        [p / 100 for p in percentiles]
-    )
-
-    result = pd.DataFrame(
-        {
-            "percentile": percentiles,
-            "value": values.values,
-        }
-    )
-
-    return result
-
-
-def describe_indicator(df: pd.DataFrame, indicator: str) -> pd.DataFrame:
-    """Create pooled descriptive statistics for one indicator."""
-
-    subset = df.loc[
-        df["indicator"] == indicator,
-        "value"
-    ]
-
-    description = {
-        "indicator": indicator,
-        "indicator_name": INDICATORS[indicator],
-        "n": int(subset.count()),
-        "min": subset.min(),
-        "p01": subset.quantile(0.01),
-        "p05": subset.quantile(0.05),
-        "p10": subset.quantile(0.10),
-        "p25": subset.quantile(0.25),
-        "median": subset.median(),
-        "p75": subset.quantile(0.75),
-        "p90": subset.quantile(0.90),
-        "p95": subset.quantile(0.95),
-        "p99": subset.quantile(0.99),
-        "max": subset.max(),
-        "mean": subset.mean(),
-        "std": subset.std(),
-    }
-
-    return pd.DataFrame([description])
-
-
-def country_statistics(
-    df: pd.DataFrame,
-    indicator: str,
-) -> pd.DataFrame:
-    """Create country-level descriptive statistics."""
-
-    subset = df.loc[
-        df["indicator"] == indicator
-    ].copy()
-
-    result = (
-        subset.groupby("country_code")["value"]
-        .agg(
-            n="count",
-            min="min",
-            mean="mean",
-            median="median",
-            max="max",
-            std="std",
-        )
-        .reset_index()
-    )
-
-    result["country"] = result["country_code"].map(COUNTRIES)
-
-    result = result[
-        [
-            "country_code",
-            "country",
-            "n",
-            "min",
-            "mean",
-            "median",
-            "max",
-            "std",
-        ]
-    ]
-
-    return result.sort_values("country_code")
-
-
-def pooled_percentiles(
-    df: pd.DataFrame,
-    indicator: str,
-) -> pd.DataFrame:
-    """Create pooled percentile table."""
-
-    subset = df.loc[
-        df["indicator"] == indicator,
-        "value"
-    ]
-
-    result = percentile_table(subset)
-
-    result.insert(
-        0,
-        "indicator",
-        indicator,
-    )
-
-    result.insert(
-        1,
-        "indicator_name",
-        INDICATORS[indicator],
-    )
-
-    return result
-
-
-def country_year_extremes(
-    df: pd.DataFrame,
-    indicator: str,
-) -> pd.DataFrame:
-    """
-    Identify minimum and maximum observations by country,
-    including their corresponding years.
-    """
-
-    subset = df.loc[
-        df["indicator"] == indicator
-    ].copy()
+def pooled_descriptive_statistics(df):
+    """Calculate pooled descriptive statistics by indicator."""
 
     rows = []
 
-    for country_code, group in subset.groupby("country_code"):
-
-        min_row = group.loc[group["value"].idxmin()]
-        max_row = group.loc[group["value"].idxmax()]
+    for indicator in sorted(EXPECTED_INDICATORS):
+        subset = df[df["indicator"] == indicator]["value"]
 
         rows.append(
             {
-                "country_code": country_code,
-                "country": COUNTRIES[country_code],
-                "min_value": min_row["value"],
-                "min_year": int(min_row["year"]),
-                "max_value": max_row["value"],
-                "max_year": int(max_row["year"]),
+                "indicator": indicator,
+                "indicator_name": INDICATOR_NAMES[indicator],
+                "count": int(subset.count()),
+                "mean": subset.mean(),
+                "std": subset.std(),
+                "min": subset.min(),
+                "p05": subset.quantile(0.05),
+                "p10": subset.quantile(0.10),
+                "p25": subset.quantile(0.25),
+                "median": subset.median(),
+                "p75": subset.quantile(0.75),
+                "p90": subset.quantile(0.90),
+                "p95": subset.quantile(0.95),
+                "max": subset.max(),
             }
         )
 
-    return pd.DataFrame(rows).sort_values("country_code")
+    return pd.DataFrame(rows)
 
 
-def reference_zone_candidates(
-    df: pd.DataFrame,
-    indicator: str,
-) -> pd.DataFrame:
-    """
-    Produce candidate empirical central ranges.
+def country_statistics(df):
+    """Calculate country-level statistics by indicator."""
 
-    These are descriptive candidates only.
-    They are NOT automatically adopted as final
-    methodological reference zones.
-    """
+    rows = []
 
-    subset = df.loc[
-        df["indicator"] == indicator,
-        "value"
+    for country in sorted(EXPECTED_COUNTRIES):
+        for indicator in sorted(EXPECTED_INDICATORS):
+
+            subset = df[
+                (df["country"] == country)
+                & (df["indicator"] == indicator)
+            ]["value"]
+
+            rows.append(
+                {
+                    "country": country,
+                    "indicator": indicator,
+                    "indicator_name": INDICATOR_NAMES[indicator],
+                    "count": int(subset.count()),
+                    "mean": subset.mean(),
+                    "std": subset.std(),
+                    "min": subset.min(),
+                    "median": subset.median(),
+                    "max": subset.max(),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def pooled_percentiles(df):
+    """Calculate pooled empirical percentiles."""
+
+    percentile_levels = [
+        0.01,
+        0.05,
+        0.10,
+        0.25,
+        0.50,
+        0.75,
+        0.90,
+        0.95,
+        0.99,
     ]
 
-    candidates = [
+    rows = []
+
+    for indicator in sorted(EXPECTED_INDICATORS):
+
+        subset = df[
+            df["indicator"] == indicator
+        ]["value"]
+
+        for percentile in percentile_levels:
+            rows.append(
+                {
+                    "indicator": indicator,
+                    "indicator_name": INDICATOR_NAMES[indicator],
+                    "percentile": percentile * 100,
+                    "value": subset.quantile(percentile),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def country_year_extremes(df):
+    """Identify minimum and maximum observations by indicator."""
+
+    rows = []
+
+    for indicator in sorted(EXPECTED_INDICATORS):
+
+        subset = df[df["indicator"] == indicator].copy()
+
+        min_row = subset.loc[subset["value"].idxmin()]
+        max_row = subset.loc[subset["value"].idxmax()]
+
+        rows.append(
+            {
+                "indicator": indicator,
+                "indicator_name": INDICATOR_NAMES[indicator],
+                "extreme_type": "minimum",
+                "country": min_row["country"],
+                "year": int(min_row["year"]),
+                "value": min_row["value"],
+            }
+        )
+
+        rows.append(
+            {
+                "indicator": indicator,
+                "indicator_name": INDICATOR_NAMES[indicator],
+                "extreme_type": "maximum",
+                "country": max_row["country"],
+                "year": int(max_row["year"]),
+                "value": max_row["value"],
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def candidate_reference_zones(df):
+    """
+    Produce descriptive candidate reference zones.
+
+    These are NOT final scoring thresholds.
+    They are empirical candidates for later methodological calibration.
+    """
+
+    rows = []
+
+    for indicator in [
+        "GGXWDG_NGDP",
+        "BN.CAB.XOKA.GD.ZS",
+    ]:
+
+        subset = df[
+            df["indicator"] == indicator
+        ]["value"]
+
+        p05 = subset.quantile(0.05)
+        p10 = subset.quantile(0.10)
+        p25 = subset.quantile(0.25)
+        p75 = subset.quantile(0.75)
+        p90 = subset.quantile(0.90)
+        p95 = subset.quantile(0.95)
+
+        zones = [
+            ("P05-P95", p05, p95),
+            ("P10-P90", p10, p90),
+            ("P25-P75", p25, p75),
+        ]
+
+        for zone_name, lower, upper in zones:
+
+            rows.append(
+                {
+                    "indicator": indicator,
+                    "indicator_name": INDICATOR_NAMES[indicator],
+                    "reference_zone": zone_name,
+                    "lower_bound": lower,
+                    "upper_bound": upper,
+                    "interpretation": (
+                        "Descriptive empirical candidate only; "
+                        "not a final scoring threshold."
+                    ),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def nonlinear_indicator_notes():
+    """Document conceptual treatment of nonlinear resilience indicators."""
+
+    rows = [
         {
-            "indicator": indicator,
-            "indicator_name": INDICATORS[indicator],
-            "candidate": "P10-P90",
-            "lower": subset.quantile(0.10),
-            "upper": subset.quantile(0.90),
-            "interpretation": "Broad central empirical range",
+            "indicator": "GGXWDG_NGDP",
+            "indicator_name": "Government Gross Debt / GDP",
+            "baseline_direction": "Nonlinear",
+            "proposed_treatment": "Target/penalty or reference-zone model",
+            "reason": (
+                "Lower debt is not automatically stronger. "
+                "Debt sustainability depends on growth, interest rates, "
+                "maturity, currency composition, and fiscal capacity."
+            ),
         },
         {
-            "indicator": indicator,
-            "indicator_name": INDICATORS[indicator],
-            "candidate": "P25-P75",
-            "lower": subset.quantile(0.25),
-            "upper": subset.quantile(0.75),
-            "interpretation": "Interquartile central range",
+            "indicator": "BN.CAB.XOKA.GD.ZS",
+            "indicator_name": "Current Account Balance / GDP",
+            "baseline_direction": "Target-optimal",
+            "proposed_treatment": "Reference-zone / distance-from-zone model",
+            "reason": (
+                "Both persistent large deficits and unusually large "
+                "surpluses may indicate structural imbalance."
+            ),
         },
         {
-            "indicator": indicator,
-            "indicator_name": INDICATORS[indicator],
-            "candidate": "P05-P95",
-            "lower": subset.quantile(0.05),
-            "upper": subset.quantile(0.95),
-            "interpretation": "Wide robust central range",
+            "indicator": "FI.RES.TOTL.MO",
+            "indicator_name": "FX Reserves / Import Cover",
+            "baseline_direction": "Higher is better",
+            "proposed_treatment": "Positive normalization baseline",
+            "reason": (
+                "Higher reserve coverage generally improves external "
+                "shock-absorption capacity, subject to robustness testing."
+            ),
         },
     ]
 
-    return pd.DataFrame(candidates)
-
-
-def print_section(title: str) -> None:
-    """Print a formatted section heading."""
-    print("\n" + "=" * 72)
-    print(title)
-    print("=" * 72)
-
-
-def save_output(
-    dataframe: pd.DataFrame,
-    filename: str,
-) -> None:
-    """Save dataframe to processed-data directory."""
-
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    output_path = OUTPUT_DIR / filename
-
-    dataframe.to_csv(
-        output_path,
-        index=False,
-    )
-
-    print(f"Saved: {output_path}")
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------
 # Main analysis
 # ---------------------------------------------------------------------
 
-def main() -> None:
+def main():
+    print("=" * 72)
+    print("JESI RESILIENCE DISTRIBUTION ANALYSIS")
+    print("=" * 72)
+    print()
 
-    df = load_data()
+    print("Input file:")
+    print(INPUT_FILE)
+    print()
 
-    validate_dataset(df)
+    if not INPUT_FILE.exists():
+        print(f"ERROR: Input file not found: {INPUT_FILE}")
+        return 1
 
-    # -------------------------------------------------------------
-    # 1. Pooled descriptive statistics
-    # -------------------------------------------------------------
+    df = pd.read_csv(INPUT_FILE)
 
-    pooled_descriptive = pd.concat(
-        [
-            describe_indicator(df, indicator)
-            for indicator in INDICATORS
-        ],
-        ignore_index=True,
-    )
+    print(f"Loaded rows: {len(df)}")
+    print(f"Columns: {list(df.columns)}")
+    print()
 
-    print_section("POOLED DESCRIPTIVE STATISTICS")
+    try:
+        df = validate_input(df)
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 1
 
-    print(
-        pooled_descriptive.to_string(
-            index=False,
-            float_format=lambda x: f"{x:.6f}",
-        )
-    )
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    save_output(
-        pooled_descriptive,
-        "resilience_pooled_descriptive_statistics.csv",
-    )
+    print("Input validation: PASSED")
+    print()
 
-    # -------------------------------------------------------------
-    # 2. Country-level statistics
-    # -------------------------------------------------------------
-
-    country_stats_all = []
-
-    for indicator in INDICATORS:
-
-        stats = country_statistics(
-            df,
-            indicator,
-        )
-
-        country_stats_all.append(stats)
-
-    country_stats_combined = pd.concat(
-        country_stats_all,
-        ignore_index=True,
-    )
-
-    print_section("COUNTRY-LEVEL DESCRIPTIVE STATISTICS")
-
-    print(
-        country_stats_combined.to_string(
-            index=False,
-            float_format=lambda x: f"{x:.6f}",
-        )
-    )
-
-    save_output(
-        country_stats_combined,
-        "resilience_country_statistics.csv",
-    )
-
-    # -------------------------------------------------------------
-    # 3. Pooled percentiles
-    # -------------------------------------------------------------
-
-    percentile_tables = []
-
-    for indicator in INDICATORS:
-
-        table = pooled_percentiles(
-            df,
-            indicator,
-        )
-
-        percentile_tables.append(table)
-
-    percentiles_combined = pd.concat(
-        percentile_tables,
-        ignore_index=True,
-    )
-
-    print_section("POOLED EMPIRICAL PERCENTILES")
-
-    print(
-        percentiles_combined.to_string(
-            index=False,
-            float_format=lambda x: f"{x:.6f}",
-        )
-    )
-
-    save_output(
-        percentiles_combined,
-        "resilience_pooled_percentiles.csv",
-    )
-
-    # -------------------------------------------------------------
-    # 4. Country/year extremes
-    # -------------------------------------------------------------
-
-    extremes_tables = []
-
-    for indicator in INDICATORS:
-
-        table = country_year_extremes(
-            df,
-            indicator,
-        )
-
-        table.insert(
-            0,
-            "indicator",
-            indicator,
-        )
-
-        table.insert(
-            1,
-            "indicator_name",
-            INDICATORS[indicator],
-        )
-
-        extremes_tables.append(table)
-
-    extremes_combined = pd.concat(
-        extremes_tables,
-        ignore_index=True,
-    )
-
-    print_section("COUNTRY/YEAR EXTREMES")
-
-    print(
-        extremes_combined.to_string(
-            index=False,
-            float_format=lambda x: f"{x:.6f}",
-        )
-    )
-
-    save_output(
-        extremes_combined,
-        "resilience_country_year_extremes.csv",
-    )
-
-    # -------------------------------------------------------------
-    # 5. Candidate reference zones
-    # -------------------------------------------------------------
-
-    zone_tables = []
-
-    # Focus especially on nonlinear indicators.
-    nonlinear_indicators = [
-        "GGXWDG_NGDP",
-        "BN.CAB.XOKA.GD.ZS",
-    ]
-
-    for indicator in nonlinear_indicators:
-
-        table = reference_zone_candidates(
-            df,
-            indicator,
-        )
-
-        zone_tables.append(table)
-
-    zones_combined = pd.concat(
-        zone_tables,
-        ignore_index=True,
-    )
-
-    print_section("CANDIDATE EMPIRICAL REFERENCE ZONES")
-
-    print(
-        zones_combined.to_string(
-            index=False,
-            float_format=lambda x: f"{x:.6f}",
-        )
-    )
-
-    print(
-        "\nNOTE:"
-        "\nThese ranges are descriptive candidates only."
-        "\nThey are NOT final JESI scoring thresholds."
-        "\nFinal reference zones require methodological justification "
-        "and robustness testing."
-    )
-
-    save_output(
-        zones_combined,
-        "resilience_candidate_reference_zones.csv",
-    )
-
-    # -------------------------------------------------------------
-    # 6. Indicator-specific interpretation summary
-    # -------------------------------------------------------------
-
-    interpretation = pd.DataFrame(
-        [
-            {
-                "indicator": "GGXWDG_NGDP",
-                "indicator_name": INDICATORS["GGXWDG_NGDP"],
-                "baseline_concept":
-                    "Nonlinear / target or penalty based",
-                "reason":
-                    "Debt sustainability depends on broader "
-                    "macroeconomic and fiscal conditions.",
-            },
-            {
-                "indicator": "BN.CAB.XOKA.GD.ZS",
-                "indicator_name":
-                    INDICATORS["BN.CAB.XOKA.GD.ZS"],
-                "baseline_concept":
-                    "Target-zone / distance based",
-                "reason":
-                    "Persistent extreme deficits or surpluses "
-                    "may indicate structural imbalance.",
-            },
-        ]
-    )
-
-    print_section("NONLINEAR INDICATOR INTERPRETATION")
-
-    print(
-        interpretation.to_string(
-            index=False,
-        )
-    )
-
-    save_output(
-        interpretation,
-        "resilience_nonlinear_indicator_notes.csv",
-    )
-
-    # -------------------------------------------------------------
-    # Final status
-    # -------------------------------------------------------------
-
-    print("\n" + "=" * 72)
-    print("RESILIENCE DISTRIBUTION ANALYSIS COMPLETED SUCCESSFULLY")
+    print("=" * 72)
+    print("POOLED DESCRIPTIVE STATISTICS")
     print("=" * 72)
 
-    print(f"Countries: {len(COUNTRIES)}")
-    print(f"Years: {EXPECTED_YEARS[0]}–{EXPECTED_YEARS[-1]}")
-    print(f"Indicators: {len(INDICATORS)}")
-    print(f"Observations analyzed: {len(df)}")
+    pooled_stats = pooled_descriptive_statistics(df)
+    print(pooled_stats.to_string(index=False))
+    print()
 
-    print("\nOutput directory:")
-    print(OUTPUT_DIR)
+    print("=" * 72)
+    print("COUNTRY-LEVEL STATISTICS")
+    print("=" * 72)
 
-    print("\nNo final normalization or JESI score was calculated.")
-    print(
-        "The outputs are intended for empirical calibration of "
-        "nonlinear resilience scoring."
+    country_stats = country_statistics(df)
+    print(country_stats.to_string(index=False))
+    print()
+
+    print("=" * 72)
+    print("POOLED EMPIRICAL PERCENTILES")
+    print("=" * 72)
+
+    percentiles = pooled_percentiles(df)
+    print(percentiles.to_string(index=False))
+    print()
+
+    print("=" * 72)
+    print("COUNTRY-YEAR EXTREMES")
+    print("=" * 72)
+
+    extremes = country_year_extremes(df)
+    print(extremes.to_string(index=False))
+    print()
+
+    print("=" * 72)
+    print("CANDIDATE EMPIRICAL REFERENCE ZONES")
+    print("=" * 72)
+
+    zones = candidate_reference_zones(df)
+    print(zones.to_string(index=False))
+    print()
+
+    print("=" * 72)
+    print("NONLINEAR INDICATOR TREATMENT NOTES")
+    print("=" * 72)
+
+    notes = nonlinear_indicator_notes()
+    print(notes.to_string(index=False))
+    print()
+
+    # -----------------------------------------------------------------
+    # Save outputs
+    # -----------------------------------------------------------------
+
+    pooled_stats.to_csv(
+        OUTPUT_DIR / "resilience_pooled_descriptive_statistics.csv",
+        index=False,
     )
+
+    country_stats.to_csv(
+        OUTPUT_DIR / "resilience_country_statistics.csv",
+        index=False,
+    )
+
+    percentiles.to_csv(
+        OUTPUT_DIR / "resilience_pooled_percentiles.csv",
+        index=False,
+    )
+
+    extremes.to_csv(
+        OUTPUT_DIR / "resilience_country_year_extremes.csv",
+        index=False,
+    )
+
+    zones.to_csv(
+        OUTPUT_DIR / "resilience_candidate_reference_zones.csv",
+        index=False,
+    )
+
+    notes.to_csv(
+        OUTPUT_DIR / "resilience_nonlinear_indicator_notes.csv",
+        index=False,
+    )
+
+    print("=" * 72)
+    print("OUTPUT FILES")
+    print("=" * 72)
+
+    output_files = [
+        "resilience_pooled_descriptive_statistics.csv",
+        "resilience_country_statistics.csv",
+        "resilience_pooled_percentiles.csv",
+        "resilience_country_year_extremes.csv",
+        "resilience_candidate_reference_zones.csv",
+        "resilience_nonlinear_indicator_notes.csv",
+    ]
+
+    for filename in output_files:
+        print(f"Saved: data/processed/{filename}")
+
+    print()
+    print("=" * 72)
+    print("JESI resilience distribution analysis completed successfully.")
+    print("=" * 72)
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
