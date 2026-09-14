@@ -23,7 +23,7 @@ from src.data_cleaning import (
 COUNTRIES = [
     "Bangladesh",
     "India",
-    "Vietnam",
+    "Viet Nam",
     "Indonesia",
     "Malaysia",
 ]
