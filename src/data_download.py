@@ -165,6 +165,35 @@ def download_country_indicators(
     pandas.DataFrame
         Combined country-level indicator data.
     """
+
+    frames = []
+
+    for country in countries:
+        data = download_multiple_indicators(
+            country=country,
+            indicators=indicators,
+            start_year=start_year,
+            end_year=end_year,
+        )
+
+        frames.append(data)
+
+    if not frames:
+        return pd.DataFrame(
+            columns=[
+                "country",
+                "year",
+                "value",
+                "indicator",
+            ]
+        )
+
+    return pd.concat(
+        frames,
+        ignore_index=True,
+    )
+
+
 def download_productivity_data(
     countries,
     start_year,
@@ -225,29 +254,3 @@ def calculate_tfp_growth(
     )
 
     return dataframe
-    frames = []
-
-    for country in countries:
-        data = download_multiple_indicators(
-            country=country,
-            indicators=indicators,
-            start_year=start_year,
-            end_year=end_year,
-        )
-
-        frames.append(data)
-
-    if not frames:
-        return pd.DataFrame(
-            columns=[
-                "country",
-                "year",
-                "value",
-                "indicator",
-            ]
-        )
-
-    return pd.concat(
-        frames,
-        ignore_index=True,
-    )
