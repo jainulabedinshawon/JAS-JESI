@@ -102,42 +102,138 @@ def download_world_bank_indicator(
     return records
 
 
-def find_imf_header_row(file_path):
+def find_imf_table():
     """
-    Find the actual header row in the IMF WEO Excel file.
+    Locate the WEO country table inside the IMF workbook.
 
-    The April 2026 WEO workbook may contain title/
-    metadata rows before the actual table header.
+    The IMF workbook can contain several sheets and
+    metadata rows before the actual country table.
+
+    This function searches all sheets and several
+    possible header patterns.
     """
 
-    preview = pd.read_excel(
-        file_path,
-        sheet_name=0,
-        header=None,
-        nrows=30,
+    print()
+    print(
+        "Inspecting IMF workbook sheets..."
     )
 
-    for row_number in range(
-        len(preview)
-    ):
+    workbook = pd.ExcelFile(
+        IMF_FILE
+    )
 
-        row = preview.iloc[
-            row_number
-        ].astype(str)
+    print(
+        "Sheets found:"
+    )
 
-        row_text = " | ".join(
-            row.tolist()
-        ).lower()
+    for sheet in workbook.sheet_names:
+        print(
+            f"  - {sheet}"
+        )
 
-        if (
-            "subject descriptor" in row_text
-            and "country" in row_text
+    header_candidates = [
+        (
+            "country",
+            "subject descriptor",
+        ),
+        (
+            "country",
+            "weo subject code",
+        ),
+        (
+            "country",
+            "subject code",
+        ),
+    ]
+
+    for sheet_name in workbook.sheet_names:
+
+        print()
+        print(
+            f"Inspecting sheet: {sheet_name}"
+        )
+
+        preview = pd.read_excel(
+            IMF_FILE,
+            sheet_name=sheet_name,
+            header=None,
+            nrows=60,
+        )
+
+        for row_number in range(
+            len(preview)
         ):
-            return row_number
+
+            values = (
+                preview
+                .iloc[row_number]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .tolist()
+            )
+
+            for first, second in (
+                header_candidates
+            ):
+
+                if (
+                    first in values
+                    and second in values
+                ):
+
+                    print(
+                        "Header detected:"
+                    )
+
+                    print(
+                        f"  Sheet: {sheet_name}"
+                    )
+
+                    print(
+                        f"  Row: {row_number}"
+                    )
+
+                    return (
+                        sheet_name,
+                        row_number,
+                    )
+
+    print()
+    print(
+        "Could not automatically detect "
+        "the IMF table header."
+    )
+
+    print()
+    print(
+        "First rows from each sheet:"
+    )
+
+    for sheet_name in workbook.sheet_names:
+
+        preview = pd.read_excel(
+            IMF_FILE,
+            sheet_name=sheet_name,
+            header=None,
+            nrows=12,
+        )
+
+        print()
+        print(
+            f"--- {sheet_name} ---"
+        )
+
+        print(
+            preview.to_string(
+                index=False,
+                header=False,
+            )
+        )
 
     raise ValueError(
         "Could not locate the IMF WEO "
-        "table header row."
+        "country table."
     )
 
 
@@ -149,16 +245,21 @@ def find_column(
     Find a column using several possible names.
     """
 
-    normalized = {
-        str(column)
-        .strip()
-        .lower()
-        .replace(
-            "\n",
-            " ",
-        ): column
-        for column in dataframe.columns
-    }
+    normalized = {}
+
+    for column in dataframe.columns:
+
+        key = (
+            str(column)
+            .strip()
+            .lower()
+            .replace(
+                "\n",
+                " ",
+            )
+        )
+
+        normalized[key] = column
 
     for name in possible_names:
 
@@ -200,18 +301,13 @@ def download_imf_debt_data():
         f"IMF file: {IMF_FILE}"
     )
 
-    header_row = find_imf_header_row(
-        IMF_FILE
-    )
-
-    print(
-        f"Detected IMF header row: "
-        f"{header_row}"
+    sheet_name, header_row = (
+        find_imf_table()
     )
 
     data = pd.read_excel(
         IMF_FILE,
-        sheet_name=0,
+        sheet_name=sheet_name,
         header=header_row,
     )
 
@@ -220,16 +316,26 @@ def download_imf_debt_data():
         for column in data.columns
     ]
 
+    print()
+    print(
+        f"IMF sheet: {sheet_name}"
+    )
+
+    print(
+        f"IMF header row: {header_row}"
+    )
+
     print(
         f"IMF dataset rows: {len(data)}"
     )
 
+    print()
     print(
-        "Detected columns:"
+        "Detected IMF columns:"
     )
 
     print(
-        list(data.columns[:12])
+        list(data.columns[:20])
     )
 
     country_column = find_column(
@@ -270,8 +376,8 @@ def download_imf_debt_data():
     ):
 
         raise ValueError(
-            "Could not identify required IMF WEO "
-            "columns. Detected columns: "
+            "Could not identify required IMF "
+            "WEO columns. Detected columns: "
             f"{list(data.columns)}"
         )
 
@@ -347,17 +453,24 @@ def download_imf_debt_data():
 
         else:
 
+            possible_country_names = [
+                country_name
+            ]
+
+            if country_code == "VNM":
+                possible_country_names.extend(
+                    [
+                        "Vietnam",
+                        "Viet Nam",
+                    ]
+                )
+
             country_data = debt[
                 debt[country_column]
                 .astype(str)
                 .str.strip()
                 .isin(
-                    [
-                        country_name,
-                        "Vietnam"
-                        if country_code == "VNM"
-                        else country_name,
-                    ]
+                    possible_country_names
                 )
             ]
 
