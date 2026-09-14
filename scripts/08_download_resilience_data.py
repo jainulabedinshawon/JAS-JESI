@@ -106,11 +106,21 @@ def find_imf_table():
     """
     Locate the WEO country table inside the IMF workbook.
 
-    The IMF workbook can contain several sheets and
-    metadata rows before the actual country table.
+    Supports both:
 
-    This function searches all sheets and several
-    possible header patterns.
+    1. Legacy IMF WEO schema
+       - Country
+       - WEO Subject Code
+       - Subject Descriptor
+
+    2. New IMF WEO April 2026 schema
+       - COUNTRY
+       - SERIES_CODE
+       - COUNTRY.ID
+       - INDICATOR
+
+    The workbook can contain several sheets and
+    metadata rows before the actual country table.
     """
 
     print()
@@ -131,7 +141,20 @@ def find_imf_table():
             f"  - {sheet}"
         )
 
+    # New IMF WEO April 2026 schema
+    # is checked first because it is the
+    # current schema.
     header_candidates = [
+        (
+            "country.id",
+            "series_code",
+        ),
+        (
+            "country",
+            "series_code",
+        ),
+
+        # Legacy WEO schemas
         (
             "country",
             "subject descriptor",
@@ -157,7 +180,7 @@ def find_imf_table():
             IMF_FILE,
             sheet_name=sheet_name,
             header=None,
-            nrows=60,
+            nrows=100,
         )
 
         for row_number in range(
@@ -182,8 +205,9 @@ def find_imf_table():
                     and second in values
                 ):
 
+                    print()
                     print(
-                        "Header detected:"
+                        "IMF country table header detected:"
                     )
 
                     print(
@@ -194,6 +218,11 @@ def find_imf_table():
                         f"  Row: {row_number}"
                     )
 
+                    print(
+                        f"  Schema fields: "
+                        f"{first} + {second}"
+                    )
+
                     return (
                         sheet_name,
                         row_number,
@@ -202,7 +231,7 @@ def find_imf_table():
     print()
     print(
         "Could not automatically detect "
-        "the IMF table header."
+        "the IMF country table header."
     )
 
     print()
@@ -243,6 +272,9 @@ def find_column(
 ):
     """
     Find a column using several possible names.
+
+    Matching is case-insensitive and ignores
+    newline differences.
     """
 
     normalized = {}
@@ -279,10 +311,74 @@ def find_column(
     return None
 
 
+def find_year_column(
+    dataframe,
+    year,
+):
+    """
+    Find an IMF year column.
+
+    IMF Excel files can expose year headers as:
+
+        2015
+        2015.0
+        2015.00
+        2015.000
+
+    This function supports all of these formats.
+    """
+
+    candidates = {
+        str(year),
+        f"{year}.0",
+        f"{year}.00",
+        f"{year}.000",
+    }
+
+    for column in dataframe.columns:
+
+        if str(column).strip() in candidates:
+            return column
+
+    return None
+
+
+def normalize_country_id(
+    value,
+):
+    """
+    Normalize country IDs such as:
+
+        BGD
+        bgd
+        BGD.0
+
+    into a clean three-letter code.
+    """
+
+    if pd.isna(value):
+        return ""
+
+    text = (
+        str(value)
+        .strip()
+        .upper()
+    )
+
+    # Handle Excel-style numeric-looking
+    # values defensively.
+    if text.endswith(".0"):
+        text = text[:-2]
+
+    return text
+
+
 def download_imf_debt_data():
     """
     Read General Government Gross Debt (% GDP)
     from the IMF April 2026 WEO Excel dataset.
+
+    Supports both legacy and new IMF WEO schemas.
     """
 
     print()
@@ -335,39 +431,66 @@ def download_imf_debt_data():
     )
 
     print(
-        list(data.columns[:20])
+        list(data.columns[:25])
     )
+
+    # --------------------------------------------------
+    # Detect country column
+    # --------------------------------------------------
 
     country_column = find_column(
         data,
         [
             "Country",
             "Country Name",
+            "COUNTRY",
         ],
     )
+
+    # --------------------------------------------------
+    # Detect IMF indicator / series code
+    # --------------------------------------------------
 
     subject_code_column = find_column(
         data,
         [
             "WEO Subject Code",
             "Subject Code",
+            "SERIES_CODE",
+            "Series Code",
         ],
     )
+
+    # --------------------------------------------------
+    # Detect indicator description
+    # --------------------------------------------------
 
     subject_descriptor_column = find_column(
         data,
         [
             "Subject Descriptor",
+            "INDICATOR",
+            "Indicator",
         ],
     )
+
+    # --------------------------------------------------
+    # Detect ISO / country ID
+    # --------------------------------------------------
 
     iso_column = find_column(
         data,
         [
             "ISO",
             "ISO Code",
+            "COUNTRY.ID",
+            "Country ID",
         ],
     )
+
+    # --------------------------------------------------
+    # Validate required columns
+    # --------------------------------------------------
 
     if (
         country_column is None
@@ -377,7 +500,8 @@ def download_imf_debt_data():
 
         raise ValueError(
             "Could not identify required IMF "
-            "WEO columns. Detected columns: "
+            "WEO columns.\n\n"
+            "Detected columns:\n"
             f"{list(data.columns)}"
         )
 
@@ -400,8 +524,12 @@ def download_imf_debt_data():
     )
 
     print(
-        f"ISO: {iso_column}"
+        f"ISO / Country ID: {iso_column}"
     )
+
+    # --------------------------------------------------
+    # Find General Government Gross Debt
+    # --------------------------------------------------
 
     debt = data[
         data[subject_code_column]
@@ -410,6 +538,10 @@ def download_imf_debt_data():
         == IMF_DEBT_INDICATOR
     ].copy()
 
+    # Fallback:
+    # Search by indicator description if
+    # SERIES_CODE / WEO Subject Code is not
+    # populated as expected.
     if debt.empty:
 
         debt = data[
@@ -426,7 +558,9 @@ def download_imf_debt_data():
 
         raise ValueError(
             "Could not find General Government "
-            "Gross Debt in IMF WEO dataset."
+            "Gross Debt in IMF WEO dataset.\n\n"
+            "Expected indicator code: "
+            f"{IMF_DEBT_INDICATOR}"
         )
 
     print()
@@ -437,27 +571,48 @@ def download_imf_debt_data():
 
     records = []
 
+    # --------------------------------------------------
+    # Process each country
+    # --------------------------------------------------
+
     for country_code, country_name in (
         COUNTRIES.items()
     ):
 
+        country_data = pd.DataFrame()
+
+        # --------------------------------------------------
+        # Preferred method:
+        # ISO / COUNTRY.ID matching
+        # --------------------------------------------------
+
         if iso_column is not None:
 
-            country_data = debt[
+            normalized_ids = (
                 debt[iso_column]
-                .astype(str)
-                .str.strip()
-                .str.upper()
-                == country_code
-            ]
+                .apply(
+                    normalize_country_id
+                )
+            )
 
-        else:
+            country_data = debt[
+                normalized_ids
+                == country_code
+            ].copy()
+
+        # --------------------------------------------------
+        # Fallback:
+        # Country name matching
+        # --------------------------------------------------
+
+        if country_data.empty:
 
             possible_country_names = [
                 country_name
             ]
 
             if country_code == "VNM":
+
                 possible_country_names.extend(
                     [
                         "Vietnam",
@@ -465,14 +620,27 @@ def download_imf_debt_data():
                     ]
                 )
 
+            country_names_normalized = [
+                str(name)
+                .strip()
+                .lower()
+                for name
+                in possible_country_names
+            ]
+
             country_data = debt[
                 debt[country_column]
                 .astype(str)
                 .str.strip()
+                .str.lower()
                 .isin(
-                    possible_country_names
+                    country_names_normalized
                 )
-            ]
+            ].copy()
+
+        # --------------------------------------------------
+        # Validate country
+        # --------------------------------------------------
 
         if country_data.empty:
 
@@ -482,23 +650,42 @@ def download_imf_debt_data():
                 f"({country_code})"
             )
 
+        if len(country_data) > 1:
+
+            print()
+            print(
+                "Warning: multiple IMF rows found "
+                f"for {country_name} "
+                f"({country_code})."
+            )
+
+            print(
+                "Using the first matching row."
+            )
+
         row = country_data.iloc[0]
+
+        # --------------------------------------------------
+        # Extract requested years
+        # --------------------------------------------------
 
         for year in range(
             START_YEAR,
             END_YEAR + 1,
         ):
 
-            year_column = str(year)
+            year_column = find_year_column(
+                data,
+                year,
+            )
 
-            if (
-                year_column
-                not in data.columns
-            ):
+            if year_column is None:
 
                 raise ValueError(
                     "Year column not found "
-                    f"in IMF WEO: {year_column}"
+                    f"in IMF WEO: {year}\n"
+                    f"Available columns include: "
+                    f"{list(data.columns[-25:])}"
                 )
 
             value = row[
@@ -536,6 +723,10 @@ def main():
 
     records = []
 
+    # --------------------------------------------------
+    # World Bank
+    # --------------------------------------------------
+
     print()
     print(
         "Downloading World Bank indicators..."
@@ -562,6 +753,10 @@ def main():
         f"World Bank rows: {len(records)}"
     )
 
+    # --------------------------------------------------
+    # IMF
+    # --------------------------------------------------
+
     imf_debt = (
         download_imf_debt_data()
     )
@@ -573,6 +768,10 @@ def main():
     records.extend(
         imf_debt
     )
+
+    # --------------------------------------------------
+    # Create dataframe
+    # --------------------------------------------------
 
     data = pd.DataFrame(
         records,
@@ -594,6 +793,10 @@ def main():
         drop=True
     )
 
+    # --------------------------------------------------
+    # Save output
+    # --------------------------------------------------
+
     OUTPUT_DIR.mkdir(
         parents=True,
         exist_ok=True,
@@ -603,6 +806,10 @@ def main():
         OUTPUT_FILE,
         index=False,
     )
+
+    # --------------------------------------------------
+    # Validation / reporting
+    # --------------------------------------------------
 
     print()
     print(
@@ -650,6 +857,18 @@ def main():
         .apply(
             lambda x: x.isna().sum()
         )
+    )
+
+    print()
+
+    print(
+        "Rows by country:"
+    )
+
+    print(
+        data.groupby(
+            "country"
+        ).size()
     )
 
     print()
