@@ -11,7 +11,7 @@ Productivity indicators:
    Source: World Bank
    Indicator: SL.GDP.PCAP.EM.KD
 
-2. Total Factor Productivity
+2. Total Factor Productivity Growth
    Source: Penn World Table 11.0
    Variable: ctfp
 
@@ -24,9 +24,6 @@ Countries:
 
 Period:
     2015–2023
-
-Note:
-    PWT 11.0 currently covers data through 2023.
 """
 
 from pathlib import Path
