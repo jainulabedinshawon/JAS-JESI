@@ -20,6 +20,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.growth_pillar import (
+    normalize_positive,
+    construct_growth_score,
+)
+
 
 INPUT_FILE = Path(
     "data/raw/growth_indicators_2015_2025.csv"
@@ -35,27 +40,6 @@ OUTPUT_FILE = (
 
 GDP_GROWTH = "NY.GDP.MKTP.KD.ZG"
 GNI_GROWTH = "NY.GNP.PCAP.KD.ZG"
-
-
-def normalize_positive(
-    value,
-    minimum,
-    maximum,
-):
-    """
-    Normalize a positive-direction indicator
-    to a 0–1 scale.
-    """
-
-    if maximum == minimum:
-        raise ValueError(
-            "Maximum and minimum cannot be equal."
-        )
-
-    return (
-        (value - minimum)
-        / (maximum - minimum)
-    )
 
 
 def main():
@@ -169,14 +153,13 @@ def main():
         ),
     )
 
-    complete["G"] = (
-        complete[
-            "gdp_growth_norm"
-        ]
-        + complete[
-            "gni_pc_growth_norm"
-        ]
-    ) / 2
+    complete["G"] = complete.apply(
+        lambda row: construct_growth_score(
+            gdp_growth=row["gdp_growth_norm"],
+            gni_pc_growth=row["gni_pc_growth_norm"],
+        ),
+        axis=1,
+    )
 
     result = complete[
         [
