@@ -84,7 +84,7 @@ def load_data() -> pd.DataFrame:
     print("JESI RESILIENCE DISTRIBUTION ANALYSIS")
     print("=" * 72)
 
-    print(f"\nInput file:")
+    print("\nInput file:")
     print(INPUT_FILE)
 
     if not INPUT_FILE.exists():
