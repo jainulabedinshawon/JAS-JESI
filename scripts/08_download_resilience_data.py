@@ -9,10 +9,17 @@ Resilience indicators:
        Source: World Bank
 
     2. General Government Gross Debt (% GDP)
-       Source: IMF WEO / DataMapper API
+       Source: IMF WEO April 2026
 
     3. Current Account Balance (% GDP)
        Source: World Bank
+
+Countries:
+    Bangladesh
+    India
+    Viet Nam
+    Indonesia
+    Malaysia
 
 Period:
     2015–2024
@@ -24,13 +31,14 @@ import pandas as pd
 import requests
 
 
+# ============================================================
+# Configuration
+# ============================================================
+
 WORLD_BANK_API = (
     "https://api.worldbank.org/v2/country"
 )
 
-IMF_DATAMAPPER_API = (
-    "https://www.imf.org/external/datamapper/api/v2"
-)
 
 COUNTRIES = {
     "BGD": "Bangladesh",
@@ -47,19 +55,35 @@ WORLD_BANK_INDICATORS = [
 ]
 
 
+# IMF WEO indicator:
+# General Government Gross Debt (% GDP)
 IMF_DEBT_INDICATOR = "GGXWDG_NGDP"
+
 
 START_YEAR = 2015
 END_YEAR = 2024
 
 
-OUTPUT_DIR = Path("data/raw")
+# IMF Excel file is located in repository root.
+IMF_FILE = Path(
+    "WEOApr2026all.xlsx"
+)
+
+
+OUTPUT_DIR = Path(
+    "data/raw"
+)
+
 
 OUTPUT_FILE = (
     OUTPUT_DIR
     / "resilience_indicators_2015_2024.csv"
 )
 
+
+# ============================================================
+# World Bank
+# ============================================================
 
 def download_world_bank_indicator(
     country,
@@ -91,6 +115,7 @@ def download_world_bank_indicator(
     records = []
 
     for item in data[1]:
+
         records.append(
             {
                 "country": COUNTRIES[country],
@@ -103,75 +128,124 @@ def download_world_bank_indicator(
     return records
 
 
+# ============================================================
+# IMF WEO
+# ============================================================
+
 def download_imf_debt_data():
     """
-    Download General Government Gross Debt
-    (% GDP) from the IMF DataMapper API.
-
-    IMF WEO indicator:
-        GGXWDG_NGDP
+    Read General Government Gross Debt (% GDP)
+    from the IMF April 2026 WEO Excel dataset.
     """
 
+    print()
     print(
-        "IMF source: DataMapper API"
+        "Reading IMF WEO April 2026 dataset..."
     )
 
-    print(
-        f"IMF indicator: {IMF_DEBT_INDICATOR}"
-    )
+    if not IMF_FILE.exists():
 
-    periods = ",".join(
-        str(year)
-        for year in range(
-            START_YEAR,
-            END_YEAR + 1,
+        raise FileNotFoundError(
+            "IMF WEO file not found: "
+            f"{IMF_FILE}"
         )
+
+    print(
+        f"IMF file: {IMF_FILE}"
+    )
+
+    data = pd.read_excel(
+        IMF_FILE,
+        sheet_name="Countries",
+    )
+
+    print(
+        f"IMF dataset rows: {len(data)}"
+    )
+
+    required_columns = [
+        "ISO",
+        "Country",
+        "WEO Subject Code",
+        "Subject Descriptor",
+    ]
+
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in data.columns
+    ]
+
+    if missing_columns:
+
+        raise ValueError(
+            "Missing IMF WEO columns: "
+            f"{missing_columns}"
+        )
+
+    debt = data[
+        data["WEO Subject Code"]
+        == IMF_DEBT_INDICATOR
+    ].copy()
+
+    if debt.empty:
+
+        raise ValueError(
+            "IMF WEO indicator not found: "
+            f"{IMF_DEBT_INDICATOR}"
+        )
+
+    print(
+        "IMF debt indicator found:"
+    )
+
+    print(
+        debt[
+            [
+                "ISO",
+                "Country",
+                "WEO Subject Code",
+                "Subject Descriptor",
+            ]
+        ].head()
     )
 
     records = []
 
     for country_code in COUNTRIES:
 
-        url = (
-            f"{IMF_DATAMAPPER_API}/"
-            f"{IMF_DEBT_INDICATOR}/"
-            f"{country_code}"
-        )
+        country_data = debt[
+            debt["ISO"]
+            == country_code
+        ]
 
-        params = {
-            "periods": periods,
-        }
+        if country_data.empty:
 
-        response = requests.get(
-            url,
-            params=params,
-            timeout=30,
-            headers={
-                "User-Agent": (
-                    "JAS-JESI/1.0 "
-                    "(research data pipeline)"
-                )
-            },
-        )
+            raise ValueError(
+                "Country not found in IMF WEO: "
+                f"{country_code}"
+            )
 
-        response.raise_for_status()
-
-        data = response.json()
-
-        values = (
-            data
-            .get("values", {})
-            .get(IMF_DEBT_INDICATOR, {})
-            .get(country_code, {})
-        )
+        row = country_data.iloc[0]
 
         for year in range(
             START_YEAR,
             END_YEAR + 1,
         ):
-            value = values.get(
-                str(year)
-            )
+
+            year_column = str(year)
+
+            if year_column not in debt.columns:
+
+                raise ValueError(
+                    "Year column not found "
+                    f"in IMF WEO: {year_column}"
+                )
+
+            value = row[year_column]
+
+            if pd.isna(value):
+                value = None
 
             records.append(
                 {
@@ -187,7 +261,12 @@ def download_imf_debt_data():
     return records
 
 
+# ============================================================
+# Main pipeline
+# ============================================================
+
 def main():
+
     print(
         "Downloading JESI Resilience pillar data..."
     )
@@ -200,6 +279,10 @@ def main():
         f"Years: {START_YEAR}-{END_YEAR}"
     )
 
+    # --------------------------------------------------------
+    # World Bank
+    # --------------------------------------------------------
+
     print()
     print(
         "Downloading World Bank indicators..."
@@ -208,6 +291,7 @@ def main():
     records = []
 
     for country in COUNTRIES:
+
         for indicator in WORLD_BANK_INDICATORS:
 
             country_records = (
@@ -225,10 +309,11 @@ def main():
         f"World Bank rows: {len(records)}"
     )
 
+    # --------------------------------------------------------
+    # IMF
+    # --------------------------------------------------------
+
     print()
-    print(
-        "Downloading IMF WEO debt data..."
-    )
 
     imf_debt = (
         download_imf_debt_data()
@@ -238,7 +323,13 @@ def main():
         f"IMF debt rows: {len(imf_debt)}"
     )
 
-    records.extend(imf_debt)
+    records.extend(
+        imf_debt
+    )
+
+    # --------------------------------------------------------
+    # Build dataframe
+    # --------------------------------------------------------
 
     data = pd.DataFrame(
         records,
@@ -256,7 +347,13 @@ def main():
             "year",
             "indicator",
         ]
-    ).reset_index(drop=True)
+    ).reset_index(
+        drop=True
+    )
+
+    # --------------------------------------------------------
+    # Save
+    # --------------------------------------------------------
 
     OUTPUT_DIR.mkdir(
         parents=True,
@@ -268,7 +365,15 @@ def main():
         index=False,
     )
 
+    # --------------------------------------------------------
+    # Summary
+    # --------------------------------------------------------
+
     print()
+    print(
+        "========================================"
+    )
+
     print(
         "Resilience data download completed."
     )
@@ -281,8 +386,46 @@ def main():
         f"Saved to: {OUTPUT_FILE}"
     )
 
+    print(
+        "========================================"
+    )
+
     print()
-    print(data.head(15))
+
+    print(
+        "Rows by indicator:"
+    )
+
+    print(
+        data.groupby(
+            "indicator"
+        ).size()
+    )
+
+    print()
+
+    print(
+        "Missing values:"
+    )
+
+    print(
+        data.groupby(
+            "indicator"
+        )["value"]
+        .apply(
+            lambda x: x.isna().sum()
+        )
+    )
+
+    print()
+
+    print(
+        "First rows:"
+    )
+
+    print(
+        data.head(15)
+    )
 
 
 if __name__ == "__main__":
