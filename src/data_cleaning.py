@@ -124,6 +124,67 @@ def validate_missing_values(
     return dataframe[column].isna().sum()
 
 
+def validate_indicator_coverage(
+    dataframe,
+    countries,
+    indicators,
+    start_year,
+    end_year,
+):
+    """
+    Validate expected country-year-indicator coverage.
+
+    Returns a DataFrame containing missing observations.
+    """
+
+    expected_records = []
+
+    for country in countries:
+        for year in range(
+            start_year,
+            end_year + 1,
+        ):
+            for indicator in indicators:
+                expected_records.append(
+                    {
+                        "country": country,
+                        "year": year,
+                        "indicator": indicator,
+                    }
+                )
+
+    expected = pd.DataFrame(
+        expected_records
+    )
+
+    actual = dataframe[
+        [
+            "country",
+            "year",
+            "indicator",
+        ]
+    ].drop_duplicates()
+
+    merged = expected.merge(
+        actual,
+        on=[
+            "country",
+            "year",
+            "indicator",
+        ],
+        how="left",
+        indicator=True,
+    )
+
+    missing = merged[
+        merged["_merge"] == "left_only"
+    ].drop(
+        columns=["_merge"]
+    ).reset_index(drop=True)
+
+    return missing
+
+
 def clean_indicator_data(
     dataframe,
     required_columns=None,
@@ -161,55 +222,3 @@ def clean_indicator_data(
     )
 
     return dataframe
-    def validate_indicator_coverage(
-    dataframe,
-    countries,
-    indicators,
-    start_year,
-    end_year,
-):
-    """
-    Validate expected country-year-indicator coverage.
-
-    Returns a DataFrame containing missing observations.
-    """
-
-    expected_records = []
-
-    for country in countries:
-        for year in range(start_year, end_year + 1):
-            for indicator in indicators:
-                expected_records.append(
-                    {
-                        "country": country,
-                        "year": year,
-                        "indicator": indicator,
-                    }
-                )
-
-    expected = pd.DataFrame(
-        expected_records
-    )
-
-    actual = dataframe[
-        ["country", "year", "indicator"]
-    ].drop_duplicates()
-
-    merged = expected.merge(
-        actual,
-        on=[
-            "country",
-            "year",
-            "indicator",
-        ],
-        how="left",
-        indicator=True,
-    )
-
-    missing = merged[
-        merged["_merge"] == "left_only"
-    ].drop(
-        columns=["_merge"]
-    ).reset_index(drop=True)
-
-    return missing
