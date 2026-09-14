@@ -4,7 +4,8 @@ JAS-JESI Resilience Data Validation
 JAS Unified Economic Strength Index (JESI)
 Master Version 1.0
 
-This script validates the Resilience pillar dataset.
+This script validates the Resilience pillar dataset
+and reports all missing indicator values.
 
 Resilience indicators:
     1. Total Reserves in Months of Imports
@@ -124,7 +125,11 @@ def main():
     if not missing_records.empty:
         print()
         print("Missing records:")
-        print(missing_records)
+        print(
+            missing_records.to_string(
+                index=False
+            )
+        )
 
     missing_values = (
         validate_missing_values(
@@ -137,6 +142,56 @@ def main():
     print(
         f"Missing indicator values: {missing_values}"
     )
+
+    missing_value_rows = data[
+        data["value"].isna()
+    ].copy()
+
+    if not missing_value_rows.empty:
+        print()
+        print(
+            "Missing indicator value details:"
+        )
+
+        print(
+            missing_value_rows[
+                [
+                    "country",
+                    "year",
+                    "indicator",
+                ]
+            ].sort_values(
+                [
+                    "indicator",
+                    "country",
+                    "year",
+                ]
+            ).to_string(
+                index=False
+            )
+        )
+
+        print()
+        print(
+            "Missing values by indicator:"
+        )
+
+        print(
+            missing_value_rows[
+                "indicator"
+            ].value_counts().to_string()
+        )
+
+        print()
+        print(
+            "Missing values by country:"
+        )
+
+        print(
+            missing_value_rows[
+                "country"
+            ].value_counts().to_string()
+        )
 
     if len(data) != expected_records:
         print()
