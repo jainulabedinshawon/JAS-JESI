@@ -25,6 +25,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Download Growth data
+        run: |
+          PYTHONPATH=. python scripts/01_download_growth_data.py
+
       - name: Validate Growth data
         run: |
           PYTHONPATH=. python scripts/02_validate_growth_data.py
