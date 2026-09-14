@@ -13,6 +13,7 @@ from src.data_cleaning import (
     sort_by_country_and_year,
     remove_invalid_years,
     validate_missing_values,
+    validate_indicator_coverage,
     clean_indicator_data,
 )
 
@@ -221,6 +222,52 @@ def test_validate_missing_values_does_not_modify_data():
 
     assert result == 1
     assert pd.isna(dataframe["value"].iloc[1])
+
+
+def test_validate_indicator_coverage():
+    """
+    Indicator coverage validation should identify
+    missing country-year-indicator records.
+    """
+
+    dataframe = pd.DataFrame(
+        {
+            "country": [
+                "BGD",
+                "BGD",
+                "IND",
+            ],
+            "year": [
+                2023,
+                2024,
+                2023,
+            ],
+            "indicator": [
+                "GDP",
+                "GDP",
+                "GDP",
+            ],
+            "value": [
+                6.0,
+                5.8,
+                7.0,
+            ],
+        }
+    )
+
+    result = validate_indicator_coverage(
+        dataframe=dataframe,
+        countries=["BGD", "IND"],
+        indicators=["GDP"],
+        start_year=2023,
+        end_year=2024,
+    )
+
+    assert len(result) == 1
+
+    assert result.iloc[0]["country"] == "IND"
+    assert result.iloc[0]["year"] == 2024
+    assert result.iloc[0]["indicator"] == "GDP"
 
 
 def test_clean_indicator_data():
