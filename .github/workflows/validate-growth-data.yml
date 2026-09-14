@@ -32,3 +32,22 @@ jobs:
       - name: Validate Growth data
         run: |
           PYTHONPATH=. python scripts/02_validate_growth_data.py
+
+      - name: Construct Growth pillar
+        run: |
+          PYTHONPATH=. python scripts/03_construct_growth_pillar.py
+
+      - name: Display Growth pillar output
+        run: |
+          echo "Growth pillar file:"
+          ls -lh data/raw/growth_pillar_2015_2025.csv
+
+          echo
+          echo "First rows:"
+          head -20 data/raw/growth_pillar_2015_2025.csv
+
+      - name: Upload Growth pillar dataset
+        uses: actions/upload-artifact@v4
+        with:
+          name: jesi-growth-pillar-2015-2025
+          path: data/raw/growth_pillar_2015_2025.csv
