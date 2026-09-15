@@ -76,7 +76,7 @@ def download_world_bank_indicator(
 
     response = requests.get(
         url,
-        timeout=30,
+        timeout=120,
     )
 
     response.raise_for_status()
