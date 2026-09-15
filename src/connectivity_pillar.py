@@ -10,18 +10,12 @@ the Connectivity (C) pillar.
 
 def normalize_positive(value, minimum, maximum):
     """
-    Normalize a higher-is-better indicator to a 0–1 scale.
-
-    Formula:
-        score = (value - minimum) / (maximum - minimum)
+    Normalize a positive-direction indicator to a 0–1 scale.
     """
 
-    if value is None:
-        return None
-
-    if maximum <= minimum:
+    if maximum == minimum:
         raise ValueError(
-            "Maximum must be greater than minimum."
+            "Maximum and minimum cannot be equal."
         )
 
     score = (
@@ -35,21 +29,21 @@ def normalize_positive(value, minimum, maximum):
 def construct_connectivity_score(
     trade_openness,
     fdi_inflows,
-    ict_global_integration,
+    internet_use,
 ):
     """
-    Construct the Connectivity (C) pillar score.
+    Construct the Connectivity (C) pillar score
+    from three normalized indicators.
 
-    The three normalized indicators are aggregated
-    using a geometric mean.
-
-    C = (C1 × C2 × C3)^(1/3)
+    A geometric mean is used so that weakness
+    in one dimension is not completely hidden
+    by stronger performance in other dimensions.
     """
 
     values = [
         trade_openness,
         fdi_inflows,
-        ict_global_integration,
+        internet_use,
     ]
 
     if any(value is None for value in values):
@@ -62,11 +56,9 @@ def construct_connectivity_score(
             "All Connectivity scores must be between 0 and 1."
         )
 
-    epsilon = 1e-12
-
     product = 1.0
 
     for value in values:
-        product *= max(float(value), epsilon)
+        product *= float(value)
 
     return product ** (1.0 / 3.0)
