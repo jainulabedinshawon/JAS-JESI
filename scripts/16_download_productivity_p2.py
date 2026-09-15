@@ -118,6 +118,66 @@ def download_pwt_excel():
     return BytesIO(file_response.content)
 
 
+def load_pwt_data(excel_file):
+    """
+    Locate the PWT data table automatically.
+
+    PWT Excel files may contain metadata sheets or header
+    rows before the actual data table. This function searches
+    all sheets and several possible header rows for the
+    required PWT columns.
+    """
+
+    required_columns = {
+        "countrycode",
+        "country",
+        "year",
+        "rtfpna",
+    }
+
+    workbook = pd.ExcelFile(excel_file)
+
+    for sheet_name in workbook.sheet_names:
+
+        for header_row in range(0, 15):
+
+            try:
+                dataframe = pd.read_excel(
+                    excel_file,
+                    sheet_name=sheet_name,
+                    header=header_row,
+                )
+            except Exception:
+                continue
+
+            dataframe.columns = [
+                str(column).strip().lower()
+                for column in dataframe.columns
+            ]
+
+            if required_columns.issubset(
+                set(dataframe.columns)
+            ):
+                print()
+                print(
+                    "PWT data table found:"
+                )
+                print(
+                    f"Sheet: {sheet_name}"
+                )
+                print(
+                    f"Header row: {header_row}"
+                )
+
+                return dataframe
+
+    raise ValueError(
+        "Could not locate the required PWT columns "
+        "in any worksheet/header combination. "
+        f"Required columns: {sorted(required_columns)}"
+    )
+
+
 def calculate_tfp_growth(dataframe):
     """
     Calculate annual TFP growth from PWT TFP levels.
@@ -181,32 +241,15 @@ def main():
     )
 
     print()
-    print("Downloading official PWT 11.0 Excel file...")
+    print(
+        "Downloading official PWT 11.0 Excel file..."
+    )
 
     excel_file = download_pwt_excel()
 
-    dataframe = pd.read_excel(
-        excel_file,
-        sheet_name=0,
+    dataframe = load_pwt_data(
+        excel_file
     )
-
-    required_columns = {
-        "countrycode",
-        "country",
-        "year",
-        "rtfpna",
-    }
-
-    missing_columns = (
-        required_columns
-        - set(dataframe.columns)
-    )
-
-    if missing_columns:
-        raise ValueError(
-            "Missing required PWT columns: "
-            f"{sorted(missing_columns)}"
-        )
 
     dataframe = dataframe[
         dataframe["countrycode"].isin(
@@ -244,6 +287,21 @@ def main():
             "Unexpected country code found."
         )
 
+    dataframe["year"] = pd.to_numeric(
+        dataframe["year"],
+        errors="coerce",
+    )
+
+    dataframe["tfp"] = pd.to_numeric(
+        dataframe["tfp"],
+        errors="coerce",
+    )
+
+    if dataframe["year"].isna().any():
+        raise ValueError(
+            "Invalid year values found."
+        )
+
     if dataframe["tfp"].isna().any():
         raise ValueError(
             "Missing TFP observations found."
@@ -252,6 +310,30 @@ def main():
     if (dataframe["tfp"] <= 0).any():
         raise ValueError(
             "TFP values must be positive."
+        )
+
+    expected_rows = (
+        len(COUNTRIES)
+        * (END_YEAR - START_YEAR + 1)
+    )
+
+    if len(dataframe) != expected_rows:
+        raise ValueError(
+            "Unexpected number of PWT observations. "
+            f"Expected {expected_rows}, "
+            f"found {len(dataframe)}."
+        )
+
+    duplicates = dataframe.duplicated(
+        subset=[
+            "country_code",
+            "year",
+        ]
+    )
+
+    if duplicates.any():
+        raise ValueError(
+            "Duplicate country-year observations found."
         )
 
     dataframe = calculate_tfp_growth(
