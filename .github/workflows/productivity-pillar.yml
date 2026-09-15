@@ -37,6 +37,10 @@ jobs:
         run: |
           PYTHONPATH=. python scripts/14_analyze_productivity_distribution.py
 
+      - name: Score Productivity P1
+        run: |
+          PYTHONPATH=. python scripts/15_score_productivity_p1.py
+
       - name: Upload Productivity P1 outputs
         uses: actions/upload-artifact@v4
         with:
@@ -48,3 +52,4 @@ jobs:
             data/processed/productivity_p1_pooled_percentiles.csv
             data/processed/productivity_p1_country_year_extremes.csv
             data/processed/productivity_p1_candidate_reference_zones.csv
+            data/processed/productivity_p1_scores_2015_2024.csv
