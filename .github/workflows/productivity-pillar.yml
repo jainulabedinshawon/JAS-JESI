@@ -1,0 +1,50 @@
+name: Validate JESI Productivity P1 Data
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  productivity-p1:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download Productivity P1 data
+        run: |
+          PYTHONPATH=. python scripts/12_download_productivity_data.py
+
+      - name: Validate Productivity P1 data
+        run: |
+          PYTHONPATH=. python scripts/13_validate_productivity_data.py
+
+      - name: Analyze Productivity P1 distribution
+        run: |
+          PYTHONPATH=. python scripts/14_analyze_productivity_distribution.py
+
+      - name: Upload Productivity P1 outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: jesi-productivity-p1-pipeline-output
+          path: |
+            data/raw/productivity_p1_gdp_per_person_employed_2015_2024.csv
+            data/processed/productivity_p1_pooled_descriptive_statistics.csv
+            data/processed/productivity_p1_country_statistics.csv
+            data/processed/productivity_p1_pooled_percentiles.csv
+            data/processed/productivity_p1_country_year_extremes.csv
+            data/processed/productivity_p1_candidate_reference_zones.csv
