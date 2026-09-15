@@ -21,32 +21,46 @@ DEBT_UPPER = 77.458300
 CURRENT_ACCOUNT_LOWER = -2.427516
 CURRENT_ACCOUNT_UPPER = 3.881556
 
+# Baseline penalty parameter.
+# One reference-zone width outside the zone
+# reduces the score to 0.5.
+DEFAULT_LAMBDA = math.log(2)
+
 
 def reference_zone_score(
     value,
     lower,
     upper,
-    lambda_lower=0.05,
-    lambda_upper=0.05,
+    lambda_lower=DEFAULT_LAMBDA,
+    lambda_upper=DEFAULT_LAMBDA,
 ):
     """
     Calculate a smooth reference-zone score.
 
     Score = 1.0 inside the reference zone.
-    Outside the zone, the score declines exponentially.
+
+    Outside the zone, the score declines exponentially
+    according to normalized distance from the boundary.
+
+    The reference-zone width is used to normalize the
+    distance so that lambda is dimensionless.
 
     Parameters
     ----------
     value : float
         Observed indicator value.
+
     lower : float
         Lower reference-zone boundary.
+
     upper : float
         Upper reference-zone boundary.
+
     lambda_lower : float
-        Penalty slope below the lower boundary.
+        Penalty strength below the lower boundary.
+
     lambda_upper : float
-        Penalty slope above the upper boundary.
+        Penalty strength above the upper boundary.
 
     Returns
     -------
@@ -58,28 +72,56 @@ def reference_zone_score(
         return None
 
     value = float(value)
+    lower = float(lower)
+    upper = float(upper)
 
     if lower > upper:
-        raise ValueError("Lower boundary cannot exceed upper boundary.")
+        raise ValueError(
+            "Lower boundary cannot exceed upper boundary."
+        )
 
     if lambda_lower < 0 or lambda_upper < 0:
-        raise ValueError("Penalty parameters must be non-negative.")
+        raise ValueError(
+            "Penalty parameters must be non-negative."
+        )
 
     if lower <= value <= upper:
         return 1.0
 
+    width = upper - lower
+
+    if width <= 0:
+        raise ValueError(
+            "Reference-zone width must be positive."
+        )
+
     if value < lower:
-        score = math.exp(-lambda_lower * (lower - value))
+        normalized_distance = (
+            lower - value
+        ) / width
+
+        score = math.exp(
+            -lambda_lower
+            * normalized_distance
+        )
+
     else:
-        score = math.exp(-lambda_upper * (value - upper))
+        normalized_distance = (
+            value - upper
+        ) / width
+
+        score = math.exp(
+            -lambda_upper
+            * normalized_distance
+        )
 
     return max(0.0, min(1.0, score))
 
 
 def score_government_debt(
     debt_gdp,
-    lambda_lower=0.05,
-    lambda_upper=0.05,
+    lambda_lower=DEFAULT_LAMBDA,
+    lambda_upper=DEFAULT_LAMBDA,
 ):
     """
     Score Government Gross Debt (% of GDP).
@@ -99,8 +141,8 @@ def score_government_debt(
 
 def score_current_account(
     current_account_gdp,
-    lambda_lower=0.05,
-    lambda_upper=0.05,
+    lambda_lower=DEFAULT_LAMBDA,
+    lambda_upper=DEFAULT_LAMBDA,
 ):
     """
     Score Current Account Balance (% of GDP).
@@ -133,7 +175,9 @@ def score_fx_reserves(
         return None
 
     if maximum <= minimum:
-        raise ValueError("Maximum must be greater than minimum.")
+        raise ValueError(
+            "Maximum must be greater than minimum."
+        )
 
     score = (
         (float(reserves_months) - minimum)
@@ -150,9 +194,9 @@ def calculate_resilience_pillar(
 ):
     """
     Calculate the Resilience pillar using an equal-weight
-    geometric aggregation of the three resilience indicators.
+    arithmetic aggregation of the three resilience indicators.
 
-    R = (R1 * R2 * R3)^(1/3)
+    R = (R1 + R2 + R3) / 3
 
     Returns
     -------
@@ -169,15 +213,15 @@ def calculate_resilience_pillar(
     if any(score is None for score in scores):
         return None
 
-    if any(score < 0 or score > 1 for score in scores):
-        raise ValueError("All indicator scores must be between 0 and 1.")
+    if any(
+        score < 0 or score > 1
+        for score in scores
+    ):
+        raise ValueError(
+            "All indicator scores must be between 0 and 1."
+        )
 
-    # Small numerical floor prevents log(0) problems.
-    epsilon = 1e-12
-
-    product = 1.0
-
-    for score in scores:
-        product *= max(float(score), epsilon)
-
-    return product ** (1.0 / 3.0)
+    return sum(
+        float(score)
+        for score in scores
+    ) / len(scores)
