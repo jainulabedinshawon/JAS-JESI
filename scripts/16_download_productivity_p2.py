@@ -60,6 +60,9 @@ def download_pwt_excel():
     """
     Locate and download the official PWT 11.0 Excel file
     through the Dataverse persistent dataset API.
+
+    The downloaded response is validated to ensure that
+    Dataverse returned an actual Excel workbook.
     """
 
     response = requests.get(
@@ -111,21 +114,70 @@ def download_pwt_excel():
     file_response = requests.get(
         download_url,
         timeout=120,
+        allow_redirects=True,
     )
 
     file_response.raise_for_status()
 
-    return BytesIO(file_response.content)
+    content_type = (
+        file_response.headers
+        .get("Content-Type", "")
+        .lower()
+    )
+
+    content = file_response.content
+
+    print()
+    print("PWT DOWNLOAD RESPONSE")
+    print("=" * 72)
+
+    print(
+        f"HTTP status: {file_response.status_code}"
+    )
+
+    print(
+        f"Content-Type: {content_type}"
+    )
+
+    print(
+        f"Downloaded bytes: {len(content)}"
+    )
+
+    print(
+        f"Final URL: {file_response.url}"
+    )
+
+    if not content:
+        raise ValueError(
+            "PWT download returned an empty file."
+        )
+
+    # XLSX files are ZIP containers and normally begin
+    # with the ZIP magic bytes PK.
+    if not content.startswith(b"PK"):
+        preview = content[:200].decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        raise ValueError(
+            "The downloaded PWT file does not appear "
+            "to be a valid XLSX file. "
+            f"Response preview: {preview}"
+        )
+
+    return BytesIO(content)
 
 
 def load_pwt_data(excel_file):
     """
     Locate the PWT data table automatically.
 
-    PWT Excel files may contain metadata sheets or header
-    rows before the actual data table. This function searches
-    all sheets and several possible header rows for the
-    required PWT columns.
+    PWT Excel files may contain metadata sheets or
+    header rows before the actual data table.
+
+    This function searches all worksheets and multiple
+    header rows for the required PWT columns.
     """
 
     required_columns = {
@@ -135,38 +187,68 @@ def load_pwt_data(excel_file):
         "rtfpna",
     }
 
-    workbook = pd.ExcelFile(excel_file)
+    workbook = pd.ExcelFile(
+        excel_file,
+        engine="openpyxl",
+    )
+
+    print()
+    print("PWT WORKBOOK SHEETS")
+    print("=" * 72)
+
+    print(
+        workbook.sheet_names
+    )
 
     for sheet_name in workbook.sheet_names:
 
-        for header_row in range(0, 15):
+        for header_row in range(0, 20):
 
             try:
                 dataframe = pd.read_excel(
                     excel_file,
                     sheet_name=sheet_name,
                     header=header_row,
+                    engine="openpyxl",
                 )
             except Exception:
                 continue
 
             dataframe.columns = [
-                str(column).strip().lower()
+                str(column)
+                .strip()
+                .lower()
                 for column in dataframe.columns
             ]
 
+            available_columns = set(
+                dataframe.columns
+            )
+
             if required_columns.issubset(
-                set(dataframe.columns)
+                available_columns
             ):
+
                 print()
                 print(
-                    "PWT data table found:"
+                    "PWT DATA TABLE FOUND"
                 )
+                print("=" * 72)
+
                 print(
                     f"Sheet: {sheet_name}"
                 )
+
                 print(
                     f"Header row: {header_row}"
+                )
+
+                print(
+                    "Required columns detected:"
+                )
+
+                print(
+                    sorted(required_columns)
                 )
 
                 return dataframe
@@ -174,7 +256,8 @@ def load_pwt_data(excel_file):
     raise ValueError(
         "Could not locate the required PWT columns "
         "in any worksheet/header combination. "
-        f"Required columns: {sorted(required_columns)}"
+        f"Required columns: "
+        f"{sorted(required_columns)}"
     )
 
 
@@ -182,7 +265,7 @@ def calculate_tfp_growth(dataframe):
     """
     Calculate annual TFP growth from PWT TFP levels.
 
-    TFP growth is calculated as:
+    Formula:
 
         ((TFP_t / TFP_(t-1)) - 1) * 100
 
@@ -212,7 +295,7 @@ def calculate_tfp_growth(dataframe):
 
 def main():
     """
-    Download PWT 11.0 data and construct the P2
+    Download PWT 11.0 data and construct the JESI P2
     TFP growth dataset.
     """
 
