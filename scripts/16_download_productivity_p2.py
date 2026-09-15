@@ -230,9 +230,7 @@ def load_pwt_data(excel_file):
             ):
 
                 print()
-                print(
-                    "PWT DATA TABLE FOUND"
-                )
+                print("PWT DATA TABLE FOUND")
                 print("=" * 72)
 
                 print(
@@ -385,9 +383,60 @@ def main():
             "Invalid year values found."
         )
 
-    if dataframe["tfp"].isna().any():
+    print()
+    print("PWT SELECTED DATASET CHECK")
+    print("=" * 72)
+
+    print(
+        f"Rows after country/year filtering: "
+        f"{len(dataframe)}"
+    )
+
+    print(
+        f"Expected rows: "
+        f"{len(COUNTRIES) * (END_YEAR - START_YEAR + 1)}"
+    )
+
+    print()
+
+    missing_tfp = dataframe[
+        dataframe["tfp"].isna()
+    ][
+        [
+            "country_code",
+            "country",
+            "year",
+            "tfp",
+        ]
+    ].copy()
+
+    if not missing_tfp.empty:
+
+        print()
+        print("MISSING PWT TFP OBSERVATIONS")
+        print("=" * 72)
+
+        print(
+            missing_tfp.to_string(
+                index=False
+            )
+        )
+
+        print()
+        print(
+            f"Number of missing TFP observations: "
+            f"{len(missing_tfp)}"
+        )
+
+        print()
+        print(
+            "The dataset will NOT interpolate, "
+            "impute, or fabricate missing TFP values."
+        )
+
         raise ValueError(
-            "Missing TFP observations found."
+            "Missing TFP observations found. "
+            "See the country-year observations above."
         )
 
     if (dataframe["tfp"] <= 0).any():
