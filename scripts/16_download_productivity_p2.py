@@ -1,48 +1,52 @@
 """
-JESI Productivity P2 Data Download Module
+Download JESI Productivity P2 data from the
+Asian Productivity Organization (APO) Productivity Database 2025.
 
-JAS Unified Economic Strength Index (JESI)
-Master Version 1.0
+P2:
+    Total Factor Productivity Growth (TFPG)
 
-P2 Indicator:
-    Total Factor Productivity (TFP) Growth
+Source:
+    APO Productivity Database 2025 Version 1
 
-Primary Source:
-    Penn World Table (PWT) 11.0
+Official source:
+    https://www.apo-tokyo.org/productivitydatabook/
 
-PWT Variable:
-    rtfpna
-
-Period:
-    2015-2023
-
-Countries:
+Coverage:
     Bangladesh
     India
     Viet Nam
     Indonesia
     Malaysia
+
+Level period:
+    2015-2023
+
+Growth period:
+    2016-2023
+
+Output:
+    data/raw/productivity_p2_tfp_growth_2015_2023.csv
 """
 
 from io import BytesIO
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 
 
-PWT_DATASET_DOI = "doi:10.34894/FABVLR"
-
-PWT_DATASET_API = (
-    "https://dataverse.nl/api/datasets/:persistentId"
+SOURCE_URL = (
+    "https://www.apo-tokyo.org/wp-content/uploads/2025/10/"
+    "APO-Productivity-Database-2025v1-1.xlsx"
 )
-
-PWT_FILE_NAME = "pwt110.xlsx"
 
 OUTPUT_FILE = Path(
-    "data/raw/"
-    "productivity_p2_tfp_growth_2015_2023.csv"
+    "data/raw/productivity_p2_tfp_growth_2015_2023.csv"
 )
+
+START_YEAR = 2015
+END_YEAR = 2023
 
 COUNTRIES = {
     "BGD": "Bangladesh",
@@ -52,291 +56,372 @@ COUNTRIES = {
     "MYS": "Malaysia",
 }
 
-START_YEAR = 2015
-END_YEAR = 2023
 
+def download_apo_excel():
+    """Download the official APO Productivity Database workbook."""
 
-def download_pwt_excel():
-    """
-    Locate and download the official PWT 11.0 Excel file
-    through the Dataverse persistent dataset API.
-
-    The downloaded response is validated to ensure that
-    Dataverse returned an actual Excel workbook.
-    """
+    print("Downloading APO Productivity Database 2025...")
 
     response = requests.get(
-        PWT_DATASET_API,
-        params={
-            "persistentId": PWT_DATASET_DOI,
-        },
+        SOURCE_URL,
         timeout=120,
     )
 
     response.raise_for_status()
 
-    dataset = response.json()
+    content_type = response.headers.get("Content-Type", "")
 
-    files = (
-        dataset
-        .get("data", {})
-        .get("latestVersion", {})
-        .get("files", [])
-    )
+    print(f"HTTP status: {response.status_code}")
+    print(f"Content-Type: {content_type}")
+    print(f"Downloaded bytes: {len(response.content):,}")
 
-    target_file = None
-
-    for file_info in files:
-        data_file = file_info.get("dataFile", {})
-
-        if data_file.get("filename") == PWT_FILE_NAME:
-            target_file = data_file
-            break
-
-    if target_file is None:
-        raise FileNotFoundError(
-            f"Could not find {PWT_FILE_NAME} "
-            "in the PWT 11.0 dataset."
-        )
-
-    file_id = target_file.get("id")
-
-    if file_id is None:
+    if len(response.content) < 100_000:
         raise ValueError(
-            "PWT file ID was not found."
+            "Downloaded APO file is unexpectedly small. "
+            "The official XLSX file may not have been retrieved."
         )
 
-    download_url = (
-        "https://dataverse.nl/api/access/datafile/"
-        f"{file_id}"
-    )
+    if not response.content[:2] == b"PK":
+        raise ValueError(
+            "Downloaded file does not appear to be a valid XLSX workbook."
+        )
 
-    file_response = requests.get(
-        download_url,
-        timeout=120,
-        allow_redirects=True,
-    )
+    return response.content
 
-    file_response.raise_for_status()
 
-    content_type = (
-        file_response.headers
-        .get("Content-Type", "")
+def normalize_column_name(value):
+    """Normalize column names for matching."""
+
+    return (
+        str(value)
+        .strip()
         .lower()
+        .replace("\n", " ")
+        .replace("_", " ")
+        .replace("-", " ")
     )
 
-    content = file_response.content
 
-    print()
-    print("PWT DOWNLOAD RESPONSE")
-    print("=" * 72)
-
-    print(
-        f"HTTP status: {file_response.status_code}"
-    )
-
-    print(
-        f"Content-Type: {content_type}"
-    )
-
-    print(
-        f"Downloaded bytes: {len(content)}"
-    )
-
-    print(
-        f"Final URL: {file_response.url}"
-    )
-
-    if not content:
-        raise ValueError(
-            "PWT download returned an empty file."
-        )
-
-    # XLSX files are ZIP containers and normally begin
-    # with the ZIP magic bytes PK.
-    if not content.startswith(b"PK"):
-        preview = content[:200].decode(
-            "utf-8",
-            errors="replace",
-        )
-
-        raise ValueError(
-            "The downloaded PWT file does not appear "
-            "to be a valid XLSX file. "
-            f"Response preview: {preview}"
-        )
-
-    return BytesIO(content)
-
-
-def load_pwt_data(excel_file):
+def find_header_row(raw_df):
     """
-    Locate the PWT data table automatically.
-
-    PWT Excel files may contain metadata sheets or
-    header rows before the actual data table.
-
-    This function searches all worksheets and multiple
-    header rows for the required PWT columns.
+    Find a header row containing country/year information.
     """
 
-    required_columns = {
-        "countrycode",
-        "country",
-        "year",
-        "rtfpna",
-    }
+    for row_number in range(min(30, len(raw_df))):
+        values = [
+            normalize_column_name(value)
+            for value in raw_df.iloc[row_number].tolist()
+        ]
 
-    workbook = pd.ExcelFile(
-        excel_file,
-        engine="openpyxl",
-    )
+        has_country = any(
+            "country" in value or "economy" in value
+            for value in values
+        )
 
-    print()
-    print("PWT WORKBOOK SHEETS")
-    print("=" * 72)
+        has_year = any(
+            value == "year" or "year" in value
+            for value in values
+        )
 
-    print(
-        workbook.sheet_names
-    )
+        if has_country and has_year:
+            return row_number
+
+    return None
+
+
+def load_apo_data(content):
+    """
+    Load the APO workbook.
+
+    The APO workbook may contain multiple sheets or metadata rows,
+    so the script searches the workbook rather than assuming a
+    fixed sheet/header location.
+    """
+
+    workbook = pd.ExcelFile(BytesIO(content), engine="openpyxl")
+
+    print("Workbook sheets:")
+    print(workbook.sheet_names)
+
+    candidates = []
 
     for sheet_name in workbook.sheet_names:
+        raw = pd.read_excel(
+            BytesIO(content),
+            sheet_name=sheet_name,
+            header=None,
+            engine="openpyxl",
+        )
 
-        for header_row in range(0, 20):
+        header_row = find_header_row(raw)
 
-            try:
-                dataframe = pd.read_excel(
-                    excel_file,
-                    sheet_name=sheet_name,
-                    header=header_row,
-                    engine="openpyxl",
+        if header_row is None:
+            continue
+
+        candidate = raw.iloc[header_row + 1:].copy()
+        candidate.columns = raw.iloc[header_row].tolist()
+
+        candidate = candidate.dropna(
+            axis=1,
+            how="all",
+        )
+
+        normalized = {
+            normalize_column_name(column): column
+            for column in candidate.columns
+        }
+
+        tfp_columns = [
+            original
+            for normalized_name, original in normalized.items()
+            if "tfp" in normalized_name
+        ]
+
+        if tfp_columns:
+            candidates.append(
+                (
+                    sheet_name,
+                    header_row,
+                    candidate,
+                    tfp_columns,
                 )
-            except Exception:
-                continue
-
-            dataframe.columns = [
-                str(column)
-                .strip()
-                .lower()
-                for column in dataframe.columns
-            ]
-
-            available_columns = set(
-                dataframe.columns
             )
 
-            if required_columns.issubset(
-                available_columns
+    if not candidates:
+        raise ValueError(
+            "Could not find an APO worksheet containing a TFP column."
+        )
+
+    print("TFP worksheet candidates:")
+
+    for sheet_name, header_row, _, tfp_columns in candidates:
+        print(
+            f"  Sheet={sheet_name}, "
+            f"header_row={header_row}, "
+            f"TFP columns={tfp_columns}"
+        )
+
+    # Prefer a candidate with an explicit economy-wide TFP field.
+    selected = None
+
+    for candidate in candidates:
+        sheet_name, header_row, dataframe, tfp_columns = candidate
+
+        preferred_columns = []
+
+        for column in tfp_columns:
+            name = normalize_column_name(column)
+
+            if (
+                "total factor productivity" in name
+                or name.strip() == "tfp"
+                or "tfp index" in name
             ):
+                preferred_columns.append(column)
 
-                print()
-                print("PWT DATA TABLE FOUND")
-                print("=" * 72)
+        if preferred_columns:
+            selected = (
+                sheet_name,
+                header_row,
+                dataframe,
+                preferred_columns,
+            )
+            break
 
-                print(
-                    f"Sheet: {sheet_name}"
-                )
+    if selected is None:
+        selected = candidates[0]
 
-                print(
-                    f"Header row: {header_row}"
-                )
+    sheet_name, header_row, dataframe, tfp_columns = selected
 
-                print(
-                    "Required columns detected:"
-                )
-
-                print(
-                    sorted(required_columns)
-                )
-
-                return dataframe
-
-    raise ValueError(
-        "Could not locate the required PWT columns "
-        "in any worksheet/header combination. "
-        f"Required columns: "
-        f"{sorted(required_columns)}"
-    )
-
-
-def calculate_tfp_growth(dataframe):
-    """
-    Calculate annual TFP growth from PWT TFP levels.
-
-    Formula:
-
-        ((TFP_t / TFP_(t-1)) - 1) * 100
-
-    The first year of each country is therefore used
-    only as the base year for calculating the following
-    year's growth.
-    """
-
-    dataframe = dataframe.copy()
-
-    dataframe = dataframe.sort_values(
-        [
-            "country",
-            "year",
-        ]
-    )
-
-    dataframe["tfp_growth"] = (
-        dataframe
-        .groupby("country")["tfp"]
-        .pct_change()
-        * 100
-    )
+    print(f"Selected sheet: {sheet_name}")
+    print(f"Selected header row: {header_row}")
+    print(f"Candidate TFP columns: {tfp_columns}")
 
     return dataframe
 
 
-def main():
-    """
-    Download PWT 11.0 data and construct the JESI P2
-    TFP growth dataset.
-    """
+def identify_columns(dataframe):
+    """Identify country, country code, year and TFP columns."""
 
-    print("=" * 72)
-    print("JESI PRODUCTIVITY P2 DATA DOWNLOAD")
-    print("=" * 72)
+    column_map = {
+        normalize_column_name(column): column
+        for column in dataframe.columns
+    }
 
-    print()
-    print("Source:")
-    print("Penn World Table 11.0")
+    country_code_column = None
+    country_column = None
+    year_column = None
 
-    print()
-    print("PWT variable:")
-    print("rtfpna")
+    for normalized, original in column_map.items():
 
-    print()
-    print("Period:")
-    print(
-        f"{START_YEAR}-{END_YEAR}"
+        if country_code_column is None and (
+            "country code" in normalized
+            or normalized in {"code", "iso3", "iso3 code"}
+        ):
+            country_code_column = original
+
+        if country_column is None and (
+            normalized == "country"
+            or "country name" in normalized
+            or normalized == "economy"
+            or "economy name" in normalized
+        ):
+            country_column = original
+
+        if year_column is None and normalized == "year":
+            year_column = original
+
+    if year_column is None:
+        for normalized, original in column_map.items():
+            if "year" == normalized.strip():
+                year_column = original
+                break
+
+    if country_code_column is None:
+        # Some APO files may provide country names but not ISO3 codes.
+        # Country names are handled below.
+        print(
+            "No explicit country-code column found; "
+            "country names will be used."
+        )
+
+    if country_column is None:
+        raise ValueError(
+            "Could not identify the APO country/economy column."
+        )
+
+    if year_column is None:
+        raise ValueError(
+            "Could not identify the APO year column."
+        )
+
+    # Identify economy-wide TFP.
+    tfp_candidates = []
+
+    for normalized, original in column_map.items():
+
+        if "tfp" not in normalized:
+            continue
+
+        # Avoid selecting contribution/decomposition columns.
+        excluded_terms = [
+            "contribution",
+            "share",
+            "growth contribution",
+            "capital contribution",
+            "labor contribution",
+            "labour contribution",
+        ]
+
+        if any(term in normalized for term in excluded_terms):
+            continue
+
+        tfp_candidates.append(original)
+
+    if not tfp_candidates:
+        raise ValueError(
+            "Could not identify an economy-wide TFP column."
+        )
+
+    print(f"Country code column: {country_code_column}")
+    print(f"Country column: {country_column}")
+    print(f"Year column: {year_column}")
+    print(f"TFP candidates: {tfp_candidates}")
+
+    # Prefer an explicit TFP index/level column.
+    preferred_tfp = None
+
+    for column in tfp_candidates:
+        name = normalize_column_name(column)
+
+        if (
+            "total factor productivity" in name
+            or "tfp index" in name
+            or name.strip() == "tfp"
+        ):
+            preferred_tfp = column
+            break
+
+    if preferred_tfp is None:
+        if len(tfp_candidates) > 1:
+            raise ValueError(
+                "Multiple TFP columns were found and none could be "
+                "identified unambiguously as the economy-wide TFP level. "
+                f"Candidates: {tfp_candidates}"
+            )
+
+        preferred_tfp = tfp_candidates[0]
+
+    print(f"Selected TFP column: {preferred_tfp}")
+
+    return (
+        country_code_column,
+        country_column,
+        year_column,
+        preferred_tfp,
     )
 
-    print()
-    print("Countries:")
-    print(
-        ", ".join(COUNTRIES.values())
-    )
 
-    print()
-    print(
-        "Downloading official PWT 11.0 Excel file..."
-    )
+def standardize_country_codes(
+    dataframe,
+    country_code_column,
+    country_column,
+):
+    """Create a standardized ISO3 country code."""
 
-    excel_file = download_pwt_excel()
+    dataframe = dataframe.copy()
 
-    dataframe = load_pwt_data(
-        excel_file
-    )
+    if country_code_column is not None:
+
+        dataframe["country_code"] = (
+            dataframe[country_code_column]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+    else:
+
+        country_name_to_code = {
+            "BANGLADESH": "BGD",
+            "INDIA": "IND",
+            "VIETNAM": "VNM",
+            "VIET NAM": "VNM",
+            "INDONESIA": "IDN",
+            "MALAYSIA": "MYS",
+        }
+
+        dataframe["country_code"] = (
+            dataframe[country_column]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .map(country_name_to_code)
+        )
 
     dataframe = dataframe[
-        dataframe["countrycode"].isin(
-            COUNTRIES.keys()
-        )
+        dataframe["country_code"].isin(COUNTRIES)
     ].copy()
+
+    dataframe["country"] = dataframe["country_code"].map(COUNTRIES)
+
+    return dataframe
+
+
+def calculate_tfp_growth(dataframe, year_column, tfp_column):
+    """Calculate annual TFP growth from APO TFP levels."""
+
+    dataframe = dataframe.copy()
+
+    dataframe["year"] = pd.to_numeric(
+        dataframe[year_column],
+        errors="coerce",
+    )
+
+    dataframe["tfp"] = pd.to_numeric(
+        dataframe[tfp_column],
+        errors="coerce",
+    )
 
     dataframe = dataframe[
         dataframe["year"].between(
@@ -345,149 +430,179 @@ def main():
         )
     ].copy()
 
-    dataframe = dataframe[
-        [
-            "countrycode",
-            "country",
-            "year",
-            "rtfpna",
-        ]
-    ].rename(
-        columns={
-            "countrycode": "country_code",
-            "rtfpna": "tfp",
-        }
+    dataframe = dataframe.sort_values(
+        ["country_code", "year"]
     )
 
-    dataframe["country"] = dataframe[
-        "country_code"
-    ].map(COUNTRIES)
-
-    if dataframe["country"].isna().any():
-        raise ValueError(
-            "Unexpected country code found."
-        )
-
-    dataframe["year"] = pd.to_numeric(
-        dataframe["year"],
-        errors="coerce",
+    dataframe["tfp_growth"] = (
+        dataframe.groupby("country_code")["tfp"]
+        .pct_change()
+        * 100
     )
 
-    dataframe["tfp"] = pd.to_numeric(
-        dataframe["tfp"],
-        errors="coerce",
-    )
+    return dataframe
 
-    if dataframe["year"].isna().any():
-        raise ValueError(
-            "Invalid year values found."
-        )
 
-    print()
-    print("PWT SELECTED DATASET CHECK")
-    print("=" * 72)
+def validate_output(dataframe):
+    """Validate the expected JESI P2 panel."""
 
-    print(
-        f"Rows after country/year filtering: "
-        f"{len(dataframe)}"
-    )
-
-    print(
-        f"Expected rows: "
-        f"{len(COUNTRIES) * (END_YEAR - START_YEAR + 1)}"
-    )
-
-    print()
-
-    missing_tfp = dataframe[
-        dataframe["tfp"].isna()
-    ][
-        [
-            "country_code",
-            "country",
-            "year",
-            "tfp",
-        ]
-    ].copy()
-
-    if not missing_tfp.empty:
-
-        print()
-        print("MISSING PWT TFP OBSERVATIONS")
-        print("=" * 72)
-
-        print(
-            missing_tfp.to_string(
-                index=False
-            )
-        )
-
-        print()
-        print(
-            f"Number of missing TFP observations: "
-            f"{len(missing_tfp)}"
-        )
-
-        print()
-        print(
-            "The dataset will NOT interpolate, "
-            "impute, or fabricate missing TFP values."
-        )
-
-        raise ValueError(
-            "Missing TFP observations found. "
-            "See the country-year observations above."
-        )
-
-    if (dataframe["tfp"] <= 0).any():
-        raise ValueError(
-            "TFP values must be positive."
-        )
-
-    expected_rows = (
-        len(COUNTRIES)
-        * (END_YEAR - START_YEAR + 1)
+    expected_rows = len(COUNTRIES) * (
+        END_YEAR - START_YEAR + 1
     )
 
     if len(dataframe) != expected_rows:
         raise ValueError(
-            "Unexpected number of PWT observations. "
-            f"Expected {expected_rows}, "
+            f"Expected {expected_rows} rows, "
             f"found {len(dataframe)}."
         )
 
-    duplicates = dataframe.duplicated(
-        subset=[
-            "country_code",
-            "year",
-        ]
+    expected_country_codes = set(COUNTRIES)
+
+    actual_country_codes = set(
+        dataframe["country_code"].unique()
     )
 
-    if duplicates.any():
+    if actual_country_codes != expected_country_codes:
+        raise ValueError(
+            "Country coverage mismatch. "
+            f"Expected={expected_country_codes}, "
+            f"Found={actual_country_codes}"
+        )
+
+    expected_years = set(
+        range(START_YEAR, END_YEAR + 1)
+    )
+
+    actual_years = set(
+        dataframe["year"].astype(int).unique()
+    )
+
+    if actual_years != expected_years:
+        raise ValueError(
+            "Year coverage mismatch. "
+            f"Expected={expected_years}, "
+            f"Found={actual_years}"
+        )
+
+    if dataframe.duplicated(
+        subset=["country_code", "year"]
+    ).any():
         raise ValueError(
             "Duplicate country-year observations found."
         )
 
-    dataframe = calculate_tfp_growth(
-        dataframe
-    )
+    level_missing = dataframe["tfp"].isna()
 
-    dataframe = dataframe[
-        [
-            "country_code",
-            "country",
-            "year",
-            "tfp",
-            "tfp_growth",
-        ]
+    if level_missing.any():
+        print(
+            "Missing TFP levels detected:"
+        )
+        print(
+            dataframe.loc[
+                level_missing,
+                [
+                    "country_code",
+                    "country",
+                    "year",
+                    "tfp",
+                ],
+            ].to_string(index=False)
+        )
+
+        raise ValueError(
+            "APO TFP levels contain missing observations."
+        )
+
+    growth_panel = dataframe[
+        dataframe["year"] >= START_YEAR + 1
     ]
 
+    if growth_panel["tfp_growth"].isna().any():
+        raise ValueError(
+            "Missing TFP growth observations for "
+            "2016-2023."
+        )
+
+    if not np.isfinite(
+        growth_panel["tfp_growth"]
+    ).all():
+        raise ValueError(
+            "Non-finite TFP growth values found."
+        )
+
+    print(
+        f"Validated {len(dataframe)} TFP level observations."
+    )
+
+    print(
+        f"Validated {len(growth_panel)} TFP growth observations."
+    )
+
+
+def main():
+    content = download_apo_excel()
+
+    dataframe = load_apo_data(content)
+
+    (
+        country_code_column,
+        country_column,
+        year_column,
+        tfp_column,
+    ) = identify_columns(dataframe)
+
+    dataframe = standardize_country_codes(
+        dataframe,
+        country_code_column,
+        country_column,
+    )
+
+    dataframe = calculate_tfp_growth(
+        dataframe,
+        year_column,
+        tfp_column,
+    )
+
+    output_columns = [
+        "country_code",
+        "country",
+        "year",
+        "tfp",
+        "tfp_growth",
+    ]
+
+    dataframe = dataframe[
+        output_columns
+    ].copy()
+
+    dataframe["year"] = dataframe["year"].astype(int)
+
     dataframe = dataframe.sort_values(
-        [
-            "country",
-            "year",
-        ]
+        ["country_code", "year"]
     ).reset_index(drop=True)
+
+    print("\nAPO TFP coverage:")
+    print(
+        dataframe.groupby(
+            "country_code"
+        )["year"]
+        .agg(["min", "max", "count"])
+        .to_string()
+    )
+
+    print("\nMissing observations:")
+    missing = dataframe[
+        dataframe["tfp"].isna()
+    ]
+
+    if missing.empty:
+        print("None")
+    else:
+        print(
+            missing.to_string(index=False)
+        )
+
+    validate_output(dataframe)
 
     OUTPUT_FILE.parent.mkdir(
         parents=True,
@@ -499,33 +614,13 @@ def main():
         index=False,
     )
 
-    print()
-    print("P2 DATA SUMMARY")
-    print("=" * 72)
-
     print(
-        dataframe.to_string(
-            index=False
-        )
+        f"\nSaved: {OUTPUT_FILE}"
     )
 
-    print()
-    print("OUTPUT")
-    print("=" * 72)
-
     print(
-        f"Saved: {OUTPUT_FILE}"
-    )
-
-    print()
-    print(
-        f"Rows: {len(dataframe)}"
-    )
-
-    print()
-    print(
-        "JESI Productivity P2 data "
-        "download completed successfully."
+        "\nJESI Productivity P2 APO download "
+        "completed successfully."
     )
 
 
