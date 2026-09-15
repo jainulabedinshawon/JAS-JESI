@@ -35,9 +35,8 @@ def construct_connectivity_score(
     Construct the Connectivity (C) pillar score
     from three normalized indicators.
 
-    A geometric mean is used so that weakness
-    in one dimension is not completely hidden
-    by stronger performance in other dimensions.
+    The Connectivity pillar uses an arithmetic mean
+    of the three normalized indicator scores.
     """
 
     values = [
@@ -56,9 +55,4 @@ def construct_connectivity_score(
             "All Connectivity scores must be between 0 and 1."
         )
 
-    product = 1.0
-
-    for value in values:
-        product *= float(value)
-
-    return product ** (1.0 / 3.0)
+    return sum(values) / len(values)
