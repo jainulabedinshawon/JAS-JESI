@@ -32,3 +32,25 @@ jobs:
       - name: Validate Resilience data
         run: |
           PYTHONPATH=. python scripts/09_validate_resilience_data.py
+
+      - name: Analyze Resilience distribution
+        run: |
+          PYTHONPATH=. python scripts/10_analyze_resilience_distribution.py
+
+      - name: Score Resilience pillar
+        run: |
+          PYTHONPATH=. python scripts/11_score_resilience_pillar.py
+
+      - name: Upload Resilience outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: jesi-resilience-pipeline-output
+          path: |
+            data/raw/resilience_indicators_2015_2024.csv
+            data/processed/resilience_pooled_descriptive_statistics.csv
+            data/processed/resilience_country_statistics.csv
+            data/processed/resilience_pooled_percentiles.csv
+            data/processed/resilience_country_year_extremes.csv
+            data/processed/resilience_candidate_reference_zones.csv
+            data/processed/resilience_nonlinear_indicator_notes.csv
+            data/processed/resilience_pillar_scores_2015_2024.csv
