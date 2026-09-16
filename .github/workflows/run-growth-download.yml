@@ -22,6 +22,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Download Growth data
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           python scripts/01_download_growth_data.py
 
