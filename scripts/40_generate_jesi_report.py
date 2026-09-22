@@ -3,7 +3,7 @@ JAS Unified Economic Strength Index (JESI)
 Final Research Report Generator
 
 Creates a concise research-ready Markdown report
-from the final JESI outputs.
+from the validated JESI outputs.
 """
 
 from pathlib import Path
@@ -12,52 +12,178 @@ import pandas as pd
 
 
 RESULTS_DIR = Path("data/results")
+
 OUTPUT_FILE = Path(
     "docs/JESI_Final_Results_Report.md"
 )
 
 FINAL_FILE = (
-    RESULTS_DIR / "final_jesi_country_results.csv"
+    RESULTS_DIR
+    / "final_jesi_country_results.csv"
 )
 
 ROBUSTNESS_FILE = (
-    RESULTS_DIR / "jesi_robustness_country_results.csv"
+    RESULTS_DIR
+    / "jesi_robustness_country_results.csv"
+)
+
+CORRELATION_FILE = (
+    RESULTS_DIR
+    / "jesi_robustness_correlations.csv"
 )
 
 YEARLY_FILE = (
-    RESULTS_DIR / "final_jesi_yearly_summary.csv"
+    RESULTS_DIR
+    / "final_jesi_yearly_summary.csv"
 )
+
+
+def check_file(path):
+    """Check that a required file exists."""
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Required file is missing: {path}"
+        )
+
+
+def format_number(value, decimals=3):
+    """Format numeric values for the report."""
+
+    if pd.isna(value):
+        return "N/A"
+
+    return f"{float(value):.{decimals}f}"
 
 
 def main():
     print("=" * 70)
-    print("JESI FINAL RESEARCH REPORT GENERATOR")
+    print("JAS Unified Economic Strength Index")
+    print("Final Research Report Generator")
     print("=" * 70)
+
+    # ---------------------------------------------------------------
+    # Check required files
+    # ---------------------------------------------------------------
 
     required_files = [
         FINAL_FILE,
         ROBUSTNESS_FILE,
+        CORRELATION_FILE,
         YEARLY_FILE,
     ]
 
-    for file in required_files:
-        if not file.exists():
-            raise FileNotFoundError(
-                f"Missing required file: {file}"
-            )
+    for path in required_files:
+        check_file(path)
 
-    final_df = pd.read_csv(FINAL_FILE)
-    robustness_df = pd.read_csv(ROBUSTNESS_FILE)
-    yearly_df = pd.read_csv(YEARLY_FILE)
+    # ---------------------------------------------------------------
+    # Load data
+    # ---------------------------------------------------------------
 
-    OUTPUT_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True,
+    final_df = pd.read_csv(
+        FINAL_FILE
     )
 
-    # ------------------------------------------------------------
+    robustness_df = pd.read_csv(
+        ROBUSTNESS_FILE
+    )
+
+    correlation_df = pd.read_csv(
+        CORRELATION_FILE
+    )
+
+    yearly_df = pd.read_csv(
+        YEARLY_FILE
+    )
+
+    # ---------------------------------------------------------------
+    # Validate minimum schemas
+    # ---------------------------------------------------------------
+
+    final_required = {
+        "rank",
+        "country_code",
+        "country",
+        "G",
+        "P",
+        "C",
+        "R",
+        "A",
+        "JESI",
+        "JESI_std",
+        "observations",
+    }
+
+    missing = (
+        final_required
+        - set(final_df.columns)
+    )
+
+    if missing:
+        raise ValueError(
+            "Final JESI results are missing columns: "
+            f"{sorted(missing)}"
+        )
+
+    robustness_required = {
+        "country_code",
+        "country",
+        "JAS_arithmetic",
+        "JAS_geometric",
+        "Equal_arithmetic",
+        "Equal_geometric",
+    }
+
+    missing = (
+        robustness_required
+        - set(robustness_df.columns)
+    )
+
+    if missing:
+        raise ValueError(
+            "Robustness results are missing columns: "
+            f"{sorted(missing)}"
+        )
+
+    yearly_required = {
+        "year",
+        "mean",
+        "median",
+        "minimum",
+        "maximum",
+        "observations",
+    }
+
+    missing = (
+        yearly_required
+        - set(yearly_df.columns)
+    )
+
+    if missing:
+        raise ValueError(
+            "Yearly JESI results are missing columns: "
+            f"{sorted(missing)}"
+        )
+
+    # ---------------------------------------------------------------
+    # Sort final country results
+    # ---------------------------------------------------------------
+
+    final_df = final_df.sort_values(
+        "rank"
+    ).reset_index(drop=True)
+
+    robustness_df = robustness_df.sort_values(
+        "country_code"
+    ).reset_index(drop=True)
+
+    yearly_df = yearly_df.sort_values(
+        "year"
+    ).reset_index(drop=True)
+
+    # ---------------------------------------------------------------
     # Country results table
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
 
     country_table = final_df[
         [
@@ -69,51 +195,88 @@ def main():
             "R",
             "A",
             "JESI",
+            "JESI_std",
+            "observations",
         ]
     ].copy()
 
-    country_table.columns = [
-        "Rank",
-        "Country",
+    country_table = country_table.rename(
+        columns={
+            "rank": "Rank",
+            "country": "Country",
+            "G": "Growth",
+            "P": "Productivity",
+            "C": "Connectivity",
+            "R": "Resilience",
+            "A": "Strategic Autonomy",
+            "JESI": "JESI",
+            "JESI_std": "JESI SD",
+            "observations": "Observations",
+        }
+    )
+
+    for column in [
         "Growth",
         "Productivity",
         "Connectivity",
         "Resilience",
         "Strategic Autonomy",
         "JESI",
-    ]
+        "JESI SD",
+    ]:
+        country_table[column] = country_table[
+            column
+        ].map(format_number)
 
-    country_table = country_table.sort_values(
+    country_table[
         "Rank"
-    )
+    ] = country_table[
+        "Rank"
+    ].astype(int)
 
-    # ------------------------------------------------------------
+    country_table[
+        "Observations"
+    ] = country_table[
+        "Observations"
+    ].astype(int)
+
+    # ---------------------------------------------------------------
     # Robustness table
-    # ------------------------------------------------------------
-
-    robustness_columns = [
-        "country",
-        "JAS_arithmetic",
-        "JAS_geometric",
-        "Equal_arithmetic",
-        "Equal_geometric",
-    ]
+    # ---------------------------------------------------------------
 
     robustness_table = robustness_df[
-        robustness_columns
+        [
+            "country",
+            "JAS_arithmetic",
+            "JAS_geometric",
+            "Equal_arithmetic",
+            "Equal_geometric",
+        ]
     ].copy()
 
-    robustness_table.columns = [
-        "Country",
+    robustness_table = robustness_table.rename(
+        columns={
+            "country": "Country",
+            "JAS_arithmetic": "JAS Arithmetic",
+            "JAS_geometric": "JAS Geometric",
+            "Equal_arithmetic": "Equal Arithmetic",
+            "Equal_geometric": "Equal Geometric",
+        }
+    )
+
+    for column in [
         "JAS Arithmetic",
         "JAS Geometric",
         "Equal Arithmetic",
         "Equal Geometric",
-    ]
+    ]:
+        robustness_table[column] = robustness_table[
+            column
+        ].map(format_number)
 
-    # ------------------------------------------------------------
-    # Yearly summary
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Yearly summary table
+    # ---------------------------------------------------------------
 
     yearly_table = yearly_df[
         [
@@ -126,224 +289,261 @@ def main():
         ]
     ].copy()
 
-    yearly_table.columns = [
-        "Year",
+    yearly_table = yearly_table.rename(
+        columns={
+            "year": "Year",
+            "mean": "Mean JESI",
+            "median": "Median JESI",
+            "minimum": "Minimum",
+            "maximum": "Maximum",
+            "observations": "Observations",
+        }
+    )
+
+    for column in [
         "Mean JESI",
         "Median JESI",
-        "Minimum JESI",
-        "Maximum JESI",
-        "Observations",
-    ]
+        "Minimum",
+        "Maximum",
+    ]:
+        yearly_table[column] = yearly_table[
+            column
+        ].map(format_number)
 
-    # ------------------------------------------------------------
-    # Report
-    # ------------------------------------------------------------
+    yearly_table[
+        "Year"
+    ] = yearly_table[
+        "Year"
+    ].astype(int)
 
-    report = []
+    yearly_table[
+        "Observations"
+    ] = yearly_table[
+        "Observations"
+    ].astype(int)
 
-    report.append(
-        "# JAS Unified Economic Strength Index (JESI)"
-    )
+    # ---------------------------------------------------------------
+    # Robustness correlations
+    # ---------------------------------------------------------------
 
-    report.append(
-        "## Final Empirical Results Report"
-    )
+    correlation_lines = []
 
-    report.append("")
+    for _, row in correlation_df.iterrows():
+        comparison = row["comparison"]
+        correlation = row[
+            "spearman_correlation"
+        ]
 
-    report.append(
-        "> A Data-Driven Framework for Measuring "
-        "Structural Economic Strength."
-    )
-
-    report.append("")
-
-    report.append(
-        "### 1. Framework"
-    )
-
-    report.append("")
-
-    report.append(
-        "JESI evaluates structural economic strength "
-        "through five pillars:"
-    )
-
-    report.append("")
-
-    report.append(
-        "- **G — Growth**: 20%"
-    )
-    report.append(
-        "- **P — Productivity**: 25%"
-    )
-    report.append(
-        "- **C — Connectivity**: 20%"
-    )
-    report.append(
-        "- **R — Resilience**: 20%"
-    )
-    report.append(
-        "- **A — Strategic Autonomy**: 15%"
-    )
-
-    report.append("")
-
-    report.append(
-        "The baseline index uses a weighted geometric "
-        "aggregation of the five normalized pillars."
-    )
-
-    report.append("")
-
-    report.append(
-        "### 2. Final Country Results"
-    )
-
-    report.append("")
-
-    report.append(
-        country_table.to_markdown(
-            index=False,
-            floatfmt=".4f",
+        correlation_lines.append(
+            f"- **{comparison}:** "
+            f"{format_number(correlation, 4)}"
         )
+
+    correlation_text = "\n".join(
+        correlation_lines
     )
 
-    report.append("")
+    # ---------------------------------------------------------------
+    # Study period and sample
+    # ---------------------------------------------------------------
 
-    report.append(
-        "### 3. Robustness Results"
+    start_year = int(
+        yearly_df["year"].min()
     )
 
-    report.append("")
-
-    report.append(
-        "The robustness analysis compares the "
-        "JAS strategic weights with equal weights "
-        "and compares arithmetic and geometric aggregation."
+    end_year = int(
+        yearly_df["year"].max()
     )
 
-    report.append("")
-
-    report.append(
-        robustness_table.to_markdown(
-            index=False,
-            floatfmt=".4f",
-        )
+    country_count = int(
+        final_df["country_code"].nunique()
     )
 
-    report.append("")
-
-    report.append(
-        "### 4. Year-Level JESI Summary"
+    total_observations = int(
+        yearly_df["observations"].sum()
     )
 
-    report.append("")
+    # ---------------------------------------------------------------
+    # Markdown report
+    # ---------------------------------------------------------------
 
-    report.append(
-        yearly_table.to_markdown(
-            index=False,
-            floatfmt=".4f",
-        )
-    )
+    report = f"""# JAS Unified Economic Strength Index (JESI)
 
-    report.append("")
+## Final Empirical Results Report
 
-    report.append(
-        "### 5. Interpretation"
-    )
+**Version:** Master Version 1.0  
+**Study period:** {start_year}-{end_year}  
+**Benchmark countries:** {country_count}  
+**Country-year observations:** {total_observations}
 
-    report.append("")
+---
 
-    report.append(
-        "JESI is designed to complement GDP-based "
-        "economic comparisons by incorporating "
-        "growth, productivity, global connectivity, "
-        "shock resilience, and strategic autonomy."
-    )
+## 1. Framework
 
-    report.append("")
+The JAS Unified Economic Strength Index (JESI) is a multidimensional
+framework designed to evaluate economic strength through five structural
+pillars:
 
-    report.append(
-        "The index should be interpreted as a "
-        "composite measurement framework rather "
-        "than a causal model. Results remain "
-        "sensitive to data revisions, normalization "
-        "choices, indicator availability, and weighting assumptions."
-    )
+- **G — Growth**
+- **P — Productivity**
+- **C — Connectivity**
+- **R — Resilience**
+- **A — Strategic Autonomy**
 
-    report.append("")
+The baseline weighting structure is:
 
-    report.append(
-        "### 6. Benchmark Sample"
-    )
+| Pillar | Weight |
+|---|---:|
+| Growth | 0.20 |
+| Productivity | 0.25 |
+| Connectivity | 0.20 |
+| Resilience | 0.20 |
+| Strategic Autonomy | 0.15 |
 
-    report.append("")
+The baseline aggregation is a weighted geometric index:
 
-    report.append(
-        "- Countries: Bangladesh, India, Viet Nam, "
-        "Indonesia, Malaysia"
-    )
+`JESI = 100 × G^0.20 × P^0.25 × C^0.20 × R^0.20 × A^0.15`
 
-    report.append(
-        "- Common empirical period: 2016–2023"
-    )
+All pillar scores are normalized to the interval (0, 1].
 
-    report.append(
-        "- JESI scale: 0–100"
-    )
+---
 
-    report.append(
-        "- Baseline weights: JAS Strategic Weights"
-    )
+## 2. Final Country Results
 
-    report.append("")
+{country_table.to_markdown(index=False)}
 
-    report.append(
-        "### 7. Reproducibility"
-    )
+---
 
-    report.append("")
+## 3. Robustness Analysis
 
-    report.append(
-        "All calculations are implemented through "
-        "the repository's Python pipeline and can be "
-        "reproduced from the underlying processed datasets."
-    )
+The robustness module compares the baseline strategic weighting with
+equal weighting and compares arithmetic with geometric aggregation.
 
-    report.append("")
+{robustness_table.to_markdown(index=False)}
 
-    report.append(
-        "### 8. Research Status"
-    )
+### Rank Correlations
 
-    report.append("")
+{correlation_text}
 
-    report.append(
-        "**Status: Final empirical pipeline generated.**"
-    )
+These correlations describe the degree of rank-order similarity between
+the tested specifications. They are sensitivity measures rather than
+proof that one specification is universally superior.
 
-    report.append("")
+---
 
-    report.append(
-        "Further research may include historical "
-        "backtesting, alternative normalization, "
-        "additional countries, statistical weight "
-        "estimation, and external validation."
+## 4. Year-Level JESI Summary
+
+{yearly_table.to_markdown(index=False)}
+
+---
+
+## 5. Interpretation
+
+The final JESI results provide a multidimensional representation of
+economic strength across the five benchmark countries during the
+{start_year}-{end_year} common sample.
+
+The pillar structure allows economic performance to be examined beyond
+a single output measure by separating growth, productivity, connectivity,
+resilience, and strategic autonomy.
+
+Country-level differences should therefore be interpreted together with
+the underlying pillar scores rather than through the composite score
+alone.
+
+The robustness results indicate how sensitive the measured country
+ordering is to alternative weighting and aggregation specifications.
+They should be treated as methodological sensitivity evidence, not as
+proof of causal relationships.
+
+---
+
+## 6. Methodological Status
+
+JESI is a proposed composite economic-strength framework developed by
+JAS. The present results represent an empirical implementation of the
+specified Master Version 1.0 methodology for the stated benchmark
+sample and period.
+
+The index should not be interpreted as an established international
+standard or as a causal measure of economic performance.
+
+Important methodological limitations include:
+
+1. Indicator availability and missing observations.
+2. Cross-country comparability of source data.
+3. Sensitivity to normalization choices.
+4. Sensitivity to pillar weights.
+5. Sensitivity to aggregation method.
+6. Data revisions and measurement error.
+7. The limited benchmark-country and time-period sample.
+8. The distinction between association and causality.
+
+---
+
+## 7. Reproducibility
+
+The empirical pipeline is implemented through the repository scripts.
+
+The final calculation produces:
+
+- Country-year JESI scores
+- Country-level averages
+- Country rankings
+- Robustness results
+- Year-level summaries
+- Final research-ready tables
+- This research report
+
+The final validation script checks data completeness, duplicate
+country-year observations, score ranges, mathematical consistency,
+country aggregation, ranking integrity, yearly aggregation, research
+table consistency, and robustness-output integrity.
+
+---
+
+## 8. Research Status
+
+**Pipeline status: Empirical results generated and validated.**
+
+The reported results are specific to the documented JESI Master Version
+1.0 methodology, benchmark sample, data sources, normalization rules,
+weights, and aggregation choices.
+
+Further research should examine historical back-testing, alternative
+normalization methods, alternative indicator sets, statistical weighting
+approaches, broader country coverage, and external validation.
+"""
+
+    # ---------------------------------------------------------------
+    # Write report
+    # ---------------------------------------------------------------
+
+    OUTPUT_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
     OUTPUT_FILE.write_text(
-        "\n".join(report),
+        report,
         encoding="utf-8",
     )
 
+    # ---------------------------------------------------------------
+    # Console output
+    # ---------------------------------------------------------------
+
     print()
-    print(f"Report created: {OUTPUT_FILE}")
+    print(
+        f"Saved: {OUTPUT_FILE}"
+    )
 
     print()
     print("=" * 70)
     print("STATUS: GREEN")
-    print("Final JESI research report generated.")
+    print(
+        "JESI research report generated successfully."
+    )
     print("=" * 70)
 
 
