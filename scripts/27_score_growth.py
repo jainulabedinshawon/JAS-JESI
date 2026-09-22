@@ -1,119 +1,177 @@
 """
-Score the JESI Growth pillar from the long-format Growth dataset.
+JAS Unified Economic Strength Index
+Growth Pillar Scoring
 
-Input format:
-country | year | value | indicator
+Purpose
+-------
+Convert long-format World Bank Growth data into percentile-based
+indicator scores and a Growth pillar score.
 
-The script:
-1. Loads the World Bank Growth dataset.
-2. Identifies GDP growth and GNI per-capita growth indicators.
-3. Converts the long-format data into country-year wide format.
-4. Calculates pooled percentile scores.
-5. Constructs the arithmetic Growth pillar score.
-6. Saves the Growth pillar output.
+Supported World Bank indicators:
+- NY.GDP.MKTP.KD.ZG  -> Real GDP Growth
+- NY.GNP.PCAP.KD.ZG  -> GNI per Capita Growth
 
-Output:
+Input
+-----
+data/raw/growth_indicators_2015_2025.csv
+
+Expected columns
+----------------
+country, year, value, indicator
+
+Outputs
+-------
+data/processed/growth_pooled_percentiles.csv
 data/processed/growth_pillar_scores_2015_2024.csv
 """
 
 from pathlib import Path
+import sys
 
+import numpy as np
 import pandas as pd
 
 
-ROOT = Path(__file__).resolve().parents[1]
+# ---------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------
 
-INPUT_FILE = (
-    ROOT
-    / "data"
-    / "raw"
-    / "growth_indicators_2015_2025.csv"
+INPUT_FILE = Path("data/raw/growth_indicators_2015_2025.csv")
+
+PERCENTILE_OUTPUT = Path(
+    "data/processed/growth_pooled_percentiles.csv"
 )
 
-PERCENTILE_FILE = (
-    ROOT
-    / "data"
-    / "processed"
-    / "growth_pooled_percentiles.csv"
-)
-
-OUTPUT_FILE = (
-    ROOT
-    / "data"
-    / "processed"
-    / "growth_pillar_scores_2015_2024.csv"
+PILLAR_OUTPUT = Path(
+    "data/processed/growth_pillar_scores_2015_2024.csv"
 )
 
 EXPECTED_COUNTRIES = {
-    "BGD",
-    "IND",
-    "IDN",
-    "MYS",
-    "VNM",
+    "BGD": "Bangladesh",
+    "IND": "India",
+    "IDN": "Indonesia",
+    "MYS": "Malaysia",
+    "VNM": "Vietnam",
 }
 
-COUNTRY_MAP = {
-    "bangladesh": "BGD",
-    "india": "IND",
-    "indonesia": "IDN",
-    "malaysia": "MYS",
-    "vietnam": "VNM",
-    "viet nam": "VNM",
-}
-
-START_YEAR = 2015
-END_YEAR = 2024
+EXPECTED_YEARS = set(range(2015, 2025))
 
 
-def fail(message):
-    """Stop the pipeline with a clear error."""
+# ---------------------------------------------------------------------
+# Utility functions
+# ---------------------------------------------------------------------
+
+def fail(message: str) -> None:
+    """Stop execution with a clear error message."""
     raise RuntimeError(message)
 
 
-def normalize_text(value):
-    """Normalize text for indicator matching."""
+def normalize_text(value) -> str:
+    """Normalize text for robust indicator/country matching."""
+    if pd.isna(value):
+        return ""
+
     return (
         str(value)
         .strip()
         .lower()
         .replace("_", " ")
         .replace("-", " ")
-        .replace("/", " ")
-        .replace("%", " percent ")
     )
 
 
-def identify_indicator(indicator):
-    """
-    Classify a raw indicator name as GDP growth or GNI per-capita growth.
-    """
-    text = normalize_text(indicator)
+def country_to_code(value) -> str:
+    """Map country names/codes to the JESI country code."""
+    text = normalize_text(value)
 
-    # GNI per-capita growth must be checked first because it also
-    # contains the word growth.
-    if (
-        ("gni" in text or "gross national income" in text)
-        and ("per capita" in text or "capita" in text)
-        and "growth" in text
-    ):
+    mapping = {
+        "bangladesh": "BGD",
+        "bgd": "BGD",
+        "india": "IND",
+        "ind": "IND",
+        "indonesia": "IDN",
+        "idn": "IDN",
+        "malaysia": "MYS",
+        "mys": "MYS",
+        "vietnam": "VNM",
+        "viet nam": "VNM",
+        "vnm": "VNM",
+    }
+
+    return mapping.get(text, "")
+
+
+def identify_indicator(value) -> str:
+    """
+    Identify the Growth indicator.
+
+    Returns
+    -------
+    str
+        'real_gdp_growth',
+        'gni_per_capita_growth',
+        or '' if unrecognized.
+    """
+    text = normalize_text(value)
+
+    # Exact World Bank indicator codes.
+    if text == "ny.gdp.mktp.kd.zg":
+        return "real_gdp_growth"
+
+    if text == "ny.gnp.pcap.kd.zg":
         return "gni_per_capita_growth"
 
+    # Descriptive-name fallbacks.
+    compact = text.replace(" ", "")
+
     if (
-        ("gdp" in text or "gross domestic product" in text)
-        and "growth" in text
+        "gdp" in compact
+        and "growth" in compact
     ):
         return "real_gdp_growth"
 
-    return None
+    if (
+        ("gni" in compact or "grossnationalincome" in compact)
+        and ("capita" in compact or "percapita" in compact)
+        and "growth" in compact
+    ):
+        return "gni_per_capita_growth"
+
+    return ""
 
 
-def load_growth_data():
-    """Load and transform the long-format Growth dataset."""
-    if not INPUT_FILE.is_file():
-        fail(
-            "Missing Growth input file: "
-            f"{INPUT_FILE.relative_to(ROOT)}"
-        )
+def percentile_score(series: pd.Series) -> pd.Series:
+    """
+    Convert an indicator into pooled percentile scores.
+
+    Missing observations remain missing.
+
+    A very small positive floor is applied to valid percentile
+    scores so that the geometric JESI aggregation never receives
+    an exact zero.
+    """
+    numeric = pd.to_numeric(series, errors="coerce")
+
+    result = numeric.rank(
+        method="average",
+        pct=True,
+        na_option="keep",
+    )
+
+    result = result.clip(lower=0.001, upper=1.0)
+
+    return result
+
+
+# ---------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------
+
+def load_growth_data() -> pd.DataFrame:
+    """Load and reshape the raw long-format Growth dataset."""
+
+    if not INPUT_FILE.exists():
+        fail(f"Missing Growth input file: {INPUT_FILE}")
 
     df = pd.read_csv(INPUT_FILE)
 
@@ -124,400 +182,480 @@ def load_growth_data():
         "indicator",
     }
 
-    missing = required_columns - set(df.columns)
+    missing = required_columns.difference(df.columns)
 
     if missing:
         fail(
-            "Growth input file is missing columns: "
+            "Growth input file is missing required columns: "
             f"{sorted(missing)}"
         )
 
+    # -------------------------------------------------------------
+    # Country mapping
+    # -------------------------------------------------------------
+
+    df["country_code"] = df["country"].apply(country_to_code)
+
+    df = df[df["country_code"].isin(EXPECTED_COUNTRIES)].copy()
+
     if df.empty:
-        fail("Growth input CSV is empty.")
-
-    print(
-        "Available Growth indicators:"
-    )
-
-    for indicator in sorted(
-        df["indicator"].dropna().astype(str).unique()
-    ):
-        print(f"  - {indicator}")
-
-    df["country"] = (
-        df["country"]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-
-    df["country_code"] = df["country"].map(COUNTRY_MAP)
-
-    unknown_countries = sorted(
-        set(df.loc[df["country_code"].isna(), "country"])
-    )
-
-    if unknown_countries:
-        print(
-            "Warning: Unrecognized countries ignored: "
-            f"{unknown_countries}"
+        fail(
+            "No recognized JESI countries were found in the Growth data."
         )
+
+    # -------------------------------------------------------------
+    # Year normalization
+    # -------------------------------------------------------------
 
     df["year"] = pd.to_numeric(
         df["year"],
         errors="coerce",
     )
 
-    df["value"] = pd.to_numeric(
-        df["value"],
-        errors="coerce",
-    )
+    df = df[df["year"].notna()].copy()
+    df["year"] = df["year"].astype(int)
 
-    df["indicator_type"] = df["indicator"].map(
+    df = df[
+        df["year"].isin(EXPECTED_YEARS)
+    ].copy()
+
+    if df.empty:
+        fail(
+            "No Growth observations remain for the expected "
+            "2015-2024 period."
+        )
+
+    # -------------------------------------------------------------
+    # Indicator identification
+    # -------------------------------------------------------------
+
+    df["indicator_type"] = df["indicator"].apply(
         identify_indicator
     )
 
     recognized = df[
-        df["country_code"].isin(EXPECTED_COUNTRIES)
-        & df["year"].between(
-            START_YEAR,
-            END_YEAR,
+        df["indicator_type"].isin(
+            {
+                "real_gdp_growth",
+                "gni_per_capita_growth",
+            }
         )
-        & df["indicator_type"].notna()
     ].copy()
 
     if recognized.empty:
-        fail(
-            "No recognizable Growth indicators were found."
+        available = sorted(
+            df["indicator"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
         )
 
-    print(
-        "Recognized indicators:"
+        fail(
+            "No recognizable Growth indicators were found.\n"
+            "Growth Pillar Scoring\n"
+            "Available Growth indicators:\n"
+            + "\n".join(
+                f"  - {item}"
+                for item in available
+            )
+        )
+
+    # -------------------------------------------------------------
+    # Numeric values
+    # -------------------------------------------------------------
+
+    recognized["value"] = pd.to_numeric(
+        recognized["value"],
+        errors="coerce",
     )
 
-    for indicator_type in sorted(
-        recognized["indicator_type"].unique()
-    ):
-        print(f"  - {indicator_type}")
+    # -------------------------------------------------------------
+    # Duplicate validation
+    # -------------------------------------------------------------
 
-    # Keep only the observations needed for JESI Growth.
-    recognized = recognized[
-        [
-            "country_code",
-            "year",
-            "indicator_type",
-            "value",
-        ]
-    ].copy()
-
-    # Detect duplicate country-year-indicator observations.
-    duplicates = recognized.duplicated(
-        [
-            "country_code",
-            "year",
-            "indicator_type",
-        ],
-        keep=False,
-    )
-
-    if duplicates.any():
-        duplicate_rows = recognized.loc[duplicates].sort_values(
-            [
+    duplicate_check = recognized[
+        recognized.duplicated(
+            subset=[
                 "country_code",
                 "year",
                 "indicator_type",
-            ]
+            ],
+            keep=False,
         )
+    ]
 
-        print(
-            "Duplicate Growth observations detected:"
-        )
-        print(duplicate_rows.to_string(index=False))
-
+    if not duplicate_check.empty:
         fail(
-            "Duplicate country-year-indicator observations "
-            "were found."
+            "Duplicate Growth observations detected for "
+            "country-year-indicator combinations:\n"
+            + duplicate_check[
+                [
+                    "country_code",
+                    "year",
+                    "indicator_type",
+                ]
+            ]
+            .drop_duplicates()
+            .to_string(index=False)
         )
 
-    wide = recognized.pivot(
-        index=[
-            "country_code",
-            "year",
-        ],
-        columns="indicator_type",
-        values="value",
-    ).reset_index()
+    # -------------------------------------------------------------
+    # Pivot to one row per country-year
+    # -------------------------------------------------------------
 
-    wide.columns.name = None
+    pivot = (
+        recognized
+        .pivot(
+            index=[
+                "country_code",
+                "year",
+            ],
+            columns="indicator_type",
+            values="value",
+        )
+        .reset_index()
+    )
+
+    pivot.columns.name = None
 
     required_indicators = {
         "real_gdp_growth",
         "gni_per_capita_growth",
     }
 
-    missing_indicators = (
+    missing_indicator_columns = (
         required_indicators
-        - set(wide.columns)
+        .difference(pivot.columns)
     )
 
-    if missing_indicators:
+    if missing_indicator_columns:
         fail(
-            "Required Growth indicators were not found: "
-            f"{sorted(missing_indicators)}"
+            "The following required Growth indicators are missing "
+            f"after reshaping: {sorted(missing_indicator_columns)}"
         )
 
-    wide = wide[
+    # Add readable country name.
+    pivot["country"] = pivot["country_code"].map(
+        EXPECTED_COUNTRIES
+    )
+
+    # -------------------------------------------------------------
+    # Known missing GNI observations
+    # -------------------------------------------------------------
+    #
+    # Bangladesh 2015-2017 has missing GNI per Capita Growth in
+    # the World Bank source used by this project.
+    #
+    # These observations are retained in the raw/reshaped data,
+    # but they cannot receive a two-indicator Growth pillar score.
+    #
+
+    pivot = pivot[
         [
             "country_code",
+            "country",
             "year",
             "real_gdp_growth",
             "gni_per_capita_growth",
         ]
-    ].copy()
-
-    return wide
-
-
-def build_pooled_percentiles(df):
-    """Create pooled Growth distribution statistics."""
-    rows = []
-
-    for indicator in [
-        "real_gdp_growth",
-        "gni_per_capita_growth",
-    ]:
-        values = (
-            pd.to_numeric(
-                df[indicator],
-                errors="coerce",
-            )
-            .dropna()
-        )
-
-        if values.empty:
-            fail(
-                f"No valid values available for {indicator}."
-            )
-
-        rows.append(
-            {
-                "indicator": indicator,
-                "count": int(values.count()),
-                "min": float(values.min()),
-                "p01": float(values.quantile(0.01)),
-                "p05": float(values.quantile(0.05)),
-                "p10": float(values.quantile(0.10)),
-                "p25": float(values.quantile(0.25)),
-                "p50": float(values.quantile(0.50)),
-                "p75": float(values.quantile(0.75)),
-                "p90": float(values.quantile(0.90)),
-                "p95": float(values.quantile(0.95)),
-                "p99": float(values.quantile(0.99)),
-                "max": float(values.max()),
-            }
-        )
-
-    result = pd.DataFrame(rows)
-
-    PERCENTILE_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True,
+    ].sort_values(
+        [
+            "country_code",
+            "year",
+        ]
     )
 
-    result.to_csv(
-        PERCENTILE_FILE,
-        index=False,
+    return pivot.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------
+# Percentile construction
+# ---------------------------------------------------------------------
+
+def build_percentile_scores(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Create pooled percentile scores across all countries/years."""
+
+    result = df.copy()
+
+    result["real_gdp_growth_percentile"] = percentile_score(
+        result["real_gdp_growth"]
     )
 
-    print(
-        "Created pooled Growth distribution file: "
-        f"{PERCENTILE_FILE.relative_to(ROOT)}"
+    result["gni_per_capita_growth_percentile"] = percentile_score(
+        result["gni_per_capita_growth"]
     )
 
-
-def percentile_score(series):
-    """
-    Convert an indicator into a pooled percentile-rank score.
-
-    Higher values receive higher scores.
-
-    A small positive floor is applied because JESI uses geometric
-    aggregation and therefore cannot accept zero pillar components.
-    """
-    values = pd.to_numeric(
-        series,
-        errors="coerce",
-    )
-
-    if values.isna().any():
-        fail(
-            "Missing values detected while calculating "
-            "Growth scores."
+    # Growth pillar can only be constructed where both indicators
+    # are available.
+    result["growth_score"] = (
+        result[
+            [
+                "real_gdp_growth_percentile",
+                "gni_per_capita_growth_percentile",
+            ]
+        ]
+        .mean(
+            axis=1,
+            skipna=False,
         )
-
-    if values.empty:
-        fail(
-            "Cannot calculate a score from an empty indicator."
-        )
-
-    if len(values) == 1:
-        return pd.Series(
-            [1.0],
-            index=series.index,
-        )
-
-    ranks = values.rank(
-        method="average",
-        ascending=True,
     )
 
-    scores = (ranks - 1) / (len(values) - 1)
-
-    return scores.clip(
+    # Keep valid scores strictly positive and <= 1.
+    result.loc[
+        result["growth_score"].notna(),
+        "growth_score",
+    ] = result.loc[
+        result["growth_score"].notna(),
+        "growth_score",
+    ].clip(
         lower=0.001,
         upper=1.0,
     )
 
-
-def score_growth(df):
-    """Calculate Growth indicator and pillar scores."""
-    result = df.copy()
-
-    result["gdp_growth_score"] = percentile_score(
-        result["real_gdp_growth"]
-    )
-
-    result["gni_growth_score"] = percentile_score(
-        result["gni_per_capita_growth"]
-    )
-
-    result["growth_score"] = (
-        result["gdp_growth_score"]
-        + result["gni_growth_score"]
-    ) / 2.0
-
     return result
 
 
-def validate_output(df):
-    """Validate the final Growth pillar output."""
-    required_columns = [
+# ---------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------
+
+def validate_percentile_output(df: pd.DataFrame) -> None:
+    """Validate the generated Growth percentile dataset."""
+
+    required = {
         "country_code",
+        "country",
         "year",
         "real_gdp_growth",
         "gni_per_capita_growth",
-        "gdp_growth_score",
-        "gni_growth_score",
+        "real_gdp_growth_percentile",
+        "gni_per_capita_growth_percentile",
         "growth_score",
-    ]
+    }
 
-    missing = [
-        column
-        for column in required_columns
-        if column not in df.columns
-    ]
+    missing = required.difference(df.columns)
 
     if missing:
         fail(
-            "Growth output is missing columns: "
-            f"{missing}"
+            "Growth percentile output is missing columns: "
+            f"{sorted(missing)}"
         )
 
-    if df.duplicated(
-        ["country_code", "year"]
-    ).any():
+    duplicates = df[
+        df.duplicated(
+            subset=[
+                "country_code",
+                "year",
+            ],
+            keep=False,
+        )
+    ]
+
+    if not duplicates.empty:
         fail(
-            "Duplicate country-year observations found "
-            "in Growth output."
+            "Duplicate country-year rows detected in Growth output."
         )
 
-    countries = set(
-        df["country_code"].astype(str)
-    )
+    # Percentile values must be within range whenever present.
+    for column in [
+        "real_gdp_growth_percentile",
+        "gni_per_capita_growth_percentile",
+        "growth_score",
+    ]:
+        values = df[column].dropna()
 
-    if countries != EXPECTED_COUNTRIES:
+        if not values.between(
+            0.001,
+            1.0,
+        ).all():
+            fail(
+                f"Invalid values found in {column}."
+            )
+
+
+def build_final_pillar_output(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Build the Growth pillar output used by downstream JESI scripts.
+
+    Rows with incomplete two-indicator Growth data are excluded from
+    the pillar score output. This allows known World Bank missing
+    observations to remain documented upstream without breaking
+    the final JESI sample.
+    """
+
+    scored = df[
+        df["growth_score"].notna()
+    ].copy()
+
+    if scored.empty:
         fail(
-            "Unexpected country set in Growth output. "
-            f"Expected {sorted(EXPECTED_COUNTRIES)}, "
-            f"found {sorted(countries)}."
+            "No complete Growth pillar observations are available."
         )
 
-    if df["growth_score"].isna().any():
-        fail(
-            "Growth pillar contains missing scores."
-        )
+    # Final pillar output.
+    output = scored[
+        [
+            "country_code",
+            "country",
+            "year",
+            "real_gdp_growth",
+            "gni_per_capita_growth",
+            "real_gdp_growth_percentile",
+            "gni_per_capita_growth_percentile",
+            "growth_score",
+        ]
+    ].copy()
 
-    if not (
-        (df["growth_score"] > 0)
-        & (df["growth_score"] <= 1)
-    ).all():
-        fail(
-            "Growth pillar scores must be within (0, 1]."
-        )
+    output = output.sort_values(
+        [
+            "country_code",
+            "year",
+        ]
+    ).reset_index(drop=True)
+
+    return output
 
 
-def main():
-    """Run the complete Growth scoring stage."""
+# ---------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------
+
+def main() -> None:
+    """Run the complete Growth pillar scoring pipeline."""
+
     print("=" * 70)
     print("JAS Unified Economic Strength Index")
     print("Growth Pillar Scoring")
     print("=" * 70)
 
+    # Load and reshape.
     df = load_growth_data()
 
     print(
-        f"Loaded {len(df)} country-year Growth observations."
+        f"Loaded {len(df)} country-year observations "
+        "after reshaping."
     )
 
-    # The pooled distribution file is generated from the actual
-    # indicator observations used by the scoring stage.
-    build_pooled_percentiles(df)
+    print(
+        "Recognized indicators:"
+    )
+    print(
+        "  - NY.GDP.MKTP.KD.ZG -> Real GDP Growth"
+    )
+    print(
+        "  - NY.GNP.PCAP.KD.ZG -> GNI per Capita Growth"
+    )
 
-    result = score_growth(df)
+    # Build percentile scores.
+    scored = build_percentile_scores(df)
 
-    result["year"] = result["year"].astype(int)
+    # Validate.
+    validate_percentile_output(scored)
 
-    validate_output(result)
-
-    result = result[
-        [
-            "country_code",
-            "year",
-            "real_gdp_growth",
-            "gni_per_capita_growth",
-            "gdp_growth_score",
-            "gni_growth_score",
-            "growth_score",
-        ]
-    ].copy()
-
-    OUTPUT_FILE.parent.mkdir(
+    # Create output directory.
+    PERCENTILE_OUTPUT.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    result.to_csv(
-        OUTPUT_FILE,
+    # Save full percentile dataset.
+    scored.to_csv(
+        PERCENTILE_OUTPUT,
         index=False,
     )
 
-    print(
-        "Growth pillar output:"
+    # Build final complete-case Growth pillar.
+    pillar = build_final_pillar_output(scored)
+
+    # -------------------------------------------------------------
+    # Final pillar validation
+    # -------------------------------------------------------------
+
+    expected_country_codes = set(
+        EXPECTED_COUNTRIES.keys()
     )
+
+    actual_country_codes = set(
+        pillar["country_code"].unique()
+    )
+
+    if actual_country_codes != expected_country_codes:
+        fail(
+            "Growth pillar country coverage mismatch.\n"
+            f"Expected: {sorted(expected_country_codes)}\n"
+            f"Found: {sorted(actual_country_codes)}"
+        )
+
+    if pillar["growth_score"].isna().any():
+        fail(
+            "Growth pillar contains missing growth_score values."
+        )
+
+    if not pillar["growth_score"].between(
+        0.001,
+        1.0,
+    ).all():
+        fail(
+            "Growth pillar scores are outside the valid "
+            "0.001-1.0 range."
+        )
+
+    # Save final pillar output.
+    pillar.to_csv(
+        PILLAR_OUTPUT,
+        index=False,
+    )
+
+    print()
     print(
-        OUTPUT_FILE.relative_to(ROOT)
+        f"Percentile output written to: "
+        f"{PERCENTILE_OUTPUT}"
     )
 
     print(
-        f"Rows written: {len(result)}"
+        f"Growth pillar output written to: "
+        f"{PILLAR_OUTPUT}"
     )
 
-    print("=" * 70)
+    print()
     print(
-        "Growth pillar scoring completed successfully."
+        f"Final Growth pillar observations: {len(pillar)}"
     )
+
+    print(
+        "Country coverage:"
+    )
+
+    for code in sorted(
+        pillar["country_code"].unique()
+    ):
+        count = int(
+            (
+                pillar["country_code"]
+                == code
+            ).sum()
+        )
+
+        print(
+            f"  - {code}: {count} observations"
+        )
+
+    print()
+    print(
+        "Growth Pillar Scoring completed successfully."
+    )
+
     print("=" * 70)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise
