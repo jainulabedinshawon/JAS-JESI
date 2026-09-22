@@ -4,6 +4,12 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - "scripts/11_score_resilience_pillar.py"
+      - "scripts/20_construct_productivity_pillar.py"
+      - "scripts/25_construct_connectivity_pillar.py"
+      - "scripts/27_score_growth.py"
+      - "scripts/28_construct_growth_pillar.py"
+      - "scripts/35_construct_autonomy_pillar.py"
       - "scripts/36_calculate_jesi.py"
       - "scripts/37_robustness_tests.py"
       - "scripts/38_generate_final_jesi_results.py"
@@ -11,6 +17,7 @@ on:
       - "scripts/40_generate_jesi_report.py"
       - "scripts/41_update_readme_jesi.py"
       - "scripts/42_final_repository_audit.py"
+      - "data/raw/**"
       - "data/processed/**"
       - ".github/workflows/final-jesi.yml"
 
@@ -41,6 +48,37 @@ jobs:
           fi
 
           pip install pandas numpy scipy openpyxl
+
+      - name: Build Growth pillar
+        run: |
+          python scripts/27_score_growth.py
+          python scripts/28_construct_growth_pillar.py
+
+      - name: Build Productivity pillar
+        run: |
+          python scripts/20_construct_productivity_pillar.py
+
+      - name: Build Connectivity pillar
+        run: |
+          python scripts/25_construct_connectivity_pillar.py
+
+      - name: Build Resilience pillar
+        run: |
+          python scripts/11_score_resilience_pillar.py
+
+      - name: Build Strategic Autonomy pillar
+        run: |
+          python scripts/35_construct_autonomy_pillar.py
+
+      - name: Verify required pillar outputs
+        run: |
+          test -f data/processed/growth_pillar_scores_2015_2024.csv
+          test -f data/processed/productivity_pillar_scores_2016_2023.csv
+          test -f data/processed/connectivity_pillar_scores_2015_2024.csv
+          test -f data/processed/resilience_pillar_scores_2015_2024.csv
+          test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
+
+          echo "All required pillar outputs are present."
 
       - name: Run final JESI calculation
         run: |
@@ -87,6 +125,7 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
             git add \
+              data/processed \
               data/results \
               docs/JESI_Final_Results_Report.md \
               README.md
