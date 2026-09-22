@@ -1,275 +1,323 @@
 """
-JESI Productivity P1 Scoring Module
+JESI Productivity Pillar — P1 Scoring
 
-JAS Unified Economic Strength Index (JESI)
-Master Version 1.0
-
-P1 Indicator:
+P1 indicator:
     GDP per Person Employed
 
-World Bank Indicator:
-    SL.GDP.PCAP.EM.KD
-
-Baseline normalization:
-    Empirical P10-P90 reference range
-
-Robustness alternatives:
-    1. Full-sample min-max
-    2. Empirical P05-P95
+This script:
+1. Reads the downloaded P1 productivity data.
+2. Recognizes common country/year/value column formats.
+3. Maps countries to JESI ISO3 codes.
+4. Computes pooled percentile scores.
+5. Writes a standardized P1 score file containing:
+       country
+       country_code
+       year
+       gdp_per_person_employed
+       productivity_p1_score
 """
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 
-INPUT_FILE = Path(
-    "data/raw/"
-    "productivity_p1_gdp_per_person_employed_2015_2024.csv"
-)
+ROOT = Path(__file__).resolve().parents[1]
 
-OUTPUT_FILE = Path(
-    "data/processed/"
-    "productivity_p1_scores_2015_2024.csv"
-)
-
-
-INDICATOR = "SL.GDP.PCAP.EM.KD"
-
-COUNTRIES = [
-    "Bangladesh",
-    "India",
-    "Viet Nam",
-    "Indonesia",
-    "Malaysia",
+INPUT_CANDIDATES = [
+    ROOT / "data" / "raw" / "productivity_p1_2016_2023.csv",
+    ROOT / "data" / "raw" / "productivity_p1.csv",
+    ROOT / "data" / "raw" / "productivity_data_2016_2023.csv",
 ]
 
-START_YEAR = 2015
-END_YEAR = 2024
+OUTPUT = ROOT / "data" / "processed" / "productivity_p1_scores_2016_2023.csv"
+
+COUNTRY_MAP = {
+    "bangladesh": ("Bangladesh", "BGD"),
+    "india": ("India", "IND"),
+    "indonesia": ("Indonesia", "IDN"),
+    "malaysia": ("Malaysia", "MYS"),
+    "vietnam": ("Vietnam", "VNM"),
+    "viet nam": ("Vietnam", "VNM"),
+}
+
+EXPECTED_COUNTRIES = {"BGD", "IND", "IDN", "MYS", "VNM"}
+EXPECTED_YEARS = set(range(2016, 2024))
 
 
-# Empirically calibrated reference range
-# based on the 2015-2024 five-country sample.
-P10_LOWER = 16916.369067
-P90_UPPER = 62856.237770
+def find_input_file() -> Path:
+    for path in INPUT_CANDIDATES:
+        if path.exists():
+            return path
 
-P05_LOWER = 15673.558895
-P95_UPPER = 65282.187498
+    raw_dir = ROOT / "data" / "raw"
 
+    candidates = sorted(raw_dir.glob("*.csv"))
 
-def normalize_positive(
-    value,
-    lower,
-    upper,
-):
-    """
-    Normalize a positive-direction indicator
-    to a 0-1 score using lower and upper
-    reference values.
-    """
+    for path in candidates:
+        name = path.name.lower()
+        if "productivity" in name and "p1" in name:
+            return path
 
-    if upper <= lower:
-        raise ValueError(
-            "Upper reference value must be greater "
-            "than lower reference value."
-        )
-
-    score = (
-        float(value) - lower
-    ) / (
-        upper - lower
-    )
-
-    return max(
-        0.0,
-        min(1.0, score),
+    raise FileNotFoundError(
+        "No Productivity P1 input CSV found in data/raw."
     )
 
 
-def validate_input(dataframe):
-    """
-    Validate the P1 input dataset.
-    """
-
-    required_columns = {
-        "country",
-        "year",
-        "value",
-        "indicator",
+def detect_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    normalized = {
+        str(column).strip().lower().replace(" ", "_"): column
+        for column in df.columns
     }
 
-    missing_columns = (
-        required_columns
-        - set(dataframe.columns)
-    )
+    for candidate in candidates:
+        key = candidate.lower().replace(" ", "_")
+        if key in normalized:
+            return normalized[key]
 
-    if missing_columns:
-        raise ValueError(
-            "Missing required columns: "
-            f"{sorted(missing_columns)}"
-        )
-
-    if set(dataframe["country"]) != set(COUNTRIES):
-        raise ValueError(
-            "Unexpected country set."
-        )
-
-    if dataframe["year"].min() != START_YEAR:
-        raise ValueError(
-            "Unexpected minimum year."
-        )
-
-    if dataframe["year"].max() != END_YEAR:
-        raise ValueError(
-            "Unexpected maximum year."
-        )
-
-    if set(dataframe["indicator"]) != {INDICATOR}:
-        raise ValueError(
-            "Unexpected indicator."
-        )
-
-    if dataframe[
-        ["country", "year", "indicator"]
-    ].duplicated().any():
-        raise ValueError(
-            "Duplicate country-year-indicator "
-            "observations found."
-        )
-
-    if dataframe["value"].isna().any():
-        raise ValueError(
-            "Missing P1 values found."
-        )
-
-    if (dataframe["value"] <= 0).any():
-        raise ValueError(
-            "P1 values must be positive."
-        )
+    return None
 
 
-def main():
-    """
-    Calculate baseline and robustness P1 scores.
-    """
+def normalize_country(value: object) -> tuple[str, str] | tuple[None, None]:
+    if pd.isna(value):
+        return None, None
 
-    if not INPUT_FILE.exists():
-        raise FileNotFoundError(
-            f"Input file not found: {INPUT_FILE}"
-        )
+    text = str(value).strip()
+    key = text.lower()
 
-    dataframe = pd.read_csv(
-        INPUT_FILE
-    )
+    if key in COUNTRY_MAP:
+        return COUNTRY_MAP[key]
 
-    validate_input(dataframe)
+    return None, None
 
-    dataframe = dataframe.copy()
 
-    sample_min = dataframe["value"].min()
-    sample_max = dataframe["value"].max()
-
-    dataframe["p1_score"] = dataframe[
-        "value"
-    ].apply(
-        lambda value: normalize_positive(
-            value,
-            P10_LOWER,
-            P90_UPPER,
-        )
-    )
-
-    dataframe["p1_minmax_score"] = dataframe[
-        "value"
-    ].apply(
-        lambda value: normalize_positive(
-            value,
-            sample_min,
-            sample_max,
-        )
-    )
-
-    dataframe["p1_p05_p95_score"] = dataframe[
-        "value"
-    ].apply(
-        lambda value: normalize_positive(
-            value,
-            P05_LOWER,
-            P95_UPPER,
-        )
-    )
-
-    dataframe = dataframe.sort_values(
-        [
-            "country",
-            "year",
-        ]
-    ).reset_index(drop=True)
-
-    OUTPUT_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    dataframe.to_csv(
-        OUTPUT_FILE,
-        index=False,
-    )
-
+def main() -> None:
     print("=" * 72)
     print("JESI PRODUCTIVITY P1 SCORING")
     print("=" * 72)
 
-    print()
-    print("Indicator:")
-    print(INDICATOR)
+    input_file = find_input_file()
+    print(f"Input: {input_file}")
 
-    print()
-    print("Baseline normalization:")
-    print("Empirical P10-P90")
+    df = pd.read_csv(input_file)
 
-    print()
-    print(
-        f"P10 lower bound: {P10_LOWER:.6f}"
+    print(f"Loaded rows: {len(df)}")
+    print(f"Columns: {list(df.columns)}")
+
+    country_col = detect_column(
+        df,
+        [
+            "country",
+            "country_name",
+            "economy",
+            "location",
+        ],
     )
 
-    print(
-        f"P90 upper bound: {P90_UPPER:.6f}"
+    code_col = detect_column(
+        df,
+        [
+            "country_code",
+            "iso3",
+            "iso3_code",
+            "code",
+        ],
+    )
+
+    year_col = detect_column(
+        df,
+        [
+            "year",
+            "time",
+        ],
+    )
+
+    value_col = detect_column(
+        df,
+        [
+            "gdp_per_person_employed",
+            "gdp_per_person_employed_constant_ppp",
+            "gdp_per_person_employed_constant_2021_ppp",
+            "value",
+            "p1",
+            "productivity_p1",
+        ],
+    )
+
+    if year_col is None:
+        raise ValueError(
+            "Could not identify year column."
+        )
+
+    if value_col is None:
+        raise ValueError(
+            "Could not identify GDP per Person Employed value column."
+        )
+
+    if country_col is None and code_col is None:
+        raise ValueError(
+            "Could not identify country or country_code column."
+        )
+
+    # ------------------------------------------------------------------
+    # Country normalization
+    # ------------------------------------------------------------------
+
+    if country_col is not None:
+        normalized = df[country_col].apply(normalize_country)
+
+        df["country"] = normalized.apply(
+            lambda x: x[0] if x[0] is not None else np.nan
+        )
+
+        df["country_code"] = normalized.apply(
+            lambda x: x[1] if x[1] is not None else np.nan
+        )
+
+    # If country codes already exist, use them where country mapping
+    # was not available.
+    if code_col is not None:
+        code_values = (
+            df[code_col]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+        valid_codes = {
+            "BGD": "Bangladesh",
+            "IND": "India",
+            "IDN": "Indonesia",
+            "MYS": "Malaysia",
+            "VNM": "Vietnam",
+        }
+
+        for code, country in valid_codes.items():
+            mask = (
+                df["country_code"].isna()
+                & (code_values == code)
+            )
+            df.loc[mask, "country_code"] = code
+            df.loc[mask, "country"] = country
+
+    # ------------------------------------------------------------------
+    # Year/value normalization
+    # ------------------------------------------------------------------
+
+    df["year"] = pd.to_numeric(
+        df[year_col],
+        errors="coerce",
+    )
+
+    df["gdp_per_person_employed"] = pd.to_numeric(
+        df[value_col],
+        errors="coerce",
+    )
+
+    df = df[
+        df["country_code"].isin(EXPECTED_COUNTRIES)
+        & df["year"].isin(EXPECTED_YEARS)
+    ].copy()
+
+    if df.empty:
+        raise ValueError(
+            "No valid Productivity P1 observations remain "
+            "for the expected countries and years."
+        )
+
+    df["year"] = df["year"].astype(int)
+
+    # ------------------------------------------------------------------
+    # Duplicate validation
+    # ------------------------------------------------------------------
+
+    duplicates = df.duplicated(
+        subset=["country_code", "year"],
+        keep=False,
+    )
+
+    if duplicates.any():
+        duplicate_rows = df.loc[
+            duplicates,
+            ["country_code", "year"],
+        ]
+
+        raise ValueError(
+            "Duplicate country-year observations found:\n"
+            f"{duplicate_rows.to_string(index=False)}"
+        )
+
+    # ------------------------------------------------------------------
+    # Missing-value validation
+    # ------------------------------------------------------------------
+
+    df = df.dropna(
+        subset=["gdp_per_person_employed"]
+    ).copy()
+
+    if df.empty:
+        raise ValueError(
+            "No non-missing Productivity P1 values remain."
+        )
+
+    # ------------------------------------------------------------------
+    # Pooled percentile scoring
+    #
+    # Higher GDP per person employed = higher productivity score.
+    # Percentile rank is scaled to (0, 1].
+    # ------------------------------------------------------------------
+
+    df["productivity_p1_score"] = (
+        df["gdp_per_person_employed"]
+        .rank(method="average", pct=True)
+    )
+
+    df["productivity_p1_score"] = (
+        df["productivity_p1_score"]
+        .clip(lower=1e-6, upper=1.0)
+    )
+
+    # ------------------------------------------------------------------
+    # Final schema
+    # ------------------------------------------------------------------
+
+    output = df[
+        [
+            "country",
+            "country_code",
+            "year",
+            "gdp_per_person_employed",
+            "productivity_p1_score",
+        ]
+    ].copy()
+
+    output = output.sort_values(
+        ["country_code", "year"]
+    ).reset_index(drop=True)
+
+    OUTPUT.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    output.to_csv(
+        OUTPUT,
+        index=False,
     )
 
     print()
-    print("Robustness alternatives:")
-    print("1. Full-sample min-max")
-    print("2. Empirical P05-P95")
-
+    print("P1 scoring completed successfully.")
+    print(f"Output: {OUTPUT}")
+    print(f"Rows: {len(output)}")
+    print(f"Countries: {sorted(output['country_code'].unique())}")
+    print(
+        f"Years: {output['year'].min()}–{output['year'].max()}"
+    )
     print()
-    print("P1 SCORE SUMMARY")
+    print(output.head(10).to_string(index=False))
+    print()
     print("=" * 72)
-
-    print(
-        dataframe[
-            [
-                "country",
-                "year",
-                "value",
-                "p1_score",
-            ]
-        ].to_string(index=False)
-    )
-
-    print()
-    print("OUTPUT")
-    print("=" * 72)
-
-    print(
-        f"Saved: {OUTPUT_FILE}"
-    )
-
-    print()
-    print(
-        "JESI Productivity P1 scoring "
-        "completed successfully."
-    )
 
 
 if __name__ == "__main__":
