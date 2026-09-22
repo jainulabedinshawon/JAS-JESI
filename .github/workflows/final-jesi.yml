@@ -2,9 +2,11 @@ name: Final JESI Pipeline
 
 on:
   workflow_dispatch:
+
   push:
     paths:
       - "scripts/11_score_resilience_pillar.py"
+      - "scripts/15_score_productivity_p1.py"
       - "scripts/20_construct_productivity_pillar.py"
       - "scripts/25_construct_connectivity_pillar.py"
       - "scripts/27_score_growth.py"
@@ -31,8 +33,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,35 +42,61 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
-
           pip install pandas numpy scipy openpyxl
+
+      # ==============================================================
+      # GROWTH PILLAR
+      # ==============================================================
 
       - name: Build Growth pillar
         run: |
           python scripts/27_score_growth.py
           python scripts/28_construct_growth_pillar.py
 
+      # ==============================================================
+      # PRODUCTIVITY PILLAR
+      # ==============================================================
+
+      - name: Build Productivity P1 scores
+        run: |
+          python scripts/15_score_productivity_p1.py
+
       - name: Build Productivity pillar
         run: |
           python scripts/20_construct_productivity_pillar.py
+
+      # ==============================================================
+      # CONNECTIVITY PILLAR
+      # ==============================================================
 
       - name: Build Connectivity pillar
         run: |
           python scripts/25_construct_connectivity_pillar.py
 
+      # ==============================================================
+      # RESILIENCE PILLAR
+      # ==============================================================
+
       - name: Build Resilience pillar
         run: |
           python scripts/11_score_resilience_pillar.py
+
+      # ==============================================================
+      # STRATEGIC AUTONOMY PILLAR
+      # ==============================================================
 
       - name: Build Strategic Autonomy pillar
         run: |
           python scripts/35_construct_autonomy_pillar.py
 
-      - name: Verify required pillar outputs
+      # ==============================================================
+      # VERIFY PILLAR OUTPUTS
+      # ==============================================================
+
+      - name: Verify pillar outputs
         run: |
           test -f data/processed/growth_pillar_scores_2015_2024.csv
           test -f data/processed/productivity_pillar_scores_2016_2023.csv
@@ -78,61 +104,91 @@ jobs:
           test -f data/processed/resilience_pillar_scores_2015_2024.csv
           test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
 
-          echo "All required pillar outputs are present."
+          echo "All required JESI pillar outputs are present."
 
-      - name: Run final JESI calculation
+      # ==============================================================
+      # FINAL JESI CALCULATION
+      # ==============================================================
+
+      - name: Calculate final JESI
         run: |
           python scripts/36_calculate_jesi.py
+
+      # ==============================================================
+      # ROBUSTNESS TESTING
+      # ==============================================================
 
       - name: Run JESI robustness tests
         run: |
           python scripts/37_robustness_tests.py
 
-      - name: Generate final JESI research results
+      # ==============================================================
+      # FINAL RESULTS
+      # ==============================================================
+
+      - name: Generate final JESI results
         run: |
           python scripts/38_generate_final_jesi_results.py
 
-      - name: Validate final JESI results
+      # ==============================================================
+      # VALIDATION
+      # ==============================================================
+
+      - name: Validate final JESI
         run: |
           python scripts/39_validate_final_jesi.py
+
+      # ==============================================================
+      # REPORT
+      # ==============================================================
 
       - name: Generate final JESI research report
         run: |
           python scripts/40_generate_jesi_report.py
 
+      # ==============================================================
+      # README
+      # ==============================================================
+
       - name: Update README with final JESI results
         run: |
           python scripts/41_update_readme_jesi.py
+
+      # ==============================================================
+      # FINAL REPOSITORY AUDIT
+      # ==============================================================
 
       - name: Run final repository audit
         run: |
           python scripts/42_final_repository_audit.py
 
-      - name: Upload final JESI artifacts
+      # ==============================================================
+      # ARTIFACT
+      # ==============================================================
+
+      - name: Upload final JESI outputs
         uses: actions/upload-artifact@v4
         with:
-          name: JESI-final-results
+          name: final-jesi-results
           path: |
             data/results/
             docs/JESI_Final_Results_Report.md
             README.md
-          if-no-files-found: error
 
-      - name: Commit generated JESI results
+      # ==============================================================
+      # COMMIT GENERATED OUTPUTS
+      # ==============================================================
+
+      - name: Commit generated JESI outputs
         run: |
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-            git add \
-              data/processed \
-              data/results \
-              docs/JESI_Final_Results_Report.md \
-              README.md
+          git add data/processed data/results docs/JESI_Final_Results_Report.md README.md
 
-            git commit -m "Generate final JESI results and research report"
-
-            git push
-          else
+          if git diff --cached --quiet; then
             echo "No generated changes to commit."
+          else
+            git commit -m "Update generated JESI results"
+            git push
           fi
