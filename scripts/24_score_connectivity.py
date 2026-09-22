@@ -1,19 +1,20 @@
 """
-Score the Connectivity pillar indicators.
+JESI Connectivity Indicator Scoring
 
 Input:
-    data/processed/connectivity_distribution_2015_2024.csv
+    data/raw/connectivity_indicators_2015_2024.csv
+    data/processed/connectivity_pooled_percentiles.csv
 
 Output:
     data/processed/connectivity_indicator_scores_2015_2024.csv
 
 Method:
-    Percentile-based scoring using the pooled distribution.
+    Pooled percentile-rank scoring.
 
 Indicators:
     - Trade Openness
     - FDI Inflows (% GDP)
-    - Internet Users (% population)
+    - Internet Use (% population)
 """
 
 from pathlib import Path
@@ -22,210 +23,295 @@ import numpy as np
 import pandas as pd
 
 
-INPUT_FILE = Path(
-    "data/processed/connectivity_distribution_2015_2024.csv"
+RAW_INPUT_FILE = Path(
+    "data/raw/connectivity_indicators_2015_2024.csv"
+)
+
+PERCENTILE_FILE = Path(
+    "data/processed/connectivity_pooled_percentiles.csv"
 )
 
 OUTPUT_FILE = Path(
     "data/processed/connectivity_indicator_scores_2015_2024.csv"
 )
 
-EXPECTED_CODES = {"BGD", "IND", "IDN", "MYS", "VNM"}
+EXPECTED_CODES = {
+    "BGD",
+    "IND",
+    "IDN",
+    "MYS",
+    "VNM",
+}
+
 EXPECTED_YEARS = set(range(2015, 2025))
 
+EXPECTED_ROWS = 50
+
 INDICATORS = {
-    "trade_openness": "trade_openness",
-    "fdi_inflows": "fdi_inflows_pct_gdp",
-    "internet_users": "internet_users_pct",
+    "trade_openness": "connectivity_trade_score",
+    "fdi_inflows": "connectivity_fdi_score",
+    "internet_use": "connectivity_internet_score",
 }
 
 
-def percentile_score(value, series):
-    """Convert a value into a pooled percentile score in (0, 1]."""
+def percentile_rank_score(value, series):
+    """
+    Convert an observation into its pooled empirical percentile rank.
+
+    The score is bounded in (0, 1].
+    Higher values receive higher scores.
+    """
     if pd.isna(value):
         return np.nan
 
-    clean = pd.to_numeric(series, errors="coerce").dropna()
+    clean = pd.to_numeric(
+        series,
+        errors="coerce",
+    ).dropna()
 
     if clean.empty:
         return np.nan
 
-    return float((clean <= value).mean())
+    return float(
+        (clean <= value).mean()
+    )
 
 
-def resolve_percentile_column(df, indicator):
-    """
-    Resolve percentile information from the distribution output.
+def validate_percentile_file():
+    """Validate the distribution-analysis output."""
+    if not PERCENTILE_FILE.exists():
+        raise FileNotFoundError(
+            "Missing Connectivity percentile file: "
+            f"{PERCENTILE_FILE}"
+        )
 
-    The distribution-analysis script may provide either:
-      1. P05/P10/P50/P90/P95
-      2. percentile-style names such as p05/p10/p50/p90/p95
+    percentiles = pd.read_csv(
+        PERCENTILE_FILE
+    )
 
-    Percentile scoring itself is calculated from the raw indicator
-    distribution, so the percentile summary columns are not required
-    for the final score.
-    """
-    candidates = [
-        indicator,
-        indicator.lower(),
-    ]
+    required_columns = {
+        "indicator",
+        "percentile",
+        "value",
+    }
 
-    for column in candidates:
-        if column in df.columns:
-            return column
+    missing = sorted(
+        required_columns - set(percentiles.columns)
+    )
 
-    return None
+    if missing:
+        raise ValueError(
+            "Connectivity percentile file is missing "
+            f"columns: {missing}"
+        )
+
+    expected_indicators = set(
+        INDICATORS.keys()
+    )
+
+    actual_indicators = set(
+        percentiles["indicator"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
+
+    missing_indicators = sorted(
+        expected_indicators - actual_indicators
+    )
+
+    if missing_indicators:
+        raise ValueError(
+            "Connectivity percentile file is missing "
+            f"indicators: {missing_indicators}"
+        )
+
+    return percentiles
 
 
 def main():
-    if not INPUT_FILE.exists():
+    print("=" * 72)
+    print("JESI CONNECTIVITY INDICATOR SCORING")
+    print("=" * 72)
+
+    if not RAW_INPUT_FILE.exists():
         raise FileNotFoundError(
-            f"Missing input file: {INPUT_FILE}"
+            "Missing raw Connectivity input: "
+            f"{RAW_INPUT_FILE}"
         )
 
-    df = pd.read_csv(INPUT_FILE)
+    dataframe = pd.read_csv(
+        RAW_INPUT_FILE
+    )
 
     required_columns = {
         "country_code",
         "country",
         "year",
         "trade_openness",
-        "fdi_inflows_pct_gdp",
-        "internet_users_pct",
+        "fdi_inflows",
+        "internet_use",
     }
 
-    missing = sorted(required_columns - set(df.columns))
+    missing = sorted(
+        required_columns - set(dataframe.columns)
+    )
 
     if missing:
         raise ValueError(
-            f"Missing required columns: {missing}"
+            "Raw Connectivity data is missing "
+            f"columns: {missing}"
         )
 
-    # Standardize types.
-    df["country_code"] = (
-        df["country_code"]
+    # ---------------------------------------------------------------
+    # Standardize country/year fields
+    # ---------------------------------------------------------------
+    dataframe["country_code"] = (
+        dataframe["country_code"]
         .astype(str)
         .str.upper()
         .str.strip()
     )
 
-    df["year"] = pd.to_numeric(
-        df["year"],
-        errors="coerce"
+    dataframe["year"] = pd.to_numeric(
+        dataframe["year"],
+        errors="coerce",
     )
 
-    # Restrict to the intended JESI country/year universe.
-    df = df[
-        df["country_code"].isin(EXPECTED_CODES)
-        & df["year"].isin(EXPECTED_YEARS)
+    dataframe = dataframe[
+        dataframe["country_code"].isin(
+            EXPECTED_CODES
+        )
+        & dataframe["year"].isin(
+            EXPECTED_YEARS
+        )
     ].copy()
 
-    if df.empty:
+    if len(dataframe) != EXPECTED_ROWS:
         raise ValueError(
-            "No valid Connectivity observations remain "
-            "for the expected countries and years."
+            f"Expected {EXPECTED_ROWS} Connectivity "
+            f"rows, found {len(dataframe)}."
         )
 
-    # Check duplicates before scoring.
-    duplicate_mask = df.duplicated(
+    # ---------------------------------------------------------------
+    # Duplicate validation
+    # ---------------------------------------------------------------
+    duplicate_mask = dataframe.duplicated(
         subset=["country_code", "year"],
         keep=False,
     )
 
     if duplicate_mask.any():
-        duplicates = df.loc[
-            duplicate_mask,
-            ["country_code", "year"]
-        ].drop_duplicates()
+        duplicates = (
+            dataframe.loc[
+                duplicate_mask,
+                ["country_code", "year"],
+            ]
+            .drop_duplicates()
+            .sort_values(
+                ["country_code", "year"]
+            )
+        )
 
         raise ValueError(
             "Duplicate country-year observations found:\n"
             f"{duplicates.to_string(index=False)}"
         )
 
-    # Numeric conversion.
-    for column in [
-        "trade_openness",
-        "fdi_inflows_pct_gdp",
-        "internet_users_pct",
-    ]:
-        df[column] = pd.to_numeric(
-            df[column],
+    # ---------------------------------------------------------------
+    # Numeric conversion
+    # ---------------------------------------------------------------
+    for indicator in INDICATORS:
+        dataframe[indicator] = pd.to_numeric(
+            dataframe[indicator],
             errors="coerce",
         )
 
-    # Percentile-based indicator scores.
-    df["connectivity_trade_score"] = df[
-        "trade_openness"
-    ].apply(
-        lambda value: percentile_score(
-            value,
-            df["trade_openness"],
-        )
+    # ---------------------------------------------------------------
+    # Validate pooled percentile-analysis output
+    # ---------------------------------------------------------------
+    percentiles = validate_percentile_file()
+
+    # The percentile file is intentionally used as a validation
+    # dependency. Final observation-level scores are calculated
+    # directly from the pooled raw distribution so that every
+    # country-year receives its empirical percentile rank.
+    print(
+        f"Validated percentile analysis file: "
+        f"{PERCENTILE_FILE}"
     )
 
-    df["connectivity_fdi_score"] = df[
-        "fdi_inflows_pct_gdp"
-    ].apply(
-        lambda value: percentile_score(
-            value,
-            df["fdi_inflows_pct_gdp"],
+    # ---------------------------------------------------------------
+    # Percentile scoring
+    # ---------------------------------------------------------------
+    for indicator, score_column in INDICATORS.items():
+        dataframe[score_column] = dataframe[
+            indicator
+        ].apply(
+            lambda value: percentile_rank_score(
+                value,
+                dataframe[indicator],
+            )
         )
+
+    score_columns = list(
+        INDICATORS.values()
     )
 
-    df["connectivity_internet_score"] = df[
-        "internet_users_pct"
-    ].apply(
-        lambda value: percentile_score(
-            value,
-            df["internet_users_pct"],
-        )
-    )
-
-    score_columns = [
-        "connectivity_trade_score",
-        "connectivity_fdi_score",
-        "connectivity_internet_score",
-    ]
-
-    # Validate score ranges.
+    # ---------------------------------------------------------------
+    # Score validation
+    # ---------------------------------------------------------------
     for column in score_columns:
-        valid = df[column].dropna()
+        valid = dataframe[column].dropna()
 
-        if not valid.empty:
-            if (valid <= 0).any() or (valid > 1).any():
-                raise ValueError(
-                    f"Invalid scores in {column}. "
-                    "Expected values in (0, 1]."
-                )
+        if valid.empty:
+            raise ValueError(
+                f"No valid Connectivity scores "
+                f"were produced for {column}."
+            )
 
-    # Keep the standardized output interface used by
-    # 25_construct_connectivity_pillar.py.
+        if (valid <= 0).any() or (valid > 1).any():
+            raise ValueError(
+                f"Invalid values detected in {column}. "
+                "Expected scores in (0, 1]."
+            )
+
+    # ---------------------------------------------------------------
+    # Missing-data validation
+    # ---------------------------------------------------------------
+    for indicator, score_column in INDICATORS.items():
+        raw_missing = dataframe[indicator].isna().sum()
+        score_missing = dataframe[score_column].isna().sum()
+
+        if raw_missing != score_missing:
+            raise ValueError(
+                f"Unexpected missing-data mismatch for "
+                f"{indicator}: raw={raw_missing}, "
+                f"score={score_missing}"
+            )
+
+    # ---------------------------------------------------------------
+    # Output
+    # ---------------------------------------------------------------
     output_columns = [
         "country",
         "country_code",
         "year",
         "trade_openness",
-        "fdi_inflows_pct_gdp",
-        "internet_users_pct",
+        "fdi_inflows",
+        "internet_use",
         "connectivity_trade_score",
         "connectivity_fdi_score",
         "connectivity_internet_score",
     ]
 
-    output = df[output_columns].copy()
+    output = dataframe[
+        output_columns
+    ].copy()
 
     output = output.sort_values(
         ["country_code", "year"]
     ).reset_index(drop=True)
-
-    expected_rows = len(EXPECTED_CODES) * len(EXPECTED_YEARS)
-
-    if len(output) != expected_rows:
-        raise ValueError(
-            f"Expected {expected_rows} Connectivity observations "
-            f"but found {len(output)}."
-        )
 
     OUTPUT_FILE.parent.mkdir(
         parents=True,
@@ -237,14 +323,26 @@ def main():
         index=False,
     )
 
-    print(
-        f"Connectivity indicator scores saved to "
-        f"{OUTPUT_FILE}"
-    )
+    # ---------------------------------------------------------------
+    # Final checks
+    # ---------------------------------------------------------------
+    if len(output) != EXPECTED_ROWS:
+        raise ValueError(
+            f"Final Connectivity output contains "
+            f"{len(output)} rows; expected "
+            f"{EXPECTED_ROWS}."
+        )
+
+    print()
+    print("CONNECTIVITY SCORING COMPLETED")
+    print("=" * 72)
     print(f"Rows: {len(output)}")
     print(
         "Score columns:",
         ", ".join(score_columns),
+    )
+    print(
+        f"Saved: {OUTPUT_FILE}"
     )
 
 
