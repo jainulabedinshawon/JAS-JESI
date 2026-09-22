@@ -1,16 +1,22 @@
 """
 JESI Connectivity Pillar Construction
-JAS Unified Economic Strength Index (JESI)
 
-Script 25:
-Construct the Connectivity (C) pillar from three
-normalized indicator scores.
+Input:
+    data/processed/connectivity_indicator_scores_2015_2024.csv
+
+Output:
+    data/processed/connectivity_pillar_scores_2015_2024.csv
 
 Baseline:
-    Arithmetic mean
+    Arithmetic mean of the three Connectivity indicator scores.
 
-Robustness:
-    Geometric mean
+Alternative:
+    Geometric mean of the three Connectivity indicator scores.
+
+Indicators:
+    - Trade Openness
+    - FDI Inflows (% GDP)
+    - Internet Use (% population)
 """
 
 from pathlib import Path
@@ -27,135 +33,191 @@ OUTPUT_FILE = Path(
     "data/processed/connectivity_pillar_scores_2015_2024.csv"
 )
 
+EXPECTED_CODES = {
+    "BGD",
+    "IND",
+    "IDN",
+    "MYS",
+    "VNM",
+}
 
-INDICATORS = [
-    "trade_openness",
-    "fdi_inflows",
-    "internet_use",
+EXPECTED_YEARS = set(range(2015, 2025))
+
+EXPECTED_ROWS = 50
+
+SCORE_COLUMNS = [
+    "connectivity_trade_score",
+    "connectivity_fdi_score",
+    "connectivity_internet_score",
 ]
 
 
 def main():
-    """Construct the Connectivity pillar."""
+    print("=" * 72)
+    print("JESI CONNECTIVITY PILLAR CONSTRUCTION")
+    print("=" * 72)
 
-    data = pd.read_csv(INPUT_FILE)
+    if not INPUT_FILE.exists():
+        raise FileNotFoundError(
+            f"Missing Connectivity score file: {INPUT_FILE}"
+        )
 
-    required_columns = [
-        "country_code",
+    dataframe = pd.read_csv(INPUT_FILE)
+
+    required_columns = {
         "country",
-        "year",
-        "trade_openness_score",
-        "fdi_inflows_score",
-        "internet_use_score",
-        "trade_openness_score_robust",
-        "fdi_inflows_score_robust",
-        "internet_use_score_robust",
-    ]
-
-    missing_columns = [
-        column
-        for column in required_columns
-        if column not in data.columns
-    ]
-
-    if missing_columns:
-        raise ValueError(
-            f"Missing columns: {missing_columns}"
-        )
-
-    score_columns = [
-        f"{indicator}_score"
-        for indicator in INDICATORS
-    ]
-
-    robust_score_columns = [
-        f"{indicator}_score_robust"
-        for indicator in INDICATORS
-    ]
-
-    if data[score_columns].isna().any().any():
-        raise ValueError(
-            "Missing baseline Connectivity scores."
-        )
-
-    if data[robust_score_columns].isna().any().any():
-        raise ValueError(
-            "Missing robustness Connectivity scores."
-        )
-
-    if (
-        data[score_columns].min().min() < 0
-        or data[score_columns].max().max() > 1
-    ):
-        raise ValueError(
-            "Baseline Connectivity scores must be between 0 and 1."
-        )
-
-    if (
-        data[robust_score_columns].min().min() < 0
-        or data[robust_score_columns].max().max() > 1
-    ):
-        raise ValueError(
-            "Robustness Connectivity scores must be between 0 and 1."
-        )
-
-    # Baseline Connectivity pillar:
-    # arithmetic mean of the three indicator scores.
-    data["connectivity_score"] = data[
-        score_columns
-    ].mean(axis=1)
-
-    # Robustness Connectivity pillar:
-    # geometric mean of the three indicator scores.
-    data["connectivity_score_geometric"] = np.prod(
-        data[robust_score_columns],
-        axis=1,
-    ) ** (1 / len(robust_score_columns))
-
-    pillar_columns = [
-        "connectivity_score",
-        "connectivity_score_geometric",
-    ]
-
-    if not np.isfinite(
-        data[pillar_columns].to_numpy()
-    ).all():
-        raise ValueError(
-            "Non-finite Connectivity pillar scores found."
-        )
-
-    if (
-        data[pillar_columns].min().min() < 0
-        or data[pillar_columns].max().max() > 1
-    ):
-        raise ValueError(
-            "Connectivity pillar scores must be between 0 and 1."
-        )
-
-    output_columns = [
         "country_code",
-        "country",
         "year",
         "trade_openness",
         "fdi_inflows",
         "internet_use",
-        "trade_openness_score",
-        "fdi_inflows_score",
-        "internet_use_score",
-        "trade_openness_score_robust",
-        "fdi_inflows_score_robust",
-        "internet_use_score_robust",
+        *SCORE_COLUMNS,
+    }
+
+    missing = sorted(
+        required_columns - set(dataframe.columns)
+    )
+
+    if missing:
+        raise ValueError(
+            f"Missing columns: {missing}"
+        )
+
+    # ---------------------------------------------------------------
+    # Standardize country/year fields
+    # ---------------------------------------------------------------
+    dataframe["country_code"] = (
+        dataframe["country_code"]
+        .astype(str)
+        .str.upper()
+        .str.strip()
+    )
+
+    dataframe["year"] = pd.to_numeric(
+        dataframe["year"],
+        errors="coerce",
+    )
+
+    dataframe = dataframe[
+        dataframe["country_code"].isin(
+            EXPECTED_CODES
+        )
+        & dataframe["year"].isin(
+            EXPECTED_YEARS
+        )
+    ].copy()
+
+    if len(dataframe) != EXPECTED_ROWS:
+        raise ValueError(
+            f"Expected {EXPECTED_ROWS} Connectivity "
+            f"observations, found {len(dataframe)}."
+        )
+
+    # ---------------------------------------------------------------
+    # Duplicate validation
+    # ---------------------------------------------------------------
+    if dataframe.duplicated(
+        subset=["country_code", "year"]
+    ).any():
+        raise ValueError(
+            "Duplicate Connectivity country-year "
+            "observations detected."
+        )
+
+    # ---------------------------------------------------------------
+    # Numeric score validation
+    # ---------------------------------------------------------------
+    for column in SCORE_COLUMNS:
+        dataframe[column] = pd.to_numeric(
+            dataframe[column],
+            errors="coerce",
+        )
+
+        valid = dataframe[column].dropna()
+
+        if valid.empty:
+            raise ValueError(
+                f"No valid observations found in {column}."
+            )
+
+        if (valid <= 0).any() or (valid > 1).any():
+            raise ValueError(
+                f"Invalid values in {column}. "
+                "Expected scores in (0, 1]."
+            )
+
+    # ---------------------------------------------------------------
+    # Construct Connectivity pillar
+    # ---------------------------------------------------------------
+    dataframe["connectivity_score"] = (
+        dataframe[SCORE_COLUMNS]
+        .mean(axis=1)
+    )
+
+    dataframe["connectivity_geometric"] = (
+        dataframe[SCORE_COLUMNS]
+        .prod(axis=1)
+        ** (1.0 / len(SCORE_COLUMNS))
+    )
+
+    # ---------------------------------------------------------------
+    # Missing-data validation
+    # ---------------------------------------------------------------
+    required_complete = dataframe[
+        SCORE_COLUMNS
+    ].notna().all(axis=1)
+
+    if not required_complete.all():
+        missing_rows = dataframe.loc[
+            ~required_complete,
+            [
+                "country_code",
+                "year",
+            ] + SCORE_COLUMNS,
+        ]
+
+        raise ValueError(
+            "Missing Connectivity indicator scores "
+            "prevent pillar construction:\n"
+            f"{missing_rows.to_string(index=False)}"
+        )
+
+    # ---------------------------------------------------------------
+    # Pillar score range validation
+    # ---------------------------------------------------------------
+    for column in [
         "connectivity_score",
-        "connectivity_score_geometric",
-    ]
+        "connectivity_geometric",
+    ]:
+        valid = dataframe[column].dropna()
 
+        if (valid <= 0).any() or (valid > 1).any():
+            raise ValueError(
+                f"Invalid pillar values in {column}. "
+                "Expected values in (0, 1]."
+            )
+
+    # ---------------------------------------------------------------
+    # Output
+    # ---------------------------------------------------------------
     output_columns = [
-        column
-        for column in output_columns
-        if column in data.columns
+        "country",
+        "country_code",
+        "year",
+        "connectivity_trade_score",
+        "connectivity_fdi_score",
+        "connectivity_internet_score",
+        "connectivity_score",
+        "connectivity_geometric",
     ]
 
-    output = data[output_columns].copy()
+    output = dataframe[
+        output_columns
+    ].copy()
+
+    output = output.sort_values(
+        ["country_code", "year"]
+    ).reset_index(drop=True)
 
     OUTPUT_FILE.parent.mkdir(
         parents=True,
@@ -167,9 +229,28 @@ def main():
         index=False,
     )
 
-    print("Connectivity pillar construction completed.")
+    # ---------------------------------------------------------------
+    # Final validation
+    # ---------------------------------------------------------------
+    if len(output) != EXPECTED_ROWS:
+        raise ValueError(
+            f"Final Connectivity pillar output contains "
+            f"{len(output)} rows; expected {EXPECTED_ROWS}."
+        )
+
+    print()
+    print("CONNECTIVITY PILLAR COMPLETED")
+    print("=" * 72)
     print(f"Rows: {len(output)}")
-    print(f"Output: {OUTPUT_FILE}")
+    print(
+        "Baseline: arithmetic mean"
+    )
+    print(
+        "Alternative: geometric mean"
+    )
+    print(
+        f"Saved: {OUTPUT_FILE}"
+    )
 
 
 if __name__ == "__main__":
