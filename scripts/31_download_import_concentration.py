@@ -9,6 +9,7 @@ the import product concentration index.
 
 Official source:
 UNCTADstat Data Hub
+
 Dataset:
 Merchandise: Standard product concentration and
 diversification indices - Annual (analytical)
@@ -84,6 +85,43 @@ def find_column(columns, candidates):
     return None
 
 
+def read_csv_with_fallbacks(content):
+    """
+    Read a CSV using multiple common encodings.
+
+    UNCTAD bulk downloads may not always be UTF-8.
+    Try UTF-8 first, then UTF-8 with BOM,
+    Windows-1252, and Latin-1.
+    """
+
+    encodings = [
+        "utf-8",
+        "utf-8-sig",
+        "cp1252",
+        "latin-1",
+    ]
+
+    errors = []
+
+    for encoding in encodings:
+        try:
+            return pd.read_csv(
+                BytesIO(content),
+                encoding=encoding,
+                low_memory=False,
+            )
+        except UnicodeDecodeError as error:
+            errors.append(
+                f"{encoding}: {error}"
+            )
+
+    raise ValueError(
+        "Could not decode the UNCTAD CSV download "
+        "with supported encodings. "
+        f"Attempts: {errors}"
+    )
+
+
 def read_unctad_download(content):
     """
     Read the UNCTAD bulk-download response.
@@ -94,6 +132,7 @@ def read_unctad_download(content):
 
     if content[:2] == b"PK":
         with zipfile.ZipFile(BytesIO(content)) as archive:
+
             csv_files = [
                 name
                 for name in archive.namelist()
@@ -112,18 +151,20 @@ def read_unctad_download(content):
                 if "concent" in name.lower()
             ]
 
-            filename = preferred[0] if preferred else csv_files[0]
+            filename = (
+                preferred[0]
+                if preferred
+                else csv_files[0]
+            )
 
             with archive.open(filename) as file:
-                return pd.read_csv(
-                    file,
-                    low_memory=False,
-                )
+                csv_content = file.read()
 
-    return pd.read_csv(
-        BytesIO(content),
-        low_memory=False,
-    )
+            return read_csv_with_fallbacks(
+                csv_content
+            )
+
+    return read_csv_with_fallbacks(content)
 
 
 def identify_unctad_columns(data):
@@ -208,13 +249,13 @@ def identify_unctad_columns(data):
     )
 
 
-def select_import_concentration(data, indicator_column):
+def select_import_concentration(
+    data,
+    indicator_column,
+):
     """
-    Select the official UNCTAD import product concentration
-    indicator.
-
-    If the downloaded dataset has an indicator/series column,
-    use it to select the import product concentration series.
+    Select the official UNCTAD import product
+    concentration indicator.
     """
 
     if indicator_column is None:
@@ -266,7 +307,8 @@ def select_import_concentration(data, indicator_column):
         raise ValueError(
             "Could not identify the official UNCTAD "
             "import product concentration series. "
-            f"Available indicators/series include: {available[:50]}"
+            "Available indicators/series include: "
+            f"{available[:50]}"
         )
 
     return selected
@@ -349,7 +391,8 @@ def main():
     )
 
     print(
-        f"UNCTAD rows downloaded: {len(unctad):,}"
+        f"UNCTAD rows downloaded: "
+        f"{len(unctad):,}"
     )
 
     (
@@ -391,11 +434,11 @@ def main():
         errors="coerce",
     )
 
-    unctad["import_product_concentration"] = (
-        pd.to_numeric(
-            unctad[value_column],
-            errors="coerce",
-        )
+    unctad[
+        "import_product_concentration"
+    ] = pd.to_numeric(
+        unctad[value_column],
+        errors="coerce",
     )
 
     unctad = unctad[
@@ -426,8 +469,6 @@ def main():
         ]
     )
 
-    # The official UNCTAD concentration index is expected
-    # to lie between 0 and 1.
     if (
         (
             unctad[
@@ -441,14 +482,18 @@ def main():
         )
     ).any():
         raise ValueError(
-            "UNCTAD import product concentration values "
-            "outside the expected 0-1 range were detected."
+            "UNCTAD import product concentration "
+            "values outside the expected 0-1 range "
+            "were detected."
         )
 
     unctad = (
         unctad
         .drop_duplicates(
-            subset=["country_code", "year"],
+            subset=[
+                "country_code",
+                "year",
+            ],
             keep="last",
         )
         .copy()
@@ -459,7 +504,10 @@ def main():
             list(COUNTRIES.keys()),
             list(range(2015, 2025)),
         ],
-        names=["country_code", "year"],
+        names=[
+            "country_code",
+            "year",
+        ],
     )
 
     actual_keys = pd.MultiIndex.from_frame(
@@ -478,7 +526,8 @@ def main():
     if len(missing_keys) > 0:
         missing_display = [
             f"{country_code}-{year}"
-            for country_code, year in missing_keys
+            for country_code, year
+            in missing_keys
         ]
 
         raise ValueError(
@@ -491,7 +540,8 @@ def main():
     if len(unctad) != 50:
         raise ValueError(
             "Expected exactly 50 official UNCTAD "
-            f"country-year observations, found {len(unctad)}."
+            "country-year observations, "
+            f"found {len(unctad)}."
         )
 
     concentration = unctad[
@@ -503,12 +553,17 @@ def main():
     ].copy()
 
     data = data.drop(
-        columns=["import_product_concentration"]
+        columns=[
+            "import_product_concentration"
+        ]
     )
 
     data = data.merge(
         concentration,
-        on=["country_code", "year"],
+        on=[
+            "country_code",
+            "year",
+        ],
         how="left",
         validate="one_to_one",
     )
@@ -526,7 +581,8 @@ def main():
 
         raise ValueError(
             "Official UNCTAD integration failed: "
-            f"{missing} concentration observations remain missing."
+            f"{missing} concentration observations "
+            "remain missing."
         )
 
     data = data.sort_values(
