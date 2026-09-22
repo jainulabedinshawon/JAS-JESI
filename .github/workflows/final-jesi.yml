@@ -8,6 +8,8 @@ on:
       - "scripts/11_score_resilience_pillar.py"
       - "scripts/12_download_productivity_data.py"
       - "scripts/15_score_productivity_p1.py"
+      - "scripts/16_download_productivity_p2.py"
+      - "scripts/19_score_productivity_p2.py"
       - "scripts/20_construct_productivity_pillar.py"
       - "scripts/25_construct_connectivity_pillar.py"
       - "scripts/27_score_growth.py"
@@ -85,7 +87,7 @@ jobs:
           python scripts/28_construct_growth_pillar.py
 
       # ==============================================================
-      # PRODUCTIVITY PILLAR
+      # PRODUCTIVITY PILLAR - P1
       # ==============================================================
 
       - name: Download Productivity P1 data
@@ -95,6 +97,22 @@ jobs:
       - name: Build Productivity P1 scores
         run: |
           python scripts/15_score_productivity_p1.py
+
+      # ==============================================================
+      # PRODUCTIVITY PILLAR - P2
+      # ==============================================================
+
+      - name: Download Productivity P2 data
+        run: |
+          python scripts/16_download_productivity_p2.py
+
+      - name: Build Productivity P2 scores
+        run: |
+          python scripts/19_score_productivity_p2.py
+
+      # ==============================================================
+      # PRODUCTIVITY PILLAR - FINAL
+      # ==============================================================
 
       - name: Build Productivity pillar
         run: |
