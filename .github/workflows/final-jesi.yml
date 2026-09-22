@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - "scripts/08_download_resilience_data.py"
+      - "scripts/09_validate_resilience_data.py"
+      - "scripts/10_analyze_resilience_distribution.py"
       - "scripts/11_score_resilience_pillar.py"
       - "scripts/12_download_productivity_data.py"
       - "scripts/15_score_productivity_p1.py"
@@ -147,6 +150,18 @@ jobs:
       # ==============================================================
       # RESILIENCE
       # ==============================================================
+
+      - name: Download Resilience data
+        run: |
+          python scripts/08_download_resilience_data.py
+
+      - name: Validate Resilience data
+        run: |
+          python scripts/09_validate_resilience_data.py
+
+      - name: Analyze Resilience distribution
+        run: |
+          python scripts/10_analyze_resilience_distribution.py
 
       - name: Score Resilience pillar
         run: |
