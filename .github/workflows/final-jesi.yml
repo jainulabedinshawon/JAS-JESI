@@ -20,6 +20,12 @@ on:
       - "scripts/25_construct_connectivity_pillar.py"
       - "scripts/27_score_growth.py"
       - "scripts/28_construct_growth_pillar.py"
+      - "scripts/29_download_autonomy_data.py"
+      - "scripts/30_validate_autonomy_data.py"
+      - "scripts/31_download_import_concentration.py"
+      - "scripts/32_validate_autonomy_data.py"
+      - "scripts/33_analyze_autonomy_distribution.py"
+      - "scripts/34_score_autonomy.py"
       - "scripts/35_construct_autonomy_pillar.py"
       - "scripts/36_calculate_jesi.py"
       - "scripts/37_robustness_tests.py"
@@ -170,6 +176,30 @@ jobs:
       # ==============================================================
       # STRATEGIC AUTONOMY
       # ==============================================================
+
+      - name: Download Strategic Autonomy data
+        run: |
+          python scripts/29_download_autonomy_data.py
+
+      - name: Validate Strategic Autonomy data
+        run: |
+          python scripts/30_validate_autonomy_data.py
+
+      - name: Download Import Concentration data
+        run: |
+          python scripts/31_download_import_concentration.py
+
+      - name: Validate Autonomy data
+        run: |
+          python scripts/32_validate_autonomy_data.py
+
+      - name: Analyze Autonomy distribution
+        run: |
+          python scripts/33_analyze_autonomy_distribution.py
+
+      - name: Score Strategic Autonomy indicators
+        run: |
+          python scripts/34_score_autonomy.py
 
       - name: Construct Strategic Autonomy pillar
         run: |
