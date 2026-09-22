@@ -6,6 +6,7 @@ on:
   push:
     paths:
       - "scripts/11_score_resilience_pillar.py"
+      - "scripts/12_download_productivity_data.py"
       - "scripts/15_score_productivity_p1.py"
       - "scripts/20_construct_productivity_pillar.py"
       - "scripts/25_construct_connectivity_pillar.py"
@@ -31,20 +32,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
+      # ==============================================================
+      # CHECKOUT
+      # ==============================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ==============================================================
+      # PYTHON
+      # ==============================================================
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
+      # ==============================================================
+      # DEPENDENCIES
+      # ==============================================================
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
+
           pip install pandas numpy scipy openpyxl
 
       # ==============================================================
@@ -59,6 +75,10 @@ jobs:
       # ==============================================================
       # PRODUCTIVITY PILLAR
       # ==============================================================
+
+      - name: Download Productivity P1 data
+        run: |
+          python scripts/12_download_productivity_data.py
 
       - name: Build Productivity P1 scores
         run: |
@@ -139,7 +159,7 @@ jobs:
           python scripts/39_validate_final_jesi.py
 
       # ==============================================================
-      # REPORT
+      # FINAL RESEARCH REPORT
       # ==============================================================
 
       - name: Generate final JESI research report
@@ -163,7 +183,7 @@ jobs:
           python scripts/42_final_repository_audit.py
 
       # ==============================================================
-      # ARTIFACT
+      # UPLOAD FINAL ARTIFACT
       # ==============================================================
 
       - name: Upload final JESI outputs
