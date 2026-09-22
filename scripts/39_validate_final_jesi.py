@@ -1,8 +1,8 @@
 """
 JAS Unified Economic Strength Index (JESI)
-Final Results Validation
+Final JESI Validation
 
-Validates the final JESI pipeline outputs for:
+Validates:
 
 1. Required files and schemas
 2. Country-year completeness
@@ -10,13 +10,11 @@ Validates the final JESI pipeline outputs for:
 4. Pillar score ranges
 5. JESI score range
 6. Mathematical consistency
-7. Country-level aggregation consistency
+7. Country-level aggregation
 8. Ranking integrity
 9. Year-level summary consistency
 10. Robustness output consistency
-
-This script is non-destructive.
-It does not modify any existing data or documentation files.
+11. Final research table consistency
 """
 
 from pathlib import Path
@@ -25,30 +23,50 @@ import numpy as np
 import pandas as pd
 
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
 RESULTS_DIR = Path("data/results")
 
-COUNTRIES = [
-    "Bangladesh",
-    "India",
-    "Viet Nam",
-    "Indonesia",
-    "Malaysia",
-]
-
-START_YEAR = 2016
-END_YEAR = 2023
-
-EXPECTED_YEARS = END_YEAR - START_YEAR + 1
-EXPECTED_COUNTRY_COUNT = len(COUNTRIES)
-EXPECTED_COUNTRY_YEAR_COUNT = (
-    EXPECTED_COUNTRY_COUNT * EXPECTED_YEARS
+COUNTRY_YEAR_FILE = (
+    RESULTS_DIR
+    / "jesi_country_year_2016_2023.csv"
 )
 
-PILLARS = ["G", "P", "C", "R", "A"]
+COUNTRY_RANKING_FILE = (
+    RESULTS_DIR
+    / "jesi_country_ranking_2016_2023.csv"
+)
+
+ROBUSTNESS_FILE = (
+    RESULTS_DIR
+    / "jesi_robustness_country_results.csv"
+)
+
+ROBUSTNESS_CORRELATION_FILE = (
+    RESULTS_DIR
+    / "jesi_robustness_correlations.csv"
+)
+
+FINAL_COUNTRY_FILE = (
+    RESULTS_DIR
+    / "final_jesi_country_results.csv"
+)
+
+YEARLY_FILE = (
+    RESULTS_DIR
+    / "final_jesi_yearly_summary.csv"
+)
+
+RESEARCH_TABLE_FILE = (
+    RESULTS_DIR
+    / "JESI_final_research_table.csv"
+)
+
+PILLARS = [
+    "G",
+    "P",
+    "C",
+    "R",
+    "A",
+]
 
 WEIGHTS = {
     "G": 0.20,
@@ -58,406 +76,296 @@ WEIGHTS = {
     "A": 0.15,
 }
 
+EXPECTED_COUNTRIES = {
+    "BGD",
+    "IND",
+    "IDN",
+    "MYS",
+    "VNM",
+}
 
-# ============================================================
-# REQUIRED FILES
-# ============================================================
-
-COUNTRY_YEAR_FILE = (
-    RESULTS_DIR / "jesi_country_year_2016_2023.csv"
-)
-
-COUNTRY_RESULTS_FILE = (
-    RESULTS_DIR / "final_jesi_country_results.csv"
-)
-
-YEARLY_FILE = (
-    RESULTS_DIR / "final_jesi_yearly_summary.csv"
-)
-
-RESEARCH_TABLE_FILE = (
-    RESULTS_DIR / "JESI_final_research_table.csv"
-)
-
-ROBUSTNESS_FILE = (
-    RESULTS_DIR / "jesi_robustness_country_results.csv"
-)
-
-CORRELATION_FILE = (
-    RESULTS_DIR / "jesi_robustness_correlations.csv"
+EXPECTED_YEARS = set(
+    range(2016, 2024)
 )
 
 
-# ============================================================
-# VALIDATION HELPERS
-# ============================================================
+def check_file(path):
+    """Check that a required file exists."""
 
-errors = []
-warnings = []
-
-
-def fail(message):
-    errors.append(message)
-    print(f"FAIL  {message}")
-
-
-def warn(message):
-    warnings.append(message)
-    print(f"WARN  {message}")
-
-
-def pass_check(message):
-    print(f"PASS  {message}")
-
-
-def require_columns(df, required, filename):
-    missing = set(required) - set(df.columns)
-
-    if missing:
-        fail(
-            f"{filename} missing columns: "
-            f"{sorted(missing)}"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Required file is missing: {path}"
         )
-        return False
-
-    return True
 
 
-def check_range(df, columns, minimum, maximum, filename):
-    for column in columns:
+def validate_country_year_dataset(df):
+    """Validate the main country-year JESI dataset."""
 
-        if column not in df.columns:
-            continue
-
-        invalid = (
-            (df[column] < minimum)
-            | (df[column] > maximum)
-        ).sum()
-
-        if invalid:
-            fail(
-                f"{filename}: {invalid} values in "
-                f"{column} outside [{minimum}, {maximum}]."
-            )
-        else:
-            pass_check(
-                f"{filename}: {column} within "
-                f"[{minimum}, {maximum}]."
-            )
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-def main():
-
-    print("=" * 72)
-    print("JESI FINAL RESULTS VALIDATION")
-    print("JAS Unified Economic Strength Index")
-    print("=" * 72)
-
-    print()
-    print(f"Validation period: {START_YEAR}-{END_YEAR}")
-    print(
-        f"Countries: {', '.join(COUNTRIES)}"
-    )
-
-    # --------------------------------------------------------
-    # 1. FILE EXISTENCE
-    # --------------------------------------------------------
-
-    print()
-    print("=" * 72)
-    print("1. REQUIRED OUTPUT FILES")
-    print("=" * 72)
-
-    required_files = [
-        COUNTRY_YEAR_FILE,
-        COUNTRY_RESULTS_FILE,
-        YEARLY_FILE,
-        RESEARCH_TABLE_FILE,
-        ROBUSTNESS_FILE,
-        CORRELATION_FILE,
-    ]
-
-    for file in required_files:
-
-        if file.exists():
-            pass_check(str(file))
-        else:
-            fail(f"Missing required file: {file}")
-
-    if errors:
-        raise SystemExit(1)
-
-    # --------------------------------------------------------
-    # LOAD FILES
-    # --------------------------------------------------------
-
-    country_year = pd.read_csv(
-        COUNTRY_YEAR_FILE
-    )
-
-    country_results = pd.read_csv(
-        COUNTRY_RESULTS_FILE
-    )
-
-    yearly = pd.read_csv(
-        YEARLY_FILE
-    )
-
-    research = pd.read_csv(
-        RESEARCH_TABLE_FILE
-    )
-
-    robustness = pd.read_csv(
-        ROBUSTNESS_FILE
-    )
-
-    correlations = pd.read_csv(
-        CORRELATION_FILE
-    )
-
-    # --------------------------------------------------------
-    # 2. COUNTRY-YEAR SCHEMA
-    # --------------------------------------------------------
-
-    print()
-    print("=" * 72)
-    print("2. COUNTRY-YEAR DATASET")
-    print("=" * 72)
-
-    country_year_required = {
+    required = {
         "country_code",
         "country",
         "year",
-        *PILLARS,
         "JESI",
+        *PILLARS,
     }
 
-    if require_columns(
-        country_year,
-        country_year_required,
-        COUNTRY_YEAR_FILE.name,
-    ):
-        pass_check(
-            "Country-year schema is complete."
+    missing = required - set(df.columns)
+
+    if missing:
+        raise ValueError(
+            "Country-year JESI file is missing columns: "
+            f"{sorted(missing)}"
         )
 
-    # --------------------------------------------------------
-    # 3. COUNTRY-YEAR COMPLETENESS
-    # --------------------------------------------------------
-
-    print()
-    print("=" * 72)
-    print("3. COUNTRY-YEAR COMPLETENESS")
-    print("=" * 72)
-
-    actual_rows = len(country_year)
-
-    print(
-        f"Expected observations: "
-        f"{EXPECTED_COUNTRY_YEAR_COUNT}"
-    )
-
-    print(
-        f"Actual observations: "
-        f"{actual_rows}"
-    )
-
-    if actual_rows != EXPECTED_COUNTRY_YEAR_COUNT:
-        fail(
-            "Country-year observation count does not "
-            "match expected balanced sample."
+    duplicates = df[
+        df.duplicated(
+            subset=[
+                "country_code",
+                "year",
+            ],
+            keep=False,
         )
-    else:
-        pass_check(
-            "Country-year observation count is correct."
-        )
-
-    # --------------------------------------------------------
-    # 4. YEAR RANGE
-    # --------------------------------------------------------
-
-    if "year" in country_year.columns:
-
-        min_year = country_year["year"].min()
-        max_year = country_year["year"].max()
-
-        if (
-            min_year != START_YEAR
-            or max_year != END_YEAR
-        ):
-            fail(
-                f"Unexpected year range: "
-                f"{min_year}-{max_year}."
-            )
-        else:
-            pass_check(
-                f"Year range is {START_YEAR}-{END_YEAR}."
-            )
-
-    # --------------------------------------------------------
-    # 5. COUNTRY COVERAGE
-    # --------------------------------------------------------
-
-    if "country" in country_year.columns:
-
-        actual_countries = sorted(
-            country_year["country"]
-            .dropna()
-            .unique()
-            .tolist()
-        )
-
-        expected_countries = sorted(
-            COUNTRIES
-        )
-
-        if actual_countries != expected_countries:
-            fail(
-                "Country coverage mismatch. "
-                f"Expected {expected_countries}, "
-                f"found {actual_countries}."
-            )
-        else:
-            pass_check(
-                "Country coverage is correct."
-            )
-
-    # --------------------------------------------------------
-    # 6. DUPLICATE COUNTRY-YEAR CHECK
-    # --------------------------------------------------------
-
-    duplicates = country_year.duplicated(
-        subset=[
-            "country_code",
-            "country",
-            "year",
-        ]
-    ).sum()
-
-    if duplicates:
-        fail(
-            f"Found {duplicates} duplicate "
-            "country-year observations."
-        )
-    else:
-        pass_check(
-            "No duplicate country-year observations."
-        )
-
-    # --------------------------------------------------------
-    # 7. MISSING VALUES
-    # --------------------------------------------------------
-
-    required_numeric = [
-        *PILLARS,
-        "JESI",
     ]
 
-    missing_values = country_year[
-        required_numeric
-    ].isna().sum()
-
-    if missing_values.sum() > 0:
-        fail(
-            "Missing values detected in final "
-            "pillar/JESI scores: "
-            f"{missing_values.to_dict()}"
-        )
-    else:
-        pass_check(
-            "No missing pillar or JESI values."
+    if not duplicates.empty:
+        raise ValueError(
+            "Duplicate country-year observations "
+            "found in main JESI dataset."
         )
 
-    # --------------------------------------------------------
-    # 8. PILLAR RANGE
-    # --------------------------------------------------------
+    if set(df["country_code"]) != EXPECTED_COUNTRIES:
+        raise ValueError(
+            "Unexpected country set in JESI dataset. "
+            f"Expected: {sorted(EXPECTED_COUNTRIES)}"
+        )
 
-    print()
-    print("=" * 72)
-    print("4. SCORE RANGE VALIDATION")
-    print("=" * 72)
+    if set(df["year"]) != EXPECTED_YEARS:
+        raise ValueError(
+            "Unexpected year range in JESI dataset. "
+            "Expected 2016-2023."
+        )
 
-    check_range(
-        country_year,
-        PILLARS,
-        0.0,
-        1.0,
-        COUNTRY_YEAR_FILE.name,
+    expected_observations = (
+        len(EXPECTED_COUNTRIES)
+        * len(EXPECTED_YEARS)
     )
 
-    check_range(
-        country_year,
-        ["JESI"],
-        0.0,
-        100.0,
-        COUNTRY_YEAR_FILE.name,
+    if len(df) != expected_observations:
+        raise ValueError(
+            "Unexpected number of country-year observations. "
+            f"Expected {expected_observations}, "
+            f"found {len(df)}."
+        )
+
+    for pillar in PILLARS:
+        if df[pillar].isna().any():
+            raise ValueError(
+                f"Missing values found in pillar {pillar}."
+            )
+
+        if (
+            (df[pillar] <= 0).any()
+            or (df[pillar] > 1).any()
+        ):
+            raise ValueError(
+                f"Pillar {pillar} contains values "
+                "outside (0, 1]."
+            )
+
+    if df["JESI"].isna().any():
+        raise ValueError(
+            "Missing JESI values found."
+        )
+
+    if (
+        (df["JESI"] <= 0).any()
+        or (df["JESI"] > 100).any()
+    ):
+        raise ValueError(
+            "JESI values must be in the range (0, 100]."
+        )
+
+
+def calculate_expected_jesi(row):
+    """Recalculate JESI from the five pillar scores."""
+
+    values = np.array(
+        [row[pillar] for pillar in PILLARS],
+        dtype=float,
     )
 
-    # --------------------------------------------------------
-    # 9. MATHEMATICAL CONSISTENCY
-    # --------------------------------------------------------
+    weights = np.array(
+        [WEIGHTS[pillar] for pillar in PILLARS],
+        dtype=float,
+    )
 
-    print()
-    print("=" * 72)
-    print("5. MATHEMATICAL CONSISTENCY")
-    print("=" * 72)
-
-    expected_jesi = (
+    return float(
         100
-        * (
-            country_year["G"] ** WEIGHTS["G"]
+        * np.exp(
+            np.sum(
+                weights
+                * np.log(values)
+            )
         )
-        * (
-            country_year["P"] ** WEIGHTS["P"]
-        )
-        * (
-            country_year["C"] ** WEIGHTS["C"]
-        )
-        * (
-            country_year["R"] ** WEIGHTS["R"]
-        )
-        * (
-            country_year["A"] ** WEIGHTS["A"]
-        )
+    )
+
+
+def validate_mathematical_consistency(df):
+    """Check that stored JESI matches the formula."""
+
+    expected = df.apply(
+        calculate_expected_jesi,
+        axis=1,
     )
 
     difference = (
-        country_year["JESI"]
-        - expected_jesi
-    ).abs()
-
-    max_difference = difference.max()
-
-    print(
-        f"Maximum JESI calculation difference: "
-        f"{max_difference:.12f}"
+        df["JESI"].to_numpy()
+        - expected.to_numpy()
     )
 
-    if max_difference > 1e-8:
-        fail(
-            "JESI values do not match the "
-            "baseline weighted geometric formula."
+    max_difference = np.max(
+        np.abs(difference)
+    )
+
+    if not np.allclose(
+        df["JESI"].to_numpy(),
+        expected.to_numpy(),
+        rtol=1e-9,
+        atol=1e-9,
+    ):
+        raise ValueError(
+            "JESI mathematical consistency check failed. "
+            f"Maximum difference: {max_difference}"
         )
-    else:
-        pass_check(
-            "JESI values match the baseline "
-            "weighted geometric formula."
+
+    print(
+        "Maximum JESI formula difference:",
+        max_difference,
+    )
+
+
+def validate_country_ranking(
+    country_year_df,
+    ranking_df,
+):
+    """Validate country-level ranking output."""
+
+    required = {
+        "country_code",
+        "country",
+        "JESI_mean",
+        "JESI_std",
+        "JESI_min",
+        "JESI_max",
+        "observations",
+        "rank",
+    }
+
+    missing = required - set(ranking_df.columns)
+
+    if missing:
+        raise ValueError(
+            "Country ranking file is missing columns: "
+            f"{sorted(missing)}"
         )
 
-    # --------------------------------------------------------
-    # 10. COUNTRY-LEVEL FINAL RESULTS
-    # --------------------------------------------------------
+    expected = (
+        country_year_df.groupby(
+            [
+                "country_code",
+                "country",
+            ]
+        )["JESI"]
+        .agg(
+            JESI_mean="mean",
+            JESI_std="std",
+            JESI_min="min",
+            JESI_max="max",
+            observations="count",
+        )
+        .reset_index()
+    )
 
-    print()
-    print("=" * 72)
-    print("6. COUNTRY-LEVEL FINAL RESULTS")
-    print("=" * 72)
+    expected["rank"] = (
+        expected["JESI_mean"]
+        .rank(
+            ascending=False,
+            method="min",
+        )
+        .astype(int)
+    )
 
-    country_required = {
+    expected = expected.sort_values(
+        "country_code"
+    ).reset_index(drop=True)
+
+    actual = ranking_df[
+        [
+            "country_code",
+            "country",
+            "JESI_mean",
+            "JESI_std",
+            "JESI_min",
+            "JESI_max",
+            "observations",
+            "rank",
+        ]
+    ].copy()
+
+    actual = actual.sort_values(
+        "country_code"
+    ).reset_index(drop=True)
+
+    if set(actual["country_code"]) != EXPECTED_COUNTRIES:
+        raise ValueError(
+            "Country ranking does not contain "
+            "the expected five countries."
+        )
+
+    numeric_columns = [
+        "JESI_mean",
+        "JESI_std",
+        "JESI_min",
+        "JESI_max",
+    ]
+
+    for column in numeric_columns:
+        if not np.allclose(
+            actual[column].to_numpy(),
+            expected[column].to_numpy(),
+            rtol=1e-9,
+            atol=1e-9,
+            equal_nan=True,
+        ):
+            raise ValueError(
+                f"Country ranking aggregation mismatch "
+                f"in column {column}."
+            )
+
+    if not np.array_equal(
+        actual["observations"].to_numpy(),
+        expected["observations"].to_numpy(),
+    ):
+        raise ValueError(
+            "Country observation counts do not match."
+        )
+
+    if not np.array_equal(
+        actual["rank"].to_numpy(),
+        expected["rank"].to_numpy(),
+    ):
+        raise ValueError(
+            "Country ranking integrity check failed."
+        )
+
+
+def validate_final_country_results(
+    country_year_df,
+    final_df,
+):
+    """Validate final country-level results."""
+
+    required = {
         "country_code",
         "country",
         "G",
@@ -467,36 +375,25 @@ def main():
         "A",
         "JESI",
         "JESI_std",
+        "observations",
         "rank",
         "JESI_score_100",
     }
 
-    if require_columns(
-        country_results,
-        country_required,
-        COUNTRY_RESULTS_FILE.name,
-    ):
-        pass_check(
-            "Country-level result schema is complete."
+    missing = required - set(final_df.columns)
+
+    if missing:
+        raise ValueError(
+            "Final country results are missing columns: "
+            f"{sorted(missing)}"
         )
 
-    if len(country_results) != EXPECTED_COUNTRY_COUNT:
-        fail(
-            "Unexpected number of country-level "
-            "results."
-        )
-    else:
-        pass_check(
-            "Country-level result count is correct."
-        )
-
-    # --------------------------------------------------------
-    # 11. COUNTRY AGGREGATION CONSISTENCY
-    # --------------------------------------------------------
-
-    expected_country = (
-        country_year.groupby(
-            ["country_code", "country"]
+    expected = (
+        country_year_df.groupby(
+            [
+                "country_code",
+                "country",
+            ]
         )
         .agg(
             G=("G", "mean"),
@@ -506,21 +403,48 @@ def main():
             A=("A", "mean"),
             JESI=("JESI", "mean"),
             JESI_std=("JESI", "std"),
+            observations=("JESI", "count"),
         )
         .reset_index()
     )
 
-    comparison = country_results.merge(
-        expected_country,
-        on=[
+    expected["JESI_score_100"] = (
+        expected["JESI"]
+    )
+
+    expected["rank"] = (
+        expected["JESI"]
+        .rank(
+            ascending=False,
+            method="min",
+        )
+        .astype(int)
+    )
+
+    expected = expected.sort_values(
+        "country_code"
+    ).reset_index(drop=True)
+
+    actual = final_df[
+        [
             "country_code",
             "country",
-        ],
-        suffixes=(
-            "_reported",
-            "_expected",
-        ),
-    )
+            "G",
+            "P",
+            "C",
+            "R",
+            "A",
+            "JESI",
+            "JESI_std",
+            "observations",
+            "rank",
+            "JESI_score_100",
+        ]
+    ].copy()
+
+    actual = actual.sort_values(
+        "country_code"
+    ).reset_index(drop=True)
 
     for column in [
         "G",
@@ -530,111 +454,131 @@ def main():
         "A",
         "JESI",
         "JESI_std",
+        "JESI_score_100",
     ]:
-
-        reported = (
-            f"{column}_reported"
-        )
-
-        expected = (
-            f"{column}_expected"
-        )
-
-        if (
-            reported not in comparison.columns
-            or expected not in comparison.columns
+        if not np.allclose(
+            actual[column].to_numpy(),
+            expected[column].to_numpy(),
+            rtol=1e-9,
+            atol=1e-9,
+            equal_nan=True,
         ):
-            continue
-
-        max_diff = (
-            comparison[reported]
-            - comparison[expected]
-        ).abs().max()
-
-        if pd.isna(max_diff):
-            continue
-
-        if max_diff > 1e-8:
-            fail(
-                f"Country aggregation mismatch "
-                f"for {column}: {max_diff:.12f}"
-            )
-        else:
-            pass_check(
-                f"Country aggregation consistent "
-                f"for {column}."
+            raise ValueError(
+                f"Final country results mismatch "
+                f"in column {column}."
             )
 
-    # --------------------------------------------------------
-    # 12. RANKING INTEGRITY
-    # --------------------------------------------------------
-
-    print()
-    print("=" * 72)
-    print("7. RANKING INTEGRITY")
-    print("=" * 72)
-
-    expected_rank = (
-        country_results["JESI"]
-        .rank(
-            ascending=False,
-            method="min",
-        )
-        .astype(int)
-    )
-
-    if not (
-        expected_rank.values
-        == country_results["rank"].values
-    ).all():
-
-        fail(
-            "Country ranking does not match "
-            "reported JESI ranking."
-        )
-
-    else:
-
-        pass_check(
-            "Country ranking is mathematically consistent."
-        )
-
-    # --------------------------------------------------------
-    # 13. RANK RANGE
-    # --------------------------------------------------------
-
-    valid_rank_values = set(
-        range(
-            1,
-            EXPECTED_COUNTRY_COUNT + 1,
-        )
-    )
-
-    actual_rank_values = set(
-        country_results["rank"]
-    )
-
-    if not actual_rank_values.issubset(
-        valid_rank_values
+    if not np.array_equal(
+        actual["observations"].to_numpy(),
+        expected["observations"].to_numpy(),
     ):
-        fail(
-            "Invalid ranking values detected."
-        )
-    else:
-        pass_check(
-            "Ranking values are within valid range."
+        raise ValueError(
+            "Final country observation counts do not match."
         )
 
-    # --------------------------------------------------------
-    # 14. RESEARCH TABLE
-    # --------------------------------------------------------
+    if not np.array_equal(
+        actual["rank"].to_numpy(),
+        expected["rank"].to_numpy(),
+    ):
+        raise ValueError(
+            "Final country ranking does not match "
+            "the calculated ranking."
+        )
 
-    print()
-    print("=" * 72)
-    print("8. RESEARCH TABLE")
-    print("=" * 72)
 
-    research_required = {
+def validate_yearly_summary(
+    country_year_df,
+    yearly_df,
+):
+    """Validate yearly JESI summary."""
+
+    required = {
+        "year",
+        "mean",
+        "median",
+        "minimum",
+        "maximum",
+        "observations",
+    }
+
+    missing = required - set(yearly_df.columns)
+
+    if missing:
+        raise ValueError(
+            "Yearly JESI summary is missing columns: "
+            f"{sorted(missing)}"
+        )
+
+    expected = (
+        country_year_df.groupby("year")["JESI"]
+        .agg(
+            mean="mean",
+            median="median",
+            minimum="min",
+            maximum="max",
+            observations="count",
+        )
+        .reset_index()
+        .sort_values("year")
+        .reset_index(drop=True)
+    )
+
+    actual = (
+        yearly_df[
+            [
+                "year",
+                "mean",
+                "median",
+                "minimum",
+                "maximum",
+                "observations",
+            ]
+        ]
+        .sort_values("year")
+        .reset_index(drop=True)
+    )
+
+    if not np.array_equal(
+        actual["year"].to_numpy(),
+        expected["year"].to_numpy(),
+    ):
+        raise ValueError(
+            "Yearly summary year values do not match."
+        )
+
+    for column in [
+        "mean",
+        "median",
+        "minimum",
+        "maximum",
+    ]:
+        if not np.allclose(
+            actual[column].to_numpy(),
+            expected[column].to_numpy(),
+            rtol=1e-9,
+            atol=1e-9,
+        ):
+            raise ValueError(
+                f"Yearly summary mismatch "
+                f"in column {column}."
+            )
+
+    if not np.array_equal(
+        actual["observations"].to_numpy(),
+        expected["observations"].to_numpy(),
+    ):
+        raise ValueError(
+            "Yearly observation counts do not match."
+        )
+
+
+def validate_research_table(
+    final_df,
+    research_df,
+):
+    """Validate the final research-ready table."""
+
+    required = {
         "rank",
         "country_code",
         "country",
@@ -647,269 +591,342 @@ def main():
         "JESI_std",
     }
 
-    if require_columns(
-        research,
-        research_required,
-        RESEARCH_TABLE_FILE.name,
-    ):
-        pass_check(
-            "Research table schema is complete."
+    missing = required - set(research_df.columns)
+
+    if missing:
+        raise ValueError(
+            "Research table is missing columns: "
+            f"{sorted(missing)}"
         )
 
-    if len(research) != EXPECTED_COUNTRY_COUNT:
-        fail(
-            "Research table country count is incorrect."
-        )
-    else:
-        pass_check(
-            "Research table country count is correct."
-        )
+    expected = final_df[
+        [
+            "rank",
+            "country_code",
+            "country",
+            "G",
+            "P",
+            "C",
+            "R",
+            "A",
+            "JESI",
+            "JESI_std",
+        ]
+    ].copy()
 
-    # --------------------------------------------------------
-    # 15. YEARLY SUMMARY
-    # --------------------------------------------------------
-
-    print()
-    print("=" * 72)
-    print("9. YEARLY SUMMARY")
-    print("=" * 72)
-
-    yearly_required = {
-        "year",
-        "mean",
-        "median",
-        "minimum",
-        "maximum",
-        "observations",
-    }
-
-    if require_columns(
-        yearly,
-        yearly_required,
-        YEARLY_FILE.name,
-    ):
-        pass_check(
-            "Yearly summary schema is complete."
-        )
-
-    if len(yearly) != EXPECTED_YEARS:
-        fail(
-            "Yearly summary does not contain "
-            "the expected number of years."
-        )
-    else:
-        pass_check(
-            "Yearly summary contains all expected years."
-        )
-
-    if "observations" in yearly.columns:
-
-        if not (
-            yearly["observations"]
-            == EXPECTED_COUNTRY_COUNT
-        ).all():
-
-            fail(
-                "Yearly summary contains unexpected "
-                "observation counts."
-            )
-
-        else:
-
-            pass_check(
-                "Each year contains all countries."
-            )
-
-    # --------------------------------------------------------
-    # 16. YEARLY SUMMARY CONSISTENCY
-    # --------------------------------------------------------
-
-    expected_yearly = (
-        country_year.groupby("year")["JESI"]
-        .agg(
-            mean="mean",
-            median="median",
-            minimum="min",
-            maximum="max",
-            observations="count",
-        )
-        .reset_index()
+    expected = expected.rename(
+        columns={
+            "G": "Growth",
+            "P": "Productivity",
+            "C": "Connectivity",
+            "R": "Resilience",
+            "A": "Strategic_Autonomy",
+        }
     )
 
-    yearly_compare = yearly.merge(
-        expected_yearly,
-        on="year",
-        suffixes=(
-            "_reported",
-            "_expected",
-        ),
-    )
+    expected = expected.sort_values(
+        "country_code"
+    ).reset_index(drop=True)
+
+    actual = research_df[
+        [
+            "rank",
+            "country_code",
+            "country",
+            "Growth",
+            "Productivity",
+            "Connectivity",
+            "Resilience",
+            "Strategic_Autonomy",
+            "JESI",
+            "JESI_std",
+        ]
+    ].copy()
+
+    actual = actual.sort_values(
+        "country_code"
+    ).reset_index(drop=True)
 
     for column in [
-        "mean",
-        "median",
-        "minimum",
-        "maximum",
-        "observations",
+        "Growth",
+        "Productivity",
+        "Connectivity",
+        "Resilience",
+        "Strategic_Autonomy",
+        "JESI",
+        "JESI_std",
     ]:
-
-        reported = (
-            f"{column}_reported"
-        )
-
-        expected = (
-            f"{column}_expected"
-        )
-
-        if (
-            reported not in yearly_compare.columns
-            or expected not in yearly_compare.columns
+        if not np.allclose(
+            actual[column].to_numpy(),
+            expected[column].to_numpy(),
+            rtol=1e-9,
+            atol=1e-9,
+            equal_nan=True,
         ):
-            continue
-
-        max_diff = (
-            yearly_compare[reported]
-            - yearly_compare[expected]
-        ).abs().max()
-
-        if max_diff > 1e-8:
-            fail(
-                f"Yearly summary mismatch "
-                f"for {column}."
-            )
-        else:
-            pass_check(
-                f"Yearly summary consistent "
-                f"for {column}."
+            raise ValueError(
+                f"Research table mismatch "
+                f"in column {column}."
             )
 
-    # --------------------------------------------------------
-    # 17. ROBUSTNESS OUTPUT
-    # --------------------------------------------------------
+    if not np.array_equal(
+        actual["rank"].to_numpy(),
+        expected["rank"].to_numpy(),
+    ):
+        raise ValueError(
+            "Research table ranking does not match."
+        )
 
-    print()
-    print("=" * 72)
-    print("10. ROBUSTNESS OUTPUT")
-    print("=" * 72)
 
-    robustness_required = {
+def validate_robustness(
+    robustness_df,
+    correlation_df,
+):
+    """Validate robustness output schemas and score ranges."""
+
+    required_country = {
         "country_code",
         "country",
         "JAS_arithmetic",
         "JAS_geometric",
         "Equal_arithmetic",
         "Equal_geometric",
-        "JAS_arithmetic_rank",
-        "JAS_geometric_rank",
-        "Equal_arithmetic_rank",
-        "Equal_geometric_rank",
-        "rank_diff_JAS_vs_Equal",
-        "rank_diff_Arithmetic_vs_Geometric",
     }
 
-    if require_columns(
-        robustness,
-        robustness_required,
-        ROBUSTNESS_FILE.name,
-    ):
-        pass_check(
-            "Robustness result schema is complete."
+    missing_country = (
+        required_country
+        - set(robustness_df.columns)
+    )
+
+    if missing_country:
+        raise ValueError(
+            "Robustness country results are missing "
+            f"columns: {sorted(missing_country)}"
         )
 
-    if len(robustness) != EXPECTED_COUNTRY_COUNT:
-        fail(
-            "Robustness result country count is incorrect."
-        )
-    else:
-        pass_check(
-            "Robustness result country count is correct."
+    required_correlation = {
+        "comparison",
+        "spearman_correlation",
+    }
+
+    missing_correlation = (
+        required_correlation
+        - set(correlation_df.columns)
+    )
+
+    if missing_correlation:
+        raise ValueError(
+            "Robustness correlation file is missing "
+            f"columns: {sorted(missing_correlation)}"
         )
 
-    # --------------------------------------------------------
-    # 18. ROBUSTNESS SCORE RANGE
-    # --------------------------------------------------------
+    if set(
+        robustness_df["country_code"]
+    ) != EXPECTED_COUNTRIES:
+        raise ValueError(
+            "Robustness results do not contain "
+            "the expected five countries."
+        )
 
-    robustness_scores = [
+    score_columns = [
         "JAS_arithmetic",
         "JAS_geometric",
         "Equal_arithmetic",
         "Equal_geometric",
     ]
 
-    check_range(
-        robustness,
-        robustness_scores,
-        0.0,
-        100.0,
-        ROBUSTNESS_FILE.name,
-    )
+    for column in score_columns:
+        if robustness_df[column].isna().any():
+            raise ValueError(
+                f"Robustness column {column} "
+                "contains missing values."
+            )
 
-    # --------------------------------------------------------
-    # 19. CORRELATION OUTPUT
-    # --------------------------------------------------------
+        if (
+            (robustness_df[column] < 0).any()
+            or (robustness_df[column] > 100).any()
+        ):
+            raise ValueError(
+                f"Robustness column {column} "
+                "contains values outside [0, 100]."
+            )
 
-    correlation_required = {
-        "comparison",
-        "spearman_correlation",
-    }
-
-    if require_columns(
-        correlations,
-        correlation_required,
-        CORRELATION_FILE.name,
-    ):
-        pass_check(
-            "Robustness correlation schema is complete."
+    if correlation_df[
+        "spearman_correlation"
+    ].isna().any():
+        raise ValueError(
+            "Robustness correlations contain "
+            "missing values."
         )
 
-    # --------------------------------------------------------
-    # 20. FINAL SUMMARY
-    # --------------------------------------------------------
+    if (
+        correlation_df[
+            "spearman_correlation"
+        ].abs()
+        > 1
+    ).any():
+        raise ValueError(
+            "Spearman correlation values must "
+            "be between -1 and 1."
+        )
 
-    print()
-    print("=" * 72)
-    print("FINAL VALIDATION SUMMARY")
-    print("=" * 72)
 
-    print(
-        f"Errors: {len(errors)}"
+def main():
+    print("=" * 70)
+    print("JAS Unified Economic Strength Index")
+    print("Final JESI Validation")
+    print("=" * 70)
+
+    # ---------------------------------------------------------------
+    # Check required files
+    # ---------------------------------------------------------------
+
+    required_files = [
+        COUNTRY_YEAR_FILE,
+        COUNTRY_RANKING_FILE,
+        ROBUSTNESS_FILE,
+        ROBUSTNESS_CORRELATION_FILE,
+        FINAL_COUNTRY_FILE,
+        YEARLY_FILE,
+        RESEARCH_TABLE_FILE,
+    ]
+
+    for path in required_files:
+        check_file(path)
+
+    # ---------------------------------------------------------------
+    # Load datasets
+    # ---------------------------------------------------------------
+
+    country_year_df = pd.read_csv(
+        COUNTRY_YEAR_FILE
     )
 
-    print(
-        f"Warnings: {len(warnings)}"
+    country_ranking_df = pd.read_csv(
+        COUNTRY_RANKING_FILE
     )
 
-    if warnings:
-        print()
-        print("Warnings:")
+    robustness_df = pd.read_csv(
+        ROBUSTNESS_FILE
+    )
 
-        for warning in warnings:
-            print(
-                f"  - {warning}"
-            )
+    correlation_df = pd.read_csv(
+        ROBUSTNESS_CORRELATION_FILE
+    )
 
-    if errors:
+    final_country_df = pd.read_csv(
+        FINAL_COUNTRY_FILE
+    )
 
-        print()
-        print("Validation failures:")
+    yearly_df = pd.read_csv(
+        YEARLY_FILE
+    )
 
-        for error in errors:
-            print(
-                f"  - {error}"
-            )
+    research_df = pd.read_csv(
+        RESEARCH_TABLE_FILE
+    )
 
-        print()
-        print("STATUS: FAIL")
-
-        raise SystemExit(1)
+    # ---------------------------------------------------------------
+    # Validation sequence
+    # ---------------------------------------------------------------
 
     print()
+    print("1. Validating country-year JESI dataset...")
+
+    validate_country_year_dataset(
+        country_year_df
+    )
+
+    print("GREEN")
+
+    print()
+    print("2. Validating JESI mathematical formula...")
+
+    validate_mathematical_consistency(
+        country_year_df
+    )
+
+    print("GREEN")
+
+    print()
+    print("3. Validating country ranking...")
+
+    validate_country_ranking(
+        country_year_df,
+        country_ranking_df,
+    )
+
+    print("GREEN")
+
+    print()
+    print("4. Validating final country results...")
+
+    validate_final_country_results(
+        country_year_df,
+        final_country_df,
+    )
+
+    print("GREEN")
+
+    print()
+    print("5. Validating yearly JESI summary...")
+
+    validate_yearly_summary(
+        country_year_df,
+        yearly_df,
+    )
+
+    print("GREEN")
+
+    print()
+    print("6. Validating final research table...")
+
+    validate_research_table(
+        final_country_df,
+        research_df,
+    )
+
+    print("GREEN")
+
+    print()
+    print("7. Validating robustness outputs...")
+
+    validate_robustness(
+        robustness_df,
+        correlation_df,
+    )
+
+    print("GREEN")
+
+    # ---------------------------------------------------------------
+    # Final summary
+    # ---------------------------------------------------------------
+
+    print()
+    print("Final validation summary:")
+    print(
+        f"Countries: "
+        f"{len(EXPECTED_COUNTRIES)}"
+    )
+    print(
+        f"Years: "
+        f"{min(EXPECTED_YEARS)}-"
+        f"{max(EXPECTED_YEARS)}"
+    )
+    print(
+        f"Country-year observations: "
+        f"{len(country_year_df)}"
+    )
+
+    print()
+    print("=" * 70)
     print("STATUS: GREEN")
     print(
-        "Final JESI outputs passed structural, "
-        "range, mathematical, aggregation, "
-        "ranking, yearly-summary, and robustness checks."
+        "Final JESI validation completed successfully."
     )
+    print(
+        "All required consistency checks passed."
+    )
+    print("=" * 70)
 
 
 if __name__ == "__main__":
