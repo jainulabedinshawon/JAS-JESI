@@ -2,7 +2,6 @@ name: Final JESI Pipeline
 
 on:
   workflow_dispatch:
-
   push:
     paths:
       - "scripts/11_score_resilience_pillar.py"
@@ -11,6 +10,10 @@ on:
       - "scripts/16_download_productivity_p2.py"
       - "scripts/19_score_productivity_p2.py"
       - "scripts/20_construct_productivity_pillar.py"
+      - "scripts/21_download_connectivity_data.py"
+      - "scripts/22_download_connectivity_data.py"
+      - "scripts/23_analyze_connectivity_distribution.py"
+      - "scripts/24_score_connectivity.py"
       - "scripts/25_construct_connectivity_pillar.py"
       - "scripts/27_score_growth.py"
       - "scripts/28_construct_growth_pillar.py"
@@ -34,51 +37,50 @@ jobs:
   final-jesi:
     runs-on: ubuntu-latest
 
-    env:
-      PYTHONPATH: ${{ github.workspace }}
-
     steps:
 
-      # ==============================================================
-      # CHECKOUT
-      # ==============================================================
+      # --------------------------------------------------------------
+      # Checkout
+      # --------------------------------------------------------------
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ==============================================================
-      # PYTHON
-      # ==============================================================
+      # --------------------------------------------------------------
+      # Python
+      # --------------------------------------------------------------
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      # ==============================================================
-      # DEPENDENCIES
-      # ==============================================================
+      # --------------------------------------------------------------
+      # Dependencies
+      # --------------------------------------------------------------
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
-
           pip install pandas numpy scipy openpyxl
 
-      # ==============================================================
-      # VERIFY PYTHON PACKAGE
-      # ==============================================================
+      # --------------------------------------------------------------
+      # Python package path
+      # --------------------------------------------------------------
 
-      - name: Verify src package
+      - name: Configure Python path
+        run: |
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
+
+      - name: Verify Python package
         run: |
           python -c "import src; print('src package import: OK')"
 
       # ==============================================================
-      # GROWTH PILLAR
+      # GROWTH
       # ==============================================================
 
       - name: Build Growth pillar
@@ -87,58 +89,74 @@ jobs:
           python scripts/28_construct_growth_pillar.py
 
       # ==============================================================
-      # PRODUCTIVITY PILLAR - P1
+      # PRODUCTIVITY P1
       # ==============================================================
 
       - name: Download Productivity P1 data
         run: |
           python scripts/12_download_productivity_data.py
 
-      - name: Build Productivity P1 scores
+      - name: Score Productivity P1
         run: |
           python scripts/15_score_productivity_p1.py
 
       # ==============================================================
-      # PRODUCTIVITY PILLAR - P2
+      # PRODUCTIVITY P2
       # ==============================================================
 
       - name: Download Productivity P2 data
         run: |
           python scripts/16_download_productivity_p2.py
 
-      - name: Build Productivity P2 scores
+      - name: Score Productivity P2
         run: |
           python scripts/19_score_productivity_p2.py
 
       # ==============================================================
-      # PRODUCTIVITY PILLAR - FINAL
+      # PRODUCTIVITY PILLAR
       # ==============================================================
 
-      - name: Build Productivity pillar
+      - name: Construct Productivity pillar
         run: |
           python scripts/20_construct_productivity_pillar.py
 
       # ==============================================================
-      # CONNECTIVITY PILLAR
+      # CONNECTIVITY
       # ==============================================================
 
-      - name: Build Connectivity pillar
+      - name: Download Connectivity data
+        run: |
+          python scripts/21_download_connectivity_data.py
+
+      - name: Download Connectivity data sources
+        run: |
+          python scripts/22_download_connectivity_data.py
+
+      - name: Analyze Connectivity distribution
+        run: |
+          python scripts/23_analyze_connectivity_distribution.py
+
+      - name: Score Connectivity indicators
+        run: |
+          python scripts/24_score_connectivity.py
+
+      - name: Construct Connectivity pillar
         run: |
           python scripts/25_construct_connectivity_pillar.py
 
       # ==============================================================
-      # RESILIENCE PILLAR
+      # RESILIENCE
       # ==============================================================
 
-      - name: Build Resilience pillar
+      - name: Score Resilience pillar
         run: |
           python scripts/11_score_resilience_pillar.py
 
       # ==============================================================
-      # STRATEGIC AUTONOMY PILLAR
+      # STRATEGIC AUTONOMY
       # ==============================================================
 
-      - name: Build Strategic Autonomy pillar
+      - name: Construct Strategic Autonomy pillar
         run: |
           python scripts/35_construct_autonomy_pillar.py
 
@@ -154,18 +172,18 @@ jobs:
           test -f data/processed/resilience_pillar_scores_2015_2024.csv
           test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
 
-          echo "All required JESI pillar outputs are present."
+          echo "All required pillar outputs exist."
 
       # ==============================================================
       # FINAL JESI CALCULATION
       # ==============================================================
 
-      - name: Calculate final JESI
+      - name: Calculate JESI
         run: |
           python scripts/36_calculate_jesi.py
 
       # ==============================================================
-      # ROBUSTNESS TESTING
+      # ROBUSTNESS
       # ==============================================================
 
       - name: Run JESI robustness tests
@@ -184,15 +202,15 @@ jobs:
       # VALIDATION
       # ==============================================================
 
-      - name: Validate final JESI
+      - name: Validate final JESI results
         run: |
           python scripts/39_validate_final_jesi.py
 
       # ==============================================================
-      # FINAL RESEARCH REPORT
+      # REPORT
       # ==============================================================
 
-      - name: Generate final JESI research report
+      - name: Generate JESI research report
         run: |
           python scripts/40_generate_jesi_report.py
 
@@ -200,7 +218,7 @@ jobs:
       # README
       # ==============================================================
 
-      - name: Update README with final JESI results
+      - name: Update README
         run: |
           python scripts/41_update_readme_jesi.py
 
@@ -213,13 +231,13 @@ jobs:
           python scripts/42_final_repository_audit.py
 
       # ==============================================================
-      # UPLOAD FINAL ARTIFACT
+      # ARTIFACT
       # ==============================================================
 
       - name: Upload final JESI outputs
         uses: actions/upload-artifact@v4
         with:
-          name: final-jesi-results
+          name: JESI-final-results
           path: |
             data/results/
             docs/JESI_Final_Results_Report.md
@@ -239,6 +257,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No generated changes to commit."
           else
-            git commit -m "Update generated JESI results"
+            git commit -m "Update final JESI results"
             git push
           fi
