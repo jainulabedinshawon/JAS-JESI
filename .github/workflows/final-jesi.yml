@@ -181,15 +181,19 @@ jobs:
         run: |
           python scripts/29_download_autonomy_data.py
 
-      - name: Validate Strategic Autonomy data
-        run: |
-          python scripts/30_validate_autonomy_data.py
+      # --------------------------------------------------------------
+      # Import concentration MUST be downloaded before validation
+      # --------------------------------------------------------------
 
       - name: Download Import Concentration data
         run: |
           python scripts/31_download_import_concentration.py
 
-      - name: Validate Autonomy data
+      - name: Validate Strategic Autonomy data
+        run: |
+          python scripts/30_validate_autonomy_data.py
+
+      - name: Validate Autonomy data integration
         run: |
           python scripts/32_validate_autonomy_data.py
 
