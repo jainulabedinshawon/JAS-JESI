@@ -1,18 +1,35 @@
 """
 JESI Productivity Pillar Construction
 
-Combines:
-    P1 - GDP per Person Employed
-    P2 - Total Factor Productivity Growth
+Constructs the Productivity pillar from:
 
-Common analysis period:
-    2016-2023
+P1:
+    GDP per Person Employed
+
+P2:
+    Total Factor Productivity Growth
 
 Baseline aggregation:
     Arithmetic mean
 
-Robustness alternative:
+Alternative aggregation:
     Geometric mean
+
+Final sample:
+    Bangladesh, India, Indonesia, Malaysia, Vietnam
+    2016–2023
+
+Required P1 columns:
+    country
+    country_code
+    year
+    productivity_p1_score
+
+Required P2 columns:
+    country
+    country_code
+    year
+    productivity_p2_score
 """
 
 from pathlib import Path
@@ -21,44 +38,115 @@ import numpy as np
 import pandas as pd
 
 
-P1_FILE = Path(
-    "data/processed/productivity_p1_scores_2015_2024.csv"
+ROOT = Path(__file__).resolve().parents[1]
+
+P1_FILE = (
+    ROOT
+    / "data"
+    / "processed"
+    / "productivity_p1_scores_2016_2023.csv"
 )
 
-P2_FILE = Path(
-    "data/processed/productivity_p2_scores_2016_2023.csv"
+P2_FILE = (
+    ROOT
+    / "data"
+    / "processed"
+    / "productivity_p2_scores_2016_2023.csv"
 )
 
-OUTPUT_FILE = Path(
-    "data/processed/productivity_pillar_scores_2016_2023.csv"
+OUTPUT_FILE = (
+    ROOT
+    / "data"
+    / "processed"
+    / "productivity_pillar_scores_2016_2023.csv"
 )
-
-START_YEAR = 2016
-END_YEAR = 2023
 
 EXPECTED_COUNTRIES = {
-    "BGD",
-    "IND",
-    "IDN",
-    "MYS",
-    "VNM",
+    "BGD": "Bangladesh",
+    "IND": "India",
+    "IDN": "Indonesia",
+    "MYS": "Malaysia",
+    "VNM": "Vietnam",
 }
 
+EXPECTED_YEARS = set(range(2016, 2024))
 
-def validate_score(
-    dataframe: pd.DataFrame,
-    column: str,
-    label: str,
+
+def validate_input(
+    df: pd.DataFrame,
+    name: str,
+    score_column: str,
 ) -> None:
-    """Validate that a score column contains valid [0,1] values."""
-    if dataframe[column].isna().any():
+    required = {
+        "country",
+        "country_code",
+        "year",
+        score_column,
+    }
+
+    missing = sorted(required - set(df.columns))
+
+    if missing:
         raise ValueError(
-            f"{label} contains missing values."
+            f"{name} file missing columns: {missing}"
         )
 
-    if not dataframe[column].between(0, 1).all():
+    df["year"] = pd.to_numeric(
+        df["year"],
+        errors="coerce",
+    )
+
+    if df["year"].isna().any():
         raise ValueError(
-            f"{label} must be between 0 and 1."
+            f"{name} contains invalid year values."
+        )
+
+    invalid_countries = set(df["country_code"]) - set(
+        EXPECTED_COUNTRIES
+    )
+
+    if invalid_countries:
+        raise ValueError(
+            f"{name} contains unexpected country codes: "
+            f"{sorted(invalid_countries)}"
+        )
+
+    invalid_years = set(df["year"].astype(int)) - EXPECTED_YEARS
+
+    if invalid_years:
+        raise ValueError(
+            f"{name} contains unexpected years: "
+            f"{sorted(invalid_years)}"
+        )
+
+    duplicates = df.duplicated(
+        subset=["country_code", "year"],
+        keep=False,
+    )
+
+    if duplicates.any():
+        raise ValueError(
+            f"{name} contains duplicate country-year "
+            "observations."
+        )
+
+    df[score_column] = pd.to_numeric(
+        df[score_column],
+        errors="coerce",
+    )
+
+    if df[score_column].isna().any():
+        raise ValueError(
+            f"{name} contains missing values in "
+            f"{score_column}."
+        )
+
+    if (
+        (df[score_column] <= 0)
+        | (df[score_column] > 1)
+    ).any():
+        raise ValueError(
+            f"{name} contains scores outside (0, 1]."
         )
 
 
@@ -67,196 +155,187 @@ def main() -> None:
     print("JESI PRODUCTIVITY PILLAR CONSTRUCTION")
     print("=" * 72)
 
+    # ---------------------------------------------------------------
+    # Load P1
+    # ---------------------------------------------------------------
+
     if not P1_FILE.exists():
         raise FileNotFoundError(
-            f"P1 input file not found: {P1_FILE}"
+            f"P1 input file not found: "
+            f"{P1_FILE.relative_to(ROOT)}"
         )
 
     if not P2_FILE.exists():
         raise FileNotFoundError(
-            f"P2 input file not found: {P2_FILE}"
+            f"P2 input file not found: "
+            f"{P2_FILE.relative_to(ROOT)}"
         )
 
     p1 = pd.read_csv(P1_FILE)
     p2 = pd.read_csv(P2_FILE)
 
-    required_p1 = {
-        "country_code",
-        "country",
-        "year",
-        "p1_score",
-    }
+    print(
+        f"P1 input: {P1_FILE.relative_to(ROOT)}"
+    )
+    print(
+        f"P2 input: {P2_FILE.relative_to(ROOT)}"
+    )
 
-    required_p2 = {
-        "country_code",
-        "country",
-        "year",
-        "p2_score",
-    }
+    print(f"P1 rows: {len(p1)}")
+    print(f"P2 rows: {len(p2)}")
 
-    missing_p1 = required_p1.difference(p1.columns)
-    missing_p2 = required_p2.difference(p2.columns)
+    # ---------------------------------------------------------------
+    # Validate inputs
+    # ---------------------------------------------------------------
 
-    if missing_p1:
-        raise ValueError(
-            f"P1 file missing columns: {sorted(missing_p1)}"
-        )
-
-    if missing_p2:
-        raise ValueError(
-            f"P2 file missing columns: {sorted(missing_p2)}"
-        )
-
-    # Restrict both components to the common period.
-    p1 = p1[
-        (p1["year"] >= START_YEAR)
-        & (p1["year"] <= END_YEAR)
-    ].copy()
-
-    p2 = p2[
-        (p2["year"] >= START_YEAR)
-        & (p2["year"] <= END_YEAR)
-    ].copy()
-
-    # Keep only the fields required for pillar construction.
-    p1 = p1[
-        [
-            "country_code",
-            "country",
-            "year",
-            "p1_score",
-        ]
-    ]
-
-    p2 = p2[
-        [
-            "country_code",
-            "country",
-            "year",
-            "p2_score",
-        ]
-    ]
-
-    # Validate country coverage.
-    if set(p1["country_code"]) != EXPECTED_COUNTRIES:
-        raise ValueError(
-            "P1 country coverage does not match expected JESI countries."
-        )
-
-    if set(p2["country_code"]) != EXPECTED_COUNTRIES:
-        raise ValueError(
-            "P2 country coverage does not match expected JESI countries."
-        )
-
-    # Validate uniqueness before merging.
-    if p1.duplicated(
-        subset=["country_code", "year"]
-    ).any():
-        raise ValueError(
-            "Duplicate P1 country-year observations detected."
-        )
-
-    if p2.duplicated(
-        subset=["country_code", "year"]
-    ).any():
-        raise ValueError(
-            "Duplicate P2 country-year observations detected."
-        )
-
-    # Validate component scores.
-    validate_score(
+    validate_input(
         p1,
-        "p1_score",
-        "P1 score",
+        "P1",
+        "productivity_p1_score",
     )
 
-    validate_score(
+    validate_input(
         p2,
-        "p2_score",
-        "P2 score",
+        "P2",
+        "productivity_p2_score",
     )
 
-    # Merge P1 and P2 on common country-year observations.
+    p1["year"] = p1["year"].astype(int)
+    p2["year"] = p2["year"].astype(int)
+
+    # ---------------------------------------------------------------
+    # Restrict to expected sample
+    # ---------------------------------------------------------------
+
+    p1 = p1[
+        p1["country_code"].isin(EXPECTED_COUNTRIES)
+        & p1["year"].isin(EXPECTED_YEARS)
+    ].copy()
+
+    p2 = p2[
+        p2["country_code"].isin(EXPECTED_COUNTRIES)
+        & p2["year"].isin(EXPECTED_YEARS)
+    ].copy()
+
+    # ---------------------------------------------------------------
+    # Merge P1 and P2
+    # ---------------------------------------------------------------
+
     merged = pd.merge(
-        p1,
-        p2,
+        p1[
+            [
+                "country",
+                "country_code",
+                "year",
+                "productivity_p1_score",
+            ]
+        ],
+        p2[
+            [
+                "country_code",
+                "year",
+                "productivity_p2_score",
+            ]
+        ],
         on=["country_code", "year"],
         how="inner",
-        suffixes=("_p1", "_p2"),
+        validate="one_to_one",
     )
 
-    expected_rows = 5 * (
-        END_YEAR - START_YEAR + 1
+    if merged.empty:
+        raise ValueError(
+            "No overlapping P1/P2 country-year observations."
+        )
+
+    # Use standardized country names from the expected mapping.
+    merged["country"] = merged["country_code"].map(
+        EXPECTED_COUNTRIES
     )
 
-    if len(merged) != expected_rows:
-        raise ValueError(
-            f"Expected {expected_rows} common country-year observations, "
-            f"found {len(merged)}."
-        )
+    # ---------------------------------------------------------------
+    # Completeness check
+    # ---------------------------------------------------------------
 
-    if merged["p1_score"].isna().any():
-        raise ValueError(
-            "Missing P1 score after merge."
-        )
+    expected_observations = (
+        len(EXPECTED_COUNTRIES)
+        * len(EXPECTED_YEARS)
+    )
 
-    if merged["p2_score"].isna().any():
+    if len(merged) != expected_observations:
+        missing = []
+
+        for country_code in EXPECTED_COUNTRIES:
+            for year in sorted(EXPECTED_YEARS):
+                mask = (
+                    (merged["country_code"] == country_code)
+                    & (merged["year"] == year)
+                )
+
+                if not mask.any():
+                    missing.append(
+                        f"{country_code}-{year}"
+                    )
+
         raise ValueError(
-            "Missing P2 score after merge."
+            "Productivity pillar does not contain the "
+            f"expected {expected_observations} observations. "
+            f"Found {len(merged)}. Missing: {missing}"
         )
 
     # ---------------------------------------------------------------
-    # Baseline: arithmetic aggregation
+    # Baseline arithmetic aggregation
     # ---------------------------------------------------------------
-    merged["productivity_score_arithmetic"] = (
-        merged["p1_score"] + merged["p2_score"]
+
+    merged["productivity_score"] = (
+        merged["productivity_p1_score"]
+        + merged["productivity_p2_score"]
     ) / 2.0
 
     # ---------------------------------------------------------------
-    # Robustness: geometric aggregation
+    # Alternative geometric aggregation
     # ---------------------------------------------------------------
-    merged["productivity_score_geometric"] = np.sqrt(
-        merged["p1_score"] * merged["p2_score"]
+
+    merged["productivity_geometric"] = np.sqrt(
+        merged["productivity_p1_score"]
+        * merged["productivity_p2_score"]
     )
 
-    # Baseline Productivity pillar.
-    merged["productivity_score"] = merged[
-        "productivity_score_arithmetic"
-    ]
+    # ---------------------------------------------------------------
+    # Final validation
+    # ---------------------------------------------------------------
 
-    # Final validation.
-    validate_score(
-        merged,
+    for column in [
         "productivity_score",
-        "Productivity pillar score",
-    )
+        "productivity_geometric",
+    ]:
+        if (
+            merged[column].isna().any()
+            or (merged[column] <= 0).any()
+            or (merged[column] > 1).any()
+        ):
+            raise ValueError(
+                f"Invalid values detected in {column}."
+            )
 
-    validate_score(
-        merged,
-        "productivity_score_geometric",
-        "Geometric Productivity score",
-    )
+    merged = merged.sort_values(
+        ["country_code", "year"]
+    ).reset_index(drop=True)
+
+    # ---------------------------------------------------------------
+    # Final output
+    # ---------------------------------------------------------------
 
     output = merged[
         [
+            "country",
             "country_code",
-            "country_p1",
             "year",
-            "p1_score",
-            "p2_score",
+            "productivity_p1_score",
+            "productivity_p2_score",
             "productivity_score",
-            "productivity_score_arithmetic",
-            "productivity_score_geometric",
+            "productivity_geometric",
         ]
-    ].rename(
-        columns={
-            "country_p1": "country",
-        }
-    )
-
-    output = output.sort_values(
-        ["country_code", "year"]
-    ).reset_index(drop=True)
+    ].copy()
 
     OUTPUT_FILE.parent.mkdir(
         parents=True,
@@ -269,47 +348,25 @@ def main() -> None:
     )
 
     print()
-    print("COMMON PRODUCTIVITY PERIOD")
-    print("=" * 72)
-    print(f"{START_YEAR}-{END_YEAR}")
-
-    print()
-    print("COUNTRIES")
-    print("=" * 72)
-    print(", ".join(sorted(EXPECTED_COUNTRIES)))
-
-    print()
-    print("OBSERVATIONS")
-    print("=" * 72)
-    print(len(output))
-
-    print()
-    print("PRODUCTIVITY AGGREGATION")
-    print("=" * 72)
-    print("Baseline     : Arithmetic mean")
-    print("Robustness   : Geometric mean")
-
-    print()
-    print("PRODUCTIVITY SCORE SUMMARY")
-    print("=" * 72)
+    print("PRODUCTIVITY PILLAR CONSTRUCTION SUCCESSFUL")
+    print("-" * 72)
     print(
-        output[
-            [
-                "productivity_score",
-                "productivity_score_geometric",
-            ]
-        ].describe()
+        f"Output: {OUTPUT_FILE.relative_to(ROOT)}"
     )
-
-    print()
-    print("OUTPUT")
-    print("=" * 72)
-    print(f"Saved: {OUTPUT_FILE}")
-
+    print(f"Observations: {len(output)}")
+    print(
+        f"Countries: {sorted(output['country_code'].unique())}"
+    )
+    print(
+        f"Years: {output['year'].min()}–"
+        f"{output['year'].max()}"
+    )
     print()
     print(
-        "JESI Productivity pillar construction completed successfully."
+        output.to_string(index=False)
     )
+    print()
+    print("=" * 72)
 
 
 if __name__ == "__main__":
