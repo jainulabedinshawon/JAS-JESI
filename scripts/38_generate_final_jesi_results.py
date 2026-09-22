@@ -3,6 +3,7 @@ JAS Unified Economic Strength Index (JESI)
 Final Research Results Generator
 
 Generates:
+
 1. Country-level final JESI results
 2. Pillar-level country averages
 3. Year-level JESI summary
@@ -20,26 +21,17 @@ INPUT_FILE = Path(
 
 OUTPUT_DIR = Path("data/results")
 
+PILLARS = [
+    "G",
+    "P",
+    "C",
+    "R",
+    "A",
+]
 
-PILLARS = ["G", "P", "C", "R", "A"]
 
-
-def main():
-    print("=" * 70)
-    print("JESI Final Research Results")
-    print("=" * 70)
-
-    if not INPUT_FILE.exists():
-        raise FileNotFoundError(
-            f"Missing input file: {INPUT_FILE}"
-        )
-
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    df = pd.read_csv(INPUT_FILE)
+def validate_input(df):
+    """Validate the country-year JESI dataset."""
 
     required = {
         "country_code",
@@ -53,42 +45,111 @@ def main():
 
     if missing:
         raise ValueError(
-            f"Missing required columns: {sorted(missing)}"
+            "Input JESI dataset is missing columns: "
+            f"{sorted(missing)}"
         )
 
     if df.empty:
         raise ValueError(
-            "Final JESI dataset is empty."
+            "Input JESI dataset is empty."
         )
 
-    # ------------------------------------------------------------
-    # Country-level pillar and JESI averages
-    # ------------------------------------------------------------
+    duplicates = df[
+        df.duplicated(
+            subset=[
+                "country_code",
+                "year",
+            ],
+            keep=False,
+        )
+    ]
 
-    aggregation = {
-        "G": "mean",
-        "P": "mean",
-        "C": "mean",
-        "R": "mean",
-        "A": "mean",
-        "JESI": "mean",
-    }
+    if not duplicates.empty:
+        raise ValueError(
+            "Duplicate country-year observations found."
+        )
+
+    if df["JESI"].isna().any():
+        raise ValueError(
+            "Missing JESI values found."
+        )
+
+    for pillar in PILLARS:
+        if df[pillar].isna().any():
+            raise ValueError(
+                f"Missing values found in pillar {pillar}."
+            )
+
+        if (
+            (df[pillar] < 0).any()
+            or (df[pillar] > 1).any()
+        ):
+            raise ValueError(
+                f"Pillar {pillar} contains values "
+                "outside [0, 1]."
+            )
+
+    if (
+        (df["JESI"] < 0).any()
+        or (df["JESI"] > 100).any()
+    ):
+        raise ValueError(
+            "JESI values must be between 0 and 100."
+        )
+
+
+def main():
+    print("=" * 70)
+    print("JAS Unified Economic Strength Index")
+    print("Final Research Results Generator")
+    print("=" * 70)
+
+    # ---------------------------------------------------------------
+    # Check input file
+    # ---------------------------------------------------------------
+
+    if not INPUT_FILE.exists():
+        raise FileNotFoundError(
+            f"Missing JESI input file: {INPUT_FILE}"
+        )
+
+    df = pd.read_csv(INPUT_FILE)
+
+    validate_input(df)
+
+    # ---------------------------------------------------------------
+    # Country-level averages
+    # ---------------------------------------------------------------
 
     country_results = (
         df.groupby(
-            ["country_code", "country"]
+            [
+                "country_code",
+                "country",
+            ]
         )
-        .agg(aggregation)
+        .agg(
+            G=("G", "mean"),
+            P=("P", "mean"),
+            C=("C", "mean"),
+            R=("R", "mean"),
+            A=("A", "mean"),
+            JESI=("JESI", "mean"),
+            observations=("JESI", "count"),
+        )
         .reset_index()
     )
 
-    # ------------------------------------------------------------
-    # Country-level standard deviation
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Country-level JESI standard deviation
+    # ---------------------------------------------------------------
 
     country_std = (
         df.groupby(
-            ["country_code", "country"]
+            [
+                "country_code",
+                "country",
+            ]
         )["JESI"]
         .std()
         .reset_index(
@@ -98,13 +159,27 @@ def main():
 
     country_results = country_results.merge(
         country_std,
-        on=["country_code", "country"],
+        on=[
+            "country_code",
+            "country",
+        ],
         how="left",
     )
 
-    # ------------------------------------------------------------
-    # Ranking
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Validate country observations
+    # ---------------------------------------------------------------
+
+    if (
+        country_results["observations"] < 1
+    ).any():
+        raise ValueError(
+            "One or more countries have no observations."
+        )
+
+    # ---------------------------------------------------------------
+    # Country ranking
+    # ---------------------------------------------------------------
 
     country_results["rank"] = (
         country_results["JESI"]
@@ -117,19 +192,19 @@ def main():
 
     country_results = country_results.sort_values(
         "rank"
-    )
+    ).reset_index(drop=True)
 
-    # ------------------------------------------------------------
-    # Final score on 0–100 scale
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Presentation score
+    # ---------------------------------------------------------------
 
     country_results["JESI_score_100"] = (
         country_results["JESI"]
     )
 
-    # ------------------------------------------------------------
-    # Year-level summary
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Year-level JESI summary
+    # ---------------------------------------------------------------
 
     yearly_results = (
         df.groupby("year")["JESI"]
@@ -141,11 +216,29 @@ def main():
             observations="count",
         )
         .reset_index()
+        .sort_values("year")
+        .reset_index(drop=True)
     )
 
-    # ------------------------------------------------------------
-    # Research-ready table
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Validate yearly results
+    # ---------------------------------------------------------------
+
+    if yearly_results.empty:
+        raise ValueError(
+            "Year-level JESI summary is empty."
+        )
+
+    if (
+        yearly_results["observations"] < 1
+    ).any():
+        raise ValueError(
+            "One or more years have no observations."
+        )
+
+    # ---------------------------------------------------------------
+    # Final research-ready table
+    # ---------------------------------------------------------------
 
     research_table = country_results[
         [
@@ -173,58 +266,96 @@ def main():
         }
     )
 
-    # ------------------------------------------------------------
-    # Save outputs
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Output directory
+    # ---------------------------------------------------------------
+
+    OUTPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # ---------------------------------------------------------------
+    # Output files
+    # ---------------------------------------------------------------
+
+    country_file = (
+        OUTPUT_DIR
+        / "final_jesi_country_results.csv"
+    )
+
+    yearly_file = (
+        OUTPUT_DIR
+        / "final_jesi_yearly_summary.csv"
+    )
+
+    research_file = (
+        OUTPUT_DIR
+        / "JESI_final_research_table.csv"
+    )
 
     country_results.to_csv(
-        OUTPUT_DIR
-        / "final_jesi_country_results.csv",
+        country_file,
         index=False,
     )
 
     yearly_results.to_csv(
-        OUTPUT_DIR
-        / "final_jesi_yearly_summary.csv",
+        yearly_file,
         index=False,
     )
 
     research_table.to_csv(
-        OUTPUT_DIR
-        / "JESI_final_research_table.csv",
+        research_file,
         index=False,
     )
 
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
     # Console output
-    # ------------------------------------------------------------
+    # ---------------------------------------------------------------
 
     print()
-    print("FINAL JESI RESEARCH TABLE")
-    print("-" * 70)
-    print(research_table.to_string(index=False))
-
-    print()
-    print("Yearly summary")
-    print("-" * 70)
-    print(yearly_results.to_string(index=False))
-
-    print()
-    print("Files generated:")
+    print("Final country-level JESI results:")
     print(
-        "1. data/results/final_jesi_country_results.csv"
+        country_results.to_string(
+            index=False
+        )
     )
+
+    print()
+    print("Year-level JESI summary:")
     print(
-        "2. data/results/final_jesi_yearly_summary.csv"
+        yearly_results.to_string(
+            index=False
+        )
     )
+
+    print()
+    print("Final research-ready table:")
     print(
-        "3. data/results/JESI_final_research_table.csv"
+        research_table.to_string(
+            index=False
+        )
+    )
+
+    print()
+    print(
+        f"Saved: {country_file}"
+    )
+
+    print(
+        f"Saved: {yearly_file}"
+    )
+
+    print(
+        f"Saved: {research_file}"
     )
 
     print()
     print("=" * 70)
     print("STATUS: GREEN")
-    print("Final JESI research results generated.")
+    print(
+        "Final JESI research results generated successfully."
+    )
     print("=" * 70)
 
 
