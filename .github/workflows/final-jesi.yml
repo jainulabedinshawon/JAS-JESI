@@ -20,6 +20,7 @@ on:
       - "scripts/40_generate_jesi_report.py"
       - "scripts/41_update_readme_jesi.py"
       - "scripts/42_final_repository_audit.py"
+      - "src/**"
       - "data/raw/**"
       - "data/processed/**"
       - ".github/workflows/final-jesi.yml"
@@ -30,6 +31,9 @@ permissions:
 jobs:
   final-jesi:
     runs-on: ubuntu-latest
+
+    env:
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
 
@@ -62,6 +66,14 @@ jobs:
           fi
 
           pip install pandas numpy scipy openpyxl
+
+      # ==============================================================
+      # VERIFY PYTHON PACKAGE
+      # ==============================================================
+
+      - name: Verify src package
+        run: |
+          python -c "import src; print('src package import: OK')"
 
       # ==============================================================
       # GROWTH PILLAR
