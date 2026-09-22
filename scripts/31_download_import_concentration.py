@@ -27,9 +27,11 @@ Countries:
 from io import BytesIO
 from pathlib import Path
 import csv
+import tempfile
 import zipfile
 
 import pandas as pd
+import py7zr
 import requests
 
 
@@ -87,21 +89,9 @@ def find_column(columns, candidates):
 
 
 def detect_delimiter(text):
-    """
-    Detect the delimiter used by the UNCTAD text file.
-
-    Prefer common delimiters and validate the result
-    using the CSV sniffer.
-    """
+    """Detect common CSV delimiters."""
 
     sample = text[:100000]
-
-    candidates = [
-        ",",
-        ";",
-        "\t",
-        "|",
-    ]
 
     try:
         dialect = csv.Sniffer().sniff(
@@ -109,48 +99,40 @@ def detect_delimiter(text):
             delimiters=",;\t|",
         )
 
-        detected = dialect.delimiter
-
-        if detected in candidates:
-            return detected
+        return dialect.delimiter
 
     except csv.Error:
-        pass
+        first_line = text.splitlines()[0]
 
-    # Fallback based on header occurrence.
-    first_line = text.splitlines()[0]
+        candidates = [
+            ",",
+            ";",
+            "\t",
+            "|",
+        ]
 
-    counts = {
-        delimiter: first_line.count(delimiter)
-        for delimiter in candidates
-    }
+        counts = {
+            delimiter: first_line.count(delimiter)
+            for delimiter in candidates
+        }
 
-    detected = max(
-        counts,
-        key=counts.get,
-    )
-
-    if counts[detected] == 0:
-        raise ValueError(
-            "Could not detect the UNCTAD file delimiter."
+        detected = max(
+            counts,
+            key=counts.get,
         )
 
-    return detected
+        if counts[detected] == 0:
+            raise ValueError(
+                "Could not detect the data delimiter."
+            )
+
+        return detected
 
 
-def read_csv_with_fallbacks(content):
+def read_text_data(content):
     """
-    Read an UNCTAD CSV/text download robustly.
-
-    Handles:
-    - UTF-8
-    - UTF-8 BOM
-    - Windows-1252
-    - Latin-1
-    - comma
-    - semicolon
-    - tab
-    - pipe delimiters
+    Read extracted UNCTAD text data using multiple
+    encodings and delimiter detection.
     """
 
     encodings = [
@@ -173,12 +155,11 @@ def read_csv_with_fallbacks(content):
             )
 
             print(
-                f"Detected UNCTAD encoding: "
-                f"{encoding}"
+                f"Detected encoding: {encoding}"
             )
 
             print(
-                "Detected UNCTAD delimiter: "
+                "Detected delimiter: "
                 f"{repr(delimiter)}"
             )
 
@@ -194,8 +175,7 @@ def read_csv_with_fallbacks(content):
 
             if len(data.columns) <= 1:
                 raise ValueError(
-                    "Detected only one column. "
-                    "Delimiter detection may be incorrect."
+                    "Only one column detected."
                 )
 
             return data
@@ -206,75 +186,186 @@ def read_csv_with_fallbacks(content):
             ValueError,
             pd.errors.ParserError,
         ) as error:
+
             errors.append(
                 f"{encoding}: {error}"
             )
 
     raise ValueError(
-        "Could not parse the UNCTAD download. "
-        f"Attempts: {errors}"
+        "Could not parse extracted UNCTAD "
+        f"data. Attempts: {errors}"
     )
 
 
 def read_unctad_download(content):
     """
-    Read the UNCTAD bulk-download response.
+    Read the official UNCTAD bulk download.
 
-    The endpoint may return a CSV/text file or a ZIP
-    containing the official CSV file.
+    The UNCTAD endpoint currently returns a 7z archive.
+    This function detects the 7z signature and extracts
+    the contained data file.
     """
 
+    # 7z signature:
+    # 37 7A BC AF 27 1C
+    if content[:6] == b"7z\xbc\xaf'\x1c":
+
+        print(
+            "Detected UNCTAD 7z archive."
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+
+            archive_path = Path(
+                temp_dir
+            ) / "unctad_download.7z"
+
+            archive_path.write_bytes(
+                content
+            )
+
+            extract_dir = Path(
+                temp_dir
+            ) / "extracted"
+
+            extract_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            with py7zr.SevenZipFile(
+                archive_path,
+                mode="r",
+            ) as archive:
+
+                names = archive.getnames()
+
+                print(
+                    "Files inside UNCTAD archive:"
+                )
+
+                for name in names:
+                    print(
+                        f"  - {name}"
+                    )
+
+                archive.extractall(
+                    path=extract_dir
+                )
+
+            data_files = [
+                path
+                for path in extract_dir.rglob("*")
+                if path.is_file()
+                and path.suffix.lower()
+                in {
+                    ".csv",
+                    ".txt",
+                    ".tsv",
+                }
+            ]
+
+            if not data_files:
+                raise ValueError(
+                    "UNCTAD 7z archive was opened, "
+                    "but no CSV/TXT/TSV data file "
+                    "was found."
+                )
+
+            preferred = [
+                path
+                for path in data_files
+                if "concent" in path.name.lower()
+                or "divers" in path.name.lower()
+            ]
+
+            data_file = (
+                preferred[0]
+                if preferred
+                else data_files[0]
+            )
+
+            print(
+                "Selected UNCTAD data file:"
+            )
+            print(
+                f"  {data_file.name}"
+            )
+
+            return read_text_data(
+                data_file.read_bytes()
+            )
+
+    # ZIP support
     if content[:2] == b"PK":
+
+        print(
+            "Detected UNCTAD ZIP archive."
+        )
 
         with zipfile.ZipFile(
             BytesIO(content)
         ) as archive:
 
-            csv_files = [
+            files = [
                 name
                 for name in archive.namelist()
                 if name.lower().endswith(
-                    (".csv", ".txt")
+                    (
+                        ".csv",
+                        ".txt",
+                        ".tsv",
+                    )
                 )
             ]
 
-            if not csv_files:
+            if not files:
                 raise ValueError(
-                    "UNCTAD download is a ZIP file, "
-                    "but no CSV/TXT data file was found."
+                    "UNCTAD ZIP archive contains "
+                    "no CSV/TXT/TSV data file."
                 )
 
             preferred = [
                 name
-                for name in csv_files
+                for name in files
                 if "concent" in name.lower()
+                or "divers" in name.lower()
             ]
 
             filename = (
                 preferred[0]
                 if preferred
-                else csv_files[0]
+                else files[0]
             )
 
             print(
-                f"Reading UNCTAD archive member: "
-                f"{filename}"
+                "Selected UNCTAD data file:"
+            )
+            print(
+                f"  {filename}"
             )
 
-            with archive.open(filename) as file:
-                file_content = file.read()
+            with archive.open(
+                filename
+            ) as file:
 
-            return read_csv_with_fallbacks(
-                file_content
-            )
+                return read_text_data(
+                    file.read()
+                )
 
-    return read_csv_with_fallbacks(
+    # Direct text/CSV fallback
+    print(
+        "UNCTAD response is not a detected "
+        "7z or ZIP archive."
+    )
+
+    return read_text_data(
         content
     )
 
 
 def identify_unctad_columns(data):
-    """Identify country, year, indicator and value columns."""
+    """Identify UNCTAD data columns."""
 
     country_code_column = find_column(
         data.columns,
@@ -328,21 +419,30 @@ def identify_unctad_columns(data):
     missing = []
 
     if country_code_column is None:
-        missing.append("country code")
+        missing.append(
+            "country code"
+        )
 
     if country_column is None:
-        missing.append("country")
+        missing.append(
+            "country"
+        )
 
     if year_column is None:
-        missing.append("year")
+        missing.append(
+            "year"
+        )
 
     if value_column is None:
-        missing.append("value")
+        missing.append(
+            "value"
+        )
 
     if missing:
         raise ValueError(
-            "Could not identify required UNCTAD columns: "
-            f"{missing}. Available columns: "
+            "Could not identify required UNCTAD "
+            f"columns: {missing}. "
+            f"Available columns: "
             f"{list(data.columns)}"
         )
 
@@ -361,7 +461,7 @@ def select_import_concentration(
 ):
     """
     Select the official UNCTAD import product
-    concentration indicator.
+    concentration series.
     """
 
     if indicator_column is None:
@@ -396,12 +496,14 @@ def select_import_concentration(
     ].copy()
 
     if selected.empty:
+
         selected = data[
             import_mask
             & concentration_mask
         ].copy()
 
     if selected.empty:
+
         available = (
             data[indicator_column]
             .dropna()
@@ -411,29 +513,31 @@ def select_import_concentration(
         )
 
         raise ValueError(
-            "Could not identify the official UNCTAD "
-            "import product concentration series. "
-            "Available indicators/series include: "
-            f"{available[:50]}"
+            "Could not identify the official "
+            "UNCTAD import product concentration "
+            "series. Available indicators/series: "
+            f"{available[:100]}"
         )
 
     return selected
 
 
 def main():
-    """
-    Download and integrate official UNCTAD
-    import product concentration data.
-    """
+    """Download and integrate UNCTAD data."""
 
     print("=" * 70)
-    print("JESI Strategic Autonomy")
-    print("Official UNCTAD Import Product Concentration")
+    print(
+        "JESI Strategic Autonomy"
+    )
+    print(
+        "Official UNCTAD Import Product Concentration"
+    )
     print("=" * 70)
 
     if not INPUT_FILE.exists():
         raise FileNotFoundError(
-            f"Input file not found: {INPUT_FILE}"
+            f"Input file not found: "
+            f"{INPUT_FILE}"
         )
 
     data = pd.read_csv(
@@ -457,7 +561,7 @@ def main():
 
     if missing_columns:
         raise ValueError(
-            f"Missing columns in autonomy input: "
+            "Missing columns in autonomy input: "
             f"{missing_columns}"
         )
 
@@ -473,8 +577,8 @@ def main():
 
     if len(data) != 50:
         raise ValueError(
-            "Expected 50 country-year rows in the "
-            "autonomy dataset, found "
+            "Expected 50 country-year rows "
+            "in autonomy dataset, found "
             f"{len(data)}."
         )
 
@@ -482,7 +586,9 @@ def main():
     print(
         "Downloading official UNCTAD dataset..."
     )
-    print(UNCTAD_URL)
+    print(
+        UNCTAD_URL
+    )
 
     response = requests.get(
         UNCTAD_URL,
@@ -506,11 +612,13 @@ def main():
         response.content
     )
 
+    print()
     print(
         f"UNCTAD rows downloaded: "
         f"{len(unctad):,}"
     )
 
+    print()
     print(
         "UNCTAD columns detected:"
     )
@@ -632,6 +740,7 @@ def main():
             ] > 1
         )
     ).any():
+
         raise ValueError(
             "UNCTAD import product concentration "
             "values outside the expected 0-1 range "
