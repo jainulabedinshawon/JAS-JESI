@@ -1,14 +1,27 @@
 """
 JESI Productivity P2 Scoring
 
-Scores Total Factor Productivity Growth (TFP growth)
-using empirically calibrated pooled reference zones.
+P2 indicator:
+    Total Factor Productivity (TFP) Growth
 
-Baseline:
-    P10-P90
+This script:
+1. Reads Productivity P2 raw data.
+2. Identifies country, year, and TFP growth.
+3. Restricts the sample to:
+       Bangladesh
+       India
+       Indonesia
+       Malaysia
+       Vietnam
+       2016–2023
+4. Computes pooled percentile scores.
+5. Writes a standardized P2 score file.
 
-Robustness:
-    P05-P95
+Output:
+    data/processed/productivity_p2_scores_2016_2023.csv
+
+Output score column:
+    productivity_p2_score
 """
 
 from pathlib import Path
@@ -17,39 +30,100 @@ import numpy as np
 import pandas as pd
 
 
-INPUT_FILE = Path(
-    "data/raw/productivity_p2_tfp_growth_2015_2023.csv"
+ROOT = Path(__file__).resolve().parents[1]
+
+INPUT_CANDIDATES = [
+    ROOT / "data" / "raw" / "productivity_p2_2016_2023.csv",
+    ROOT / "data" / "raw" / "productivity_p2.csv",
+    ROOT / "data" / "raw" / "productivity_p2_data_2016_2023.csv",
+]
+
+OUTPUT = (
+    ROOT
+    / "data"
+    / "processed"
+    / "productivity_p2_scores_2016_2023.csv"
 )
 
-OUTPUT_FILE = Path(
-    "data/processed/productivity_p2_scores_2016_2023.csv"
-)
+COUNTRY_MAP = {
+    "bangladesh": ("Bangladesh", "BGD"),
+    "india": ("India", "IND"),
+    "indonesia": ("Indonesia", "IDN"),
+    "malaysia": ("Malaysia", "MYS"),
+    "vietnam": ("Vietnam", "VNM"),
+    "viet nam": ("Vietnam", "VNM"),
+}
+
+EXPECTED_COUNTRIES = {
+    "BGD",
+    "IND",
+    "IDN",
+    "MYS",
+    "VNM",
+}
+
+EXPECTED_YEARS = set(range(2016, 2024))
 
 
-# Empirical pooled reference zones from the
-# JESI five-country P2 distribution analysis.
-P10_LOWER = -2.464743
-P90_UPPER = 5.149487
+def find_input_file() -> Path:
+    for path in INPUT_CANDIDATES:
+        if path.exists():
+            return path
 
-P05_LOWER = -5.805382
-P95_UPPER = 5.892609
+    raw_dir = ROOT / "data" / "raw"
+
+    candidates = sorted(raw_dir.glob("*.csv"))
+
+    for path in candidates:
+        name = path.name.lower()
+
+        if "productivity" in name and "p2" in name:
+            return path
+
+    raise FileNotFoundError(
+        "No Productivity P2 input CSV found in data/raw."
+    )
 
 
-START_YEAR = 2016
-END_YEAR = 2023
+def detect_column(
+    df: pd.DataFrame,
+    candidates: list[str],
+) -> str | None:
+    normalized = {
+        str(column)
+        .strip()
+        .lower()
+        .replace(" ", "_"): column
+        for column in df.columns
+    }
+
+    for candidate in candidates:
+        key = (
+            candidate
+            .lower()
+            .replace(" ", "_")
+        )
+
+        if key in normalized:
+            return normalized[key]
+
+    return None
 
 
-def min_max_score(
-    value: float,
-    lower: float,
-    upper: float,
-) -> float:
-    """Normalize a value to [0, 1] using a reference zone."""
-    if upper <= lower:
-        raise ValueError("Upper reference bound must exceed lower bound.")
+def normalize_country(
+    value: object,
+) -> tuple[str, str] | tuple[None, None]:
 
-    score = (value - lower) / (upper - lower)
-    return float(np.clip(score, 0.0, 1.0))
+    if pd.isna(value):
+        return None, None
+
+    text = str(value).strip()
+    key = text.lower()
+
+    if key in COUNTRY_MAP:
+        return COUNTRY_MAP[key]
+
+    return None, None
 
 
 def main() -> None:
@@ -57,149 +131,306 @@ def main() -> None:
     print("JESI PRODUCTIVITY P2 SCORING")
     print("=" * 72)
 
-    if not INPUT_FILE.exists():
-        raise FileNotFoundError(
-            f"Input file not found: {INPUT_FILE}"
-        )
+    input_file = find_input_file()
 
-    dataframe = pd.read_csv(INPUT_FILE)
+    print(f"Input: {input_file}")
 
-    required_columns = {
-        "country_code",
-        "country",
-        "year",
-        "tfp",
-        "tfp_growth",
-    }
+    df = pd.read_csv(input_file)
 
-    missing_columns = required_columns.difference(dataframe.columns)
+    print(f"Loaded rows: {len(df)}")
+    print(f"Columns: {list(df.columns)}")
 
-    if missing_columns:
+    # ---------------------------------------------------------------
+    # Detect columns
+    # ---------------------------------------------------------------
+
+    country_col = detect_column(
+        df,
+        [
+            "country",
+            "country_name",
+            "economy",
+            "location",
+        ],
+    )
+
+    code_col = detect_column(
+        df,
+        [
+            "country_code",
+            "iso3",
+            "iso3_code",
+            "code",
+        ],
+    )
+
+    year_col = detect_column(
+        df,
+        [
+            "year",
+            "time",
+        ],
+    )
+
+    value_col = detect_column(
+        df,
+        [
+            "tfp_growth",
+            "tfp_growth_rate",
+            "total_factor_productivity_growth",
+            "total_factor_productivity_growth_rate",
+            "productivity_p2",
+            "p2",
+            "value",
+        ],
+    )
+
+    if year_col is None:
         raise ValueError(
-            f"Missing required columns: {sorted(missing_columns)}"
+            "Could not identify year column."
         )
 
-    dataframe = dataframe[
-        (dataframe["year"] >= START_YEAR)
-        & (dataframe["year"] <= END_YEAR)
-    ].copy()
+    if value_col is None:
+        raise ValueError(
+            "Could not identify TFP growth value column."
+        )
 
-    dataframe["tfp_growth"] = pd.to_numeric(
-        dataframe["tfp_growth"],
+    if country_col is None and code_col is None:
+        raise ValueError(
+            "Could not identify country or country_code column."
+        )
+
+    # ---------------------------------------------------------------
+    # Country normalization
+    # ---------------------------------------------------------------
+
+    df["country"] = np.nan
+    df["country_code"] = np.nan
+
+    if country_col is not None:
+        normalized = df[country_col].apply(
+            normalize_country
+        )
+
+        df["country"] = normalized.apply(
+            lambda x: (
+                x[0]
+                if x[0] is not None
+                else np.nan
+            )
+        )
+
+        df["country_code"] = normalized.apply(
+            lambda x: (
+                x[1]
+                if x[1] is not None
+                else np.nan
+            )
+        )
+
+    if code_col is not None:
+        code_values = (
+            df[code_col]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+        code_to_country = {
+            "BGD": "Bangladesh",
+            "IND": "India",
+            "IDN": "Indonesia",
+            "MYS": "Malaysia",
+            "VNM": "Vietnam",
+        }
+
+        for code, country in code_to_country.items():
+            mask = (
+                df["country_code"].isna()
+                & (code_values == code)
+            )
+
+            df.loc[
+                mask,
+                "country_code",
+            ] = code
+
+            df.loc[
+                mask,
+                "country",
+            ] = country
+
+    # ---------------------------------------------------------------
+    # Year and value
+    # ---------------------------------------------------------------
+
+    df["year"] = pd.to_numeric(
+        df[year_col],
         errors="coerce",
     )
 
-    dataframe = dataframe.dropna(
+    df["tfp_growth"] = pd.to_numeric(
+        df[value_col],
+        errors="coerce",
+    )
+
+    df = df[
+        df["country_code"].isin(
+            EXPECTED_COUNTRIES
+        )
+        & df["year"].isin(
+            EXPECTED_YEARS
+        )
+    ].copy()
+
+    if df.empty:
+        raise ValueError(
+            "No valid Productivity P2 observations "
+            "remain for the expected countries and years."
+        )
+
+    df["year"] = df["year"].astype(int)
+
+    # ---------------------------------------------------------------
+    # Duplicate validation
+    # ---------------------------------------------------------------
+
+    duplicates = df.duplicated(
+        subset=[
+            "country_code",
+            "year",
+        ],
+        keep=False,
+    )
+
+    if duplicates.any():
+        duplicate_rows = df.loc[
+            duplicates,
+            [
+                "country_code",
+                "year",
+            ],
+        ]
+
+        raise ValueError(
+            "Duplicate country-year observations found:\n"
+            f"{duplicate_rows.to_string(index=False)}"
+        )
+
+    # ---------------------------------------------------------------
+    # Missing values
+    # ---------------------------------------------------------------
+
+    df = df.dropna(
         subset=["tfp_growth"]
     ).copy()
 
-    expected_rows = 40
-
-    if len(dataframe) != expected_rows:
+    if df.empty:
         raise ValueError(
-            f"Expected {expected_rows} valid TFP growth observations, "
-            f"found {len(dataframe)}."
+            "No non-missing TFP growth values remain."
         )
 
-    # Baseline P10-P90 score.
-    dataframe["p2_score_p10_p90"] = dataframe[
-        "tfp_growth"
-    ].apply(
-        lambda value: min_max_score(
-            value,
-            P10_LOWER,
-            P90_UPPER,
+    # ---------------------------------------------------------------
+    # Pooled percentile scoring
+    #
+    # Higher TFP growth = higher productivity score.
+    # ---------------------------------------------------------------
+
+    df["productivity_p2_score"] = (
+        df["tfp_growth"]
+        .rank(
+            method="average",
+            pct=True,
         )
     )
 
-    # Robustness alternative: P05-P95.
-    dataframe["p2_score_p05_p95"] = dataframe[
-        "tfp_growth"
-    ].apply(
-        lambda value: min_max_score(
-            value,
-            P05_LOWER,
-            P95_UPPER,
+    df["productivity_p2_score"] = (
+        df["productivity_p2_score"]
+        .clip(
+            lower=1e-6,
+            upper=1.0,
         )
     )
 
-    # Final baseline P2 score.
-    dataframe["p2_score"] = dataframe[
-        "p2_score_p10_p90"
-    ]
+    # ---------------------------------------------------------------
+    # Final schema
+    # ---------------------------------------------------------------
 
-    output_columns = [
-        "country_code",
-        "country",
-        "year",
-        "tfp_growth",
-        "p2_score",
-        "p2_score_p10_p90",
-        "p2_score_p05_p95",
-    ]
+    output = df[
+        [
+            "country",
+            "country_code",
+            "year",
+            "tfp_growth",
+            "productivity_p2_score",
+        ]
+    ].copy()
 
-    output = dataframe[output_columns].sort_values(
-        ["country_code", "year"]
+    output = output.sort_values(
+        [
+            "country_code",
+            "year",
+        ]
+    ).reset_index(drop=True)
+
+    # ---------------------------------------------------------------
+    # Completeness check
+    # ---------------------------------------------------------------
+
+    expected_rows = (
+        len(EXPECTED_COUNTRIES)
+        * len(EXPECTED_YEARS)
     )
 
-    # Validation.
-    if output["p2_score"].isna().any():
-        raise ValueError("P2 score contains missing values.")
-
-    if not output["p2_score"].between(0, 1).all():
-        raise ValueError("P2 score must be between 0 and 1.")
-
-    if not output["p2_score_p05_p95"].between(0, 1).all():
+    if len(output) != expected_rows:
         raise ValueError(
-            "P05-P95 robustness score must be between 0 and 1."
+            "Unexpected number of P2 observations. "
+            f"Expected {expected_rows}, found {len(output)}."
         )
 
-    if output.duplicated(
-        subset=["country_code", "year"]
-    ).any():
-        raise ValueError(
-            "Duplicate country-year observations detected."
-        )
+    # ---------------------------------------------------------------
+    # Save
+    # ---------------------------------------------------------------
 
-    OUTPUT_FILE.parent.mkdir(
+    OUTPUT.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
     output.to_csv(
-        OUTPUT_FILE,
+        OUTPUT,
         index=False,
     )
 
     print()
-    print("SCORING REFERENCE ZONES")
-    print("=" * 72)
-    print(f"P10-P90 lower bound : {P10_LOWER:.6f}")
-    print(f"P10-P90 upper bound : {P90_UPPER:.6f}")
-    print(f"P05-P95 lower bound : {P05_LOWER:.6f}")
-    print(f"P05-P95 upper bound : {P95_UPPER:.6f}")
-
-    print()
-    print("SCORE SUMMARY")
-    print("=" * 72)
     print(
-        output[
-            [
-                "p2_score",
-                "p2_score_p05_p95",
-            ]
-        ].describe()
+        "P2 scoring completed successfully."
+    )
+    print(
+        f"Output: {OUTPUT}"
+    )
+    print(
+        f"Rows: {len(output)}"
+    )
+    print(
+        "Countries: "
+        f"{sorted(output['country_code'].unique())}"
+    )
+    print(
+        f"Years: "
+        f"{output['year'].min()}–"
+        f"{output['year'].max()}"
     )
 
     print()
-    print("OUTPUT")
-    print("=" * 72)
-    print(f"Saved: {OUTPUT_FILE}")
+    print(
+        output.head(10).to_string(
+            index=False
+        )
+    )
 
     print()
-    print(
-        "JESI Productivity P2 scoring completed successfully."
-    )
+    print("=" * 72)
 
 
 if __name__ == "__main__":
