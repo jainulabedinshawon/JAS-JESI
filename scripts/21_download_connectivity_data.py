@@ -42,14 +42,17 @@ WORLD_BANK_URL = (
 )
 
 INDICATORS = {
-    "trade_openness": None,
     "fdi_inflows": "BX.KLT.DINV.WD.GD.ZS",
     "internet_use": "IT.NET.USER.ZS",
 }
 
 
-def download_world_bank_indicator(country_code, indicator):
+def download_world_bank_indicator(
+    country_code,
+    indicator,
+):
     """Download one World Bank indicator."""
+
     url = WORLD_BANK_URL.format(
         country=country_code,
         indicator=indicator,
@@ -59,6 +62,7 @@ def download_world_bank_indicator(country_code, indicator):
         url,
         timeout=120,
     )
+
     response.raise_for_status()
 
     payload = response.json()
@@ -91,6 +95,7 @@ def download_world_bank_indicator(country_code, indicator):
 
 def download_trade_openness(country_code):
     """Download exports and imports and calculate trade openness."""
+
     exports = download_world_bank_indicator(
         country_code,
         "NE.EXP.GNFS.ZS",
@@ -102,18 +107,23 @@ def download_trade_openness(country_code):
     )
 
     exports = exports.rename(
-        columns={"value": "exports_pct_gdp"}
+        columns={
+            "value": "exports_pct_gdp"
+        }
     )
 
     imports = imports.rename(
-        columns={"value": "imports_pct_gdp"}
+        columns={
+            "value": "imports_pct_gdp"
+        }
     )
 
+    # Merge using the stable identifiers only.
+    # Country name is restored from the fixed country mapping.
     merged = pd.merge(
         exports[
             [
                 "country_code",
-                "country",
                 "year",
                 "exports_pct_gdp",
             ]
@@ -125,9 +135,17 @@ def download_trade_openness(country_code):
                 "imports_pct_gdp",
             ]
         ],
-        on=["country_code", "country", "year"],
+        on=[
+            "country_code",
+            "year",
+        ],
         how="outer",
+        validate="one_to_one",
     )
+
+    merged["country"] = merged[
+        "country_code"
+    ].map(COUNTRIES)
 
     merged["trade_openness"] = (
         merged["exports_pct_gdp"]
@@ -152,62 +170,98 @@ def main():
     all_records = []
 
     for country_code in COUNTRIES:
+
         print(
             f"Downloading Connectivity data: "
             f"{COUNTRIES[country_code]}"
         )
 
+        # ----------------------------------------------------------
+        # Trade openness
+        # ----------------------------------------------------------
+
         trade = download_trade_openness(
             country_code
         )
+
+        # ----------------------------------------------------------
+        # FDI
+        # ----------------------------------------------------------
 
         fdi = download_world_bank_indicator(
             country_code,
             INDICATORS["fdi_inflows"],
         )
 
+        fdi = fdi[
+            [
+                "country_code",
+                "year",
+                "value",
+            ]
+        ].rename(
+            columns={
+                "value": "fdi_inflows"
+            }
+        )
+
+        # ----------------------------------------------------------
+        # Internet use
+        # ----------------------------------------------------------
+
         internet = download_world_bank_indicator(
             country_code,
             INDICATORS["internet_use"],
         )
 
+        internet = internet[
+            [
+                "country_code",
+                "year",
+                "value",
+            ]
+        ].rename(
+            columns={
+                "value": "internet_use"
+            }
+        )
+
+        # ----------------------------------------------------------
+        # Merge Connectivity indicators
+        # ----------------------------------------------------------
+
         country_data = trade.merge(
-            fdi[
-                [
-                    "country_code",
-                    "year",
-                    "value",
-                ]
-            ].rename(
-                columns={
-                    "value": "fdi_inflows"
-                }
-            ),
-            on=["country_code", "year"],
+            fdi,
+            on=[
+                "country_code",
+                "year",
+            ],
             how="outer",
+            validate="one_to_one",
         )
 
         country_data = country_data.merge(
-            internet[
-                [
-                    "country_code",
-                    "year",
-                    "value",
-                ]
-            ].rename(
-                columns={
-                    "value": "internet_use"
-                }
-            ),
-            on=["country_code", "year"],
+            internet,
+            on=[
+                "country_code",
+                "year",
+            ],
             how="outer",
+            validate="one_to_one",
         )
 
         country_data["country"] = (
-            COUNTRIES[country_code]
+            country_data["country_code"]
+            .map(COUNTRIES)
         )
 
-        all_records.append(country_data)
+        all_records.append(
+            country_data
+        )
+
+    # ------------------------------------------------------------------
+    # Combine all countries
+    # ------------------------------------------------------------------
 
     dataframe = pd.concat(
         all_records,
@@ -226,11 +280,19 @@ def main():
     ]
 
     dataframe = dataframe.sort_values(
-        ["country_code", "year"]
+        [
+            "country_code",
+            "year",
+        ]
     ).reset_index(drop=True)
 
-    expected_rows = 5 * (
-        END_YEAR - START_YEAR + 1
+    # ------------------------------------------------------------------
+    # Structural validation
+    # ------------------------------------------------------------------
+
+    expected_rows = (
+        len(COUNTRIES)
+        * (END_YEAR - START_YEAR + 1)
     )
 
     if len(dataframe) != expected_rows:
@@ -238,6 +300,36 @@ def main():
             f"Expected {expected_rows} rows, "
             f"found {len(dataframe)}."
         )
+
+    expected_codes = set(COUNTRIES.keys())
+
+    actual_codes = set(
+        dataframe["country_code"].unique()
+    )
+
+    if actual_codes != expected_codes:
+        raise ValueError(
+            "Unexpected country codes. "
+            f"Expected {sorted(expected_codes)}, "
+            f"found {sorted(actual_codes)}."
+        )
+
+    duplicates = dataframe.duplicated(
+        subset=[
+            "country_code",
+            "year",
+        ],
+        keep=False,
+    )
+
+    if duplicates.any():
+        raise ValueError(
+            "Duplicate country-year observations found."
+        )
+
+    # ------------------------------------------------------------------
+    # Save
+    # ------------------------------------------------------------------
 
     OUTPUT_FILE.parent.mkdir(
         parents=True,
@@ -250,11 +342,18 @@ def main():
     )
 
     print()
-    print(f"Rows: {len(dataframe)}")
-    print(f"Saved: {OUTPUT_FILE}")
+    print(
+        f"Rows: {len(dataframe)}"
+    )
+
+    print(
+        f"Saved: {OUTPUT_FILE}"
+    )
+
     print()
     print(
-        "JESI Connectivity data download completed successfully."
+        "JESI Connectivity data download "
+        "completed successfully."
     )
 
 
