@@ -26,6 +26,7 @@ Countries:
 
 from io import BytesIO
 from pathlib import Path
+import csv
 import zipfile
 
 import pandas as pd
@@ -85,13 +86,71 @@ def find_column(columns, candidates):
     return None
 
 
+def detect_delimiter(text):
+    """
+    Detect the delimiter used by the UNCTAD text file.
+
+    Prefer common delimiters and validate the result
+    using the CSV sniffer.
+    """
+
+    sample = text[:100000]
+
+    candidates = [
+        ",",
+        ";",
+        "\t",
+        "|",
+    ]
+
+    try:
+        dialect = csv.Sniffer().sniff(
+            sample,
+            delimiters=",;\t|",
+        )
+
+        detected = dialect.delimiter
+
+        if detected in candidates:
+            return detected
+
+    except csv.Error:
+        pass
+
+    # Fallback based on header occurrence.
+    first_line = text.splitlines()[0]
+
+    counts = {
+        delimiter: first_line.count(delimiter)
+        for delimiter in candidates
+    }
+
+    detected = max(
+        counts,
+        key=counts.get,
+    )
+
+    if counts[detected] == 0:
+        raise ValueError(
+            "Could not detect the UNCTAD file delimiter."
+        )
+
+    return detected
+
+
 def read_csv_with_fallbacks(content):
     """
-    Read a CSV using multiple common encodings.
+    Read an UNCTAD CSV/text download robustly.
 
-    UNCTAD bulk downloads may not always be UTF-8.
-    Try UTF-8 first, then UTF-8 with BOM,
-    Windows-1252, and Latin-1.
+    Handles:
+    - UTF-8
+    - UTF-8 BOM
+    - Windows-1252
+    - Latin-1
+    - comma
+    - semicolon
+    - tab
+    - pipe delimiters
     """
 
     encodings = [
@@ -105,19 +164,54 @@ def read_csv_with_fallbacks(content):
 
     for encoding in encodings:
         try:
-            return pd.read_csv(
-                BytesIO(content),
+            text = content.decode(
+                encoding
+            )
+
+            delimiter = detect_delimiter(
+                text
+            )
+
+            print(
+                f"Detected UNCTAD encoding: "
+                f"{encoding}"
+            )
+
+            print(
+                "Detected UNCTAD delimiter: "
+                f"{repr(delimiter)}"
+            )
+
+            data = pd.read_csv(
+                BytesIO(
+                    text.encode(encoding)
+                ),
                 encoding=encoding,
+                sep=delimiter,
+                engine="python",
                 low_memory=False,
             )
-        except UnicodeDecodeError as error:
+
+            if len(data.columns) <= 1:
+                raise ValueError(
+                    "Detected only one column. "
+                    "Delimiter detection may be incorrect."
+                )
+
+            return data
+
+        except (
+            UnicodeDecodeError,
+            csv.Error,
+            ValueError,
+            pd.errors.ParserError,
+        ) as error:
             errors.append(
                 f"{encoding}: {error}"
             )
 
     raise ValueError(
-        "Could not decode the UNCTAD CSV download "
-        "with supported encodings. "
+        "Could not parse the UNCTAD download. "
         f"Attempts: {errors}"
     )
 
@@ -126,23 +220,28 @@ def read_unctad_download(content):
     """
     Read the UNCTAD bulk-download response.
 
-    The endpoint may return a CSV directly or a ZIP
+    The endpoint may return a CSV/text file or a ZIP
     containing the official CSV file.
     """
 
     if content[:2] == b"PK":
-        with zipfile.ZipFile(BytesIO(content)) as archive:
+
+        with zipfile.ZipFile(
+            BytesIO(content)
+        ) as archive:
 
             csv_files = [
                 name
                 for name in archive.namelist()
-                if name.lower().endswith(".csv")
+                if name.lower().endswith(
+                    (".csv", ".txt")
+                )
             ]
 
             if not csv_files:
                 raise ValueError(
                     "UNCTAD download is a ZIP file, "
-                    "but no CSV file was found."
+                    "but no CSV/TXT data file was found."
                 )
 
             preferred = [
@@ -157,14 +256,21 @@ def read_unctad_download(content):
                 else csv_files[0]
             )
 
-            with archive.open(filename) as file:
-                csv_content = file.read()
-
-            return read_csv_with_fallbacks(
-                csv_content
+            print(
+                f"Reading UNCTAD archive member: "
+                f"{filename}"
             )
 
-    return read_csv_with_fallbacks(content)
+            with archive.open(filename) as file:
+                file_content = file.read()
+
+            return read_csv_with_fallbacks(
+                file_content
+            )
+
+    return read_csv_with_fallbacks(
+        content
+    )
 
 
 def identify_unctad_columns(data):
@@ -330,7 +436,9 @@ def main():
             f"Input file not found: {INPUT_FILE}"
         )
 
-    data = pd.read_csv(INPUT_FILE)
+    data = pd.read_csv(
+        INPUT_FILE
+    )
 
     required_columns = [
         "country_code",
@@ -354,18 +462,26 @@ def main():
         )
 
     data = data[
-        data["country_code"].isin(COUNTRIES)
-        & data["year"].between(2015, 2024)
+        data["country_code"].isin(
+            COUNTRIES
+        )
+        & data["year"].between(
+            2015,
+            2024,
+        )
     ].copy()
 
     if len(data) != 50:
         raise ValueError(
             "Expected 50 country-year rows in the "
-            f"autonomy dataset, found {len(data)}."
+            "autonomy dataset, found "
+            f"{len(data)}."
         )
 
     print()
-    print("Downloading official UNCTAD dataset...")
+    print(
+        "Downloading official UNCTAD dataset..."
+    )
     print(UNCTAD_URL)
 
     response = requests.get(
@@ -395,21 +511,49 @@ def main():
         f"{len(unctad):,}"
     )
 
+    print(
+        "UNCTAD columns detected:"
+    )
+
+    for column in unctad.columns:
+        print(
+            f"  - {column}"
+        )
+
     (
         country_code_column,
         country_column,
         year_column,
         indicator_column,
         value_column,
-    ) = identify_unctad_columns(unctad)
+    ) = identify_unctad_columns(
+        unctad
+    )
 
     print()
-    print("Identified UNCTAD columns:")
-    print(f"Country code : {country_code_column}")
-    print(f"Country      : {country_column}")
-    print(f"Year         : {year_column}")
-    print(f"Indicator    : {indicator_column}")
-    print(f"Value        : {value_column}")
+    print(
+        "Identified UNCTAD columns:"
+    )
+    print(
+        f"Country code : "
+        f"{country_code_column}"
+    )
+    print(
+        f"Country      : "
+        f"{country_column}"
+    )
+    print(
+        f"Year         : "
+        f"{year_column}"
+    )
+    print(
+        f"Indicator    : "
+        f"{indicator_column}"
+    )
+    print(
+        f"Value        : "
+        f"{value_column}"
+    )
 
     unctad = select_import_concentration(
         unctad,
@@ -442,8 +586,13 @@ def main():
     )
 
     unctad = unctad[
-        unctad["country_code"].isin(COUNTRIES)
-        & unctad["year"].between(2015, 2024)
+        unctad["country_code"].isin(
+            COUNTRIES
+        )
+        & unctad["year"].between(
+            2015,
+            2024,
+        )
     ].copy()
 
     unctad["country"] = unctad[
@@ -459,7 +608,9 @@ def main():
         ]
     ].copy()
 
-    unctad["year"] = unctad["year"].astype(int)
+    unctad["year"] = (
+        unctad["year"].astype(int)
+    )
 
     unctad = unctad.dropna(
         subset=[
@@ -524,6 +675,7 @@ def main():
     )
 
     if len(missing_keys) > 0:
+
         missing_display = [
             f"{country_code}-{year}"
             for country_code, year
@@ -540,8 +692,8 @@ def main():
     if len(unctad) != 50:
         raise ValueError(
             "Expected exactly 50 official UNCTAD "
-            "country-year observations, "
-            f"found {len(unctad)}."
+            "country-year observations, found "
+            f"{len(unctad)}."
         )
 
     concentration = unctad[
@@ -575,6 +727,7 @@ def main():
     if data[
         "import_product_concentration"
     ].isna().any():
+
         missing = data[
             "import_product_concentration"
         ].isna().sum()
@@ -590,7 +743,9 @@ def main():
             "country_code",
             "year",
         ]
-    ).reset_index(drop=True)
+    ).reset_index(
+        drop=True
+    )
 
     OUTPUT_FILE.parent.mkdir(
         parents=True,
@@ -607,7 +762,9 @@ def main():
         "Official UNCTAD import product "
         "concentration successfully integrated."
     )
-    print(f"Rows: {len(data)}")
+    print(
+        f"Rows: {len(data)}"
+    )
     print(
         "Countries: "
         f"{data['country_code'].nunique()}"
@@ -622,7 +779,9 @@ def main():
         f"{data['import_product_concentration'].min():.6f} - "
         f"{data['import_product_concentration'].max():.6f}"
     )
-    print(f"Output: {OUTPUT_FILE}")
+    print(
+        f"Output: {OUTPUT_FILE}"
+    )
 
 
 if __name__ == "__main__":
