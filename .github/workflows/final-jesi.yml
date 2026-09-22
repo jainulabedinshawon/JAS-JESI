@@ -1,0 +1,91 @@
+name: Final JESI Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/36_calculate_jesi.py"
+      - "scripts/37_robustness_tests.py"
+      - "scripts/38_generate_final_jesi_results.py"
+      - "scripts/39_validate_final_jesi.py"
+      - "scripts/40_generate_jesi_report.py"
+      - "scripts/41_update_readme_jesi.py"
+      - "scripts/42_final_repository_audit.py"
+      - "data/processed/**"
+      - ".github/workflows/final-jesi.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  final-jesi:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install pandas numpy scipy openpyxl
+
+      - name: Run final JESI calculation
+        run: |
+          python scripts/36_calculate_jesi.py
+
+      - name: Run JESI robustness tests
+        run: |
+          python scripts/37_robustness_tests.py
+
+      - name: Generate final JESI research results
+        run: |
+          python scripts/38_generate_final_jesi_results.py
+
+      - name: Validate final JESI results
+        run: |
+          python scripts/39_validate_final_jesi.py
+
+      - name: Generate final JESI research report
+        run: |
+          python scripts/40_generate_jesi_report.py
+
+      - name: Update README with final JESI results
+        run: |
+          python scripts/41_update_readme_jesi.py
+
+      - name: Run final repository audit
+        run: |
+          python scripts/42_final_repository_audit.py
+
+      - name: Commit generated JESI results
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/results docs/JESI_Final_Results_Report.md README.md
+            git commit -m "Generate final JESI results and research report"
+            git push
+          else
+            echo "No generated changes to commit."
+          fi
+
+      - name: Upload final JESI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: JESI-final-results
+          path: |
+            data/results/
+            docs/JESI_Final_Results_Report.md
+            README.md
+          if-no-files-found: error
