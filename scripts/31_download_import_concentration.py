@@ -17,6 +17,7 @@ Countries:
 from pathlib import Path
 import csv
 import io
+import re
 import tempfile
 import zipfile
 
@@ -56,6 +57,83 @@ END_YEAR = 2024
 EXPECTED_ROWS = 50
 
 
+def normalize_text(value):
+    """Normalize text for robust country matching."""
+
+    if pd.isna(value):
+        return ""
+
+    text = str(value).strip().upper()
+
+    text = re.sub(
+        r"\[[^\]]*\]",
+        " ",
+        text,
+    )
+
+    text = re.sub(
+        r"\([^)]*\)",
+        " ",
+        text,
+    )
+
+    text = re.sub(
+        r"[^A-Z0-9]+",
+        " ",
+        text,
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    )
+
+    return text.strip()
+
+
+def map_country_name(value):
+    """
+    Map UNCTAD Economy text to JESI ISO3 code.
+
+    Handles variants such as:
+    Bangladesh
+    Bangladesh [050]
+    050 Bangladesh
+    Viet Nam
+    Viet Nam [704]
+    etc.
+    """
+
+    normalized = normalize_text(value)
+
+    if not normalized:
+        return None
+
+    if "BANGLADESH" in normalized:
+        return "BGD"
+
+    if normalized == "INDIA":
+        return "IND"
+
+    if normalized.startswith("INDIA "):
+        return "IND"
+
+    if "VIET NAM" in normalized:
+        return "VNM"
+
+    if "VIETNAM" in normalized:
+        return "VNM"
+
+    if "INDONESIA" in normalized:
+        return "IDN"
+
+    if "MALAYSIA" in normalized:
+        return "MYS"
+
+    return None
+
+
 def detect_delimiter(text):
     sample = text[:10000]
 
@@ -64,9 +142,17 @@ def detect_delimiter(text):
             sample,
             delimiters=",;\t|",
         )
+
         return dialect.delimiter
+
     except csv.Error:
-        candidates = [",", ";", "\t", "|"]
+
+        candidates = [
+            ",",
+            ";",
+            "\t",
+            "|",
+        ]
 
         counts = {
             delimiter: sample.count(delimiter)
@@ -80,13 +166,16 @@ def detect_delimiter(text):
 
         if counts[delimiter] == 0:
             raise ValueError(
-                "Could not detect the UNCTAD file delimiter."
+                "Could not detect the UNCTAD "
+                "file delimiter."
             )
 
         return delimiter
 
 
 def read_text_data(raw_bytes):
+    """Read extracted UNCTAD text data."""
+
     encodings = [
         "utf-8",
         "utf-8-sig",
@@ -97,22 +186,32 @@ def read_text_data(raw_bytes):
     attempts = []
 
     for encoding in encodings:
+
         try:
-            text = raw_bytes.decode(encoding)
+            text = raw_bytes.decode(
+                encoding
+            )
+
         except UnicodeDecodeError as exc:
+
             attempts.append(
                 f"{encoding}: {exc}"
             )
+
             continue
 
         try:
-            delimiter = detect_delimiter(text)
+
+            delimiter = detect_delimiter(
+                text
+            )
 
             print(
                 f"Detected encoding: {encoding}"
             )
+
             print(
-                f"Detected delimiter: "
+                "Detected delimiter: "
                 f"{repr(delimiter)}"
             )
 
@@ -124,33 +223,40 @@ def read_text_data(raw_bytes):
 
             if dataframe.empty:
                 raise ValueError(
-                    "Parsed UNCTAD dataframe is empty."
+                    "Parsed UNCTAD dataframe "
+                    "is empty."
                 )
 
             return dataframe
 
         except Exception as exc:
+
             attempts.append(
                 f"{encoding}: {exc}"
             )
 
     raise ValueError(
-        "Could not parse extracted UNCTAD data. "
-        f"Attempts: {attempts}"
+        "Could not parse extracted UNCTAD "
+        f"data. Attempts: {attempts}"
     )
 
 
 def extract_archive(raw_bytes):
+    """Extract UNCTAD ZIP or 7z archive."""
+
     signature = raw_bytes[:6]
 
     with tempfile.TemporaryDirectory() as temp_dir:
+
         temp_path = Path(temp_dir)
 
         archive_path = (
             temp_path / "unctad_download"
         )
 
-        archive_path.write_bytes(raw_bytes)
+        archive_path.write_bytes(
+            raw_bytes
+        )
 
         extracted_dir = (
             temp_path / "extracted"
@@ -182,12 +288,14 @@ def extract_archive(raw_bytes):
                     extracted_dir
                 )
 
-        elif signature == b"7z\xbc\xaf'\x1c":
+        elif signature == (
+            b"7z\xbc\xaf'\x1c"
+        ):
 
             if py7zr is None:
                 raise ImportError(
-                    "py7zr is required to extract "
-                    "the UNCTAD 7z archive."
+                    "py7zr is required to "
+                    "extract the UNCTAD 7z archive."
                 )
 
             print(
@@ -213,11 +321,13 @@ def extract_archive(raw_bytes):
                 )
 
         else:
+
             return raw_bytes
 
         files = []
 
         for path in extracted_dir.rglob("*"):
+
             if not path.is_file():
                 continue
 
@@ -226,6 +336,7 @@ def extract_archive(raw_bytes):
                 ".txt",
                 ".tsv",
             }:
+
                 files.append(path)
 
         if not files:
@@ -252,6 +363,7 @@ def extract_archive(raw_bytes):
         print(
             "Selected UNCTAD data file:"
         )
+
         print(
             f"  {selected.name}"
         )
@@ -260,9 +372,12 @@ def extract_archive(raw_bytes):
 
 
 def download_unctad():
+    """Download official UNCTAD dataset."""
+
     print(
         "Downloading official UNCTAD dataset..."
     )
+
     print(UNCTAD_URL)
 
     response = requests.get(
@@ -282,19 +397,26 @@ def download_unctad():
     return raw_bytes
 
 
-def find_column(dataframe, candidates):
+def find_column(
+    dataframe,
+    candidates,
+):
+    """Find a dataframe column robustly."""
+
     normalized = {
         str(column).strip().lower(): column
         for column in dataframe.columns
     }
 
     for candidate in candidates:
+
         key = candidate.lower()
 
         if key in normalized:
             return normalized[key]
 
     for column in dataframe.columns:
+
         column_text = (
             str(column)
             .strip()
@@ -302,13 +424,18 @@ def find_column(dataframe, candidates):
         )
 
         for candidate in candidates:
+
             if candidate.lower() in column_text:
                 return column
 
     return None
 
 
-def identify_unctad_columns(dataframe):
+def identify_unctad_columns(
+    dataframe,
+):
+    """Identify UNCTAD columns."""
+
     country_code_column = find_column(
         dataframe,
         [
@@ -349,16 +476,25 @@ def identify_unctad_columns(dataframe):
         ],
     )
 
-    print("UNCTAD columns detected:")
     print(
-        f"  country_code: {country_code_column}"
+        "UNCTAD columns detected:"
     )
+
     print(
-        f"  country: {country_column}"
+        f"  country_code: "
+        f"{country_code_column}"
     )
+
     print(
-        f"  year: {year_column}"
+        f"  country: "
+        f"{country_column}"
     )
+
+    print(
+        f"  year: "
+        f"{year_column}"
+    )
+
     print(
         f"  concentration: "
         f"{concentration_column}"
@@ -366,7 +502,8 @@ def identify_unctad_columns(dataframe):
 
     if year_column is None:
         raise ValueError(
-            "Could not identify UNCTAD year column."
+            "Could not identify UNCTAD "
+            "year column."
         )
 
     if concentration_column is None:
@@ -392,7 +529,11 @@ def identify_unctad_columns(dataframe):
     )
 
 
-def standardize_unctad(dataframe):
+def standardize_unctad(
+    dataframe,
+):
+    """Standardize UNCTAD observations."""
+
     (
         country_code_column,
         country_column,
@@ -405,16 +546,19 @@ def standardize_unctad(dataframe):
     data = dataframe.copy()
 
     # -------------------------------------------------
-    # Country
+    # Country text
     # -------------------------------------------------
 
     if country_column is not None:
+
         data["country"] = (
             data[country_column]
             .astype(str)
             .str.strip()
         )
+
     else:
+
         data["country"] = ""
 
     # -------------------------------------------------
@@ -422,55 +566,38 @@ def standardize_unctad(dataframe):
     # -------------------------------------------------
 
     if country_code_column is not None:
+
         data["country_code"] = (
             data[country_code_column]
             .astype(str)
             .str.strip()
             .str.upper()
         )
+
     else:
+
         data["country_code"] = ""
 
-    # UNCTAD file currently provides Economy
-    # rather than ISO3 country codes.
-    #
-    # Normalize country names and map them
-    # explicitly to the JESI ISO3 codes.
+    # If UNCTAD does not provide ISO3,
+    # derive it from Economy.
 
-    normalized_country = (
-        data["country"]
-        .astype(str)
-        .str.strip()
-        .str.upper()
-        .str.replace(
-            r"\s+",
-            " ",
-            regex=True,
-        )
+    mapped_codes = data[
+        "country"
+    ].apply(
+        map_country_name
     )
 
-    country_name_to_code = {
-        "BANGLADESH": "BGD",
-        "INDIA": "IND",
-        "VIET NAM": "VNM",
-        "VIETNAM": "VNM",
-        "INDONESIA": "IDN",
-        "MALAYSIA": "MYS",
-    }
-
-    mapped_codes = normalized_country.map(
-        country_name_to_code
-    )
-
-    data["country_code"] = (
+    valid_existing_codes = (
         data["country_code"]
-        .where(
-            data["country_code"].isin(
-                COUNTRIES
-            ),
-            mapped_codes,
-        )
+        .isin(COUNTRIES)
     )
+
+    data.loc[
+        ~valid_existing_codes,
+        "country_code",
+    ] = mapped_codes[
+        ~valid_existing_codes
+    ]
 
     # -------------------------------------------------
     # Year
@@ -493,7 +620,27 @@ def standardize_unctad(dataframe):
     )
 
     # -------------------------------------------------
-    # Required country/year sample
+    # Diagnostics BEFORE filtering
+    # -------------------------------------------------
+
+    print(
+        "Country mapping diagnostics:"
+    )
+
+    for code, name in COUNTRIES.items():
+
+        count = (
+            data["country_code"]
+            == code
+        ).sum()
+
+        print(
+            f"  {code} ({name}): "
+            f"{count} rows"
+        )
+
+    # -------------------------------------------------
+    # Filter required sample
     # -------------------------------------------------
 
     data = data[
@@ -534,19 +681,26 @@ def standardize_unctad(dataframe):
     return data
 
 
-def validate_unctad(data):
+def validate_unctad(
+    data,
+):
+    """Validate required UNCTAD observations."""
+
     if data.empty:
+
         raise ValueError(
             "No UNCTAD observations found "
-            "for the required countries and years."
+            "for the required countries "
+            "and years."
         )
 
     if data[
         "import_product_concentration"
     ].isna().any():
+
         raise ValueError(
-            "UNCTAD concentration data contain "
-            "missing observations."
+            "UNCTAD concentration data "
+            "contain missing observations."
         )
 
     if (
@@ -554,6 +708,7 @@ def validate_unctad(data):
             "import_product_concentration"
         ] < 0
     ).any():
+
         raise ValueError(
             "UNCTAD concentration values "
             "cannot be negative."
@@ -564,6 +719,7 @@ def validate_unctad(data):
             "import_product_concentration"
         ] > 1
     ).any():
+
         raise ValueError(
             "UNCTAD normalized concentration "
             "values must be between 0 and 1."
@@ -577,6 +733,7 @@ def validate_unctad(data):
     )
 
     if duplicates.any():
+
         raise ValueError(
             "Duplicate UNCTAD country-year "
             "observations detected."
@@ -603,6 +760,7 @@ def validate_unctad(data):
     )
 
     if missing_pairs:
+
         raise ValueError(
             "Missing UNCTAD country-year "
             f"observations: "
@@ -610,6 +768,7 @@ def validate_unctad(data):
         )
 
     if len(data) != EXPECTED_ROWS:
+
         raise ValueError(
             f"Expected {EXPECTED_ROWS} "
             f"UNCTAD observations, "
@@ -621,6 +780,8 @@ def integrate_with_autonomy(
     autonomy,
     unctad,
 ):
+    """Merge UNCTAD data with autonomy data."""
+
     autonomy = autonomy.copy()
 
     autonomy["country_code"] = (
@@ -636,6 +797,7 @@ def integrate_with_autonomy(
     )
 
     if autonomy["year"].isna().any():
+
         raise ValueError(
             "Autonomy dataset contains "
             "invalid years."
@@ -657,6 +819,7 @@ def integrate_with_autonomy(
     ].copy()
 
     if len(autonomy) != EXPECTED_ROWS:
+
         raise ValueError(
             "Expected 50 autonomy "
             f"country-year rows, found "
@@ -687,6 +850,7 @@ def integrate_with_autonomy(
     )
 
     if len(merged) != EXPECTED_ROWS:
+
         raise ValueError(
             "UNCTAD integration changed "
             "the expected row count."
@@ -695,6 +859,7 @@ def integrate_with_autonomy(
     if merged[
         "import_product_concentration"
     ].isna().any():
+
         missing = merged[
             "import_product_concentration"
         ].isna().sum()
@@ -727,6 +892,7 @@ def main():
     print("=" * 70)
 
     if not INPUT_FILE.exists():
+
         raise FileNotFoundError(
             f"Input file not found: "
             f"{INPUT_FILE}"
@@ -751,6 +917,7 @@ def main():
     ]
 
     if missing_columns:
+
         raise ValueError(
             "Missing columns in autonomy input: "
             f"{missing_columns}"
