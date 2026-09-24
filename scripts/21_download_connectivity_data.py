@@ -15,6 +15,7 @@ Period:
 """
 
 from pathlib import Path
+import time
 
 import pandas as pd
 import requests
@@ -38,7 +39,6 @@ OUTPUT_FILE = Path(
 WORLD_BANK_URL = (
     "https://api.worldbank.org/v2/country/"
     "{country}/indicator/{indicator}"
-    "?format=json&per_page=100"
 )
 
 INDICATORS = {
@@ -46,51 +46,144 @@ INDICATORS = {
     "internet_use": "IT.NET.USER.ZS",
 }
 
+REQUEST_TIMEOUT = (30, 120)
+MAX_RETRIES = 4
+BACKOFF_SECONDS = 3
+
 
 def download_world_bank_indicator(
     country_code,
     indicator,
 ):
-    """Download one World Bank indicator."""
+    """Download one World Bank indicator with retry handling."""
 
     url = WORLD_BANK_URL.format(
         country=country_code,
         indicator=indicator,
     )
 
-    response = requests.get(
-        url,
-        timeout=120,
-    )
+    params = {
+        "format": "json",
+        "per_page": 100,
+        "date": f"{START_YEAR}:{END_YEAR}",
+    }
 
-    response.raise_for_status()
+    last_error = None
 
-    payload = response.json()
-
-    if len(payload) < 2:
-        raise ValueError(
-            f"No World Bank data returned for "
-            f"{country_code} / {indicator}."
-        )
-
-    rows = payload[1]
-
-    records = []
-
-    for row in rows:
-        year = int(row["date"])
-
-        if START_YEAR <= year <= END_YEAR:
-            records.append(
-                {
-                    "country_code": country_code,
-                    "country": COUNTRIES[country_code],
-                    "year": year,
-                    "value": row["value"],
-                }
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            print(
+                f"  World Bank request: "
+                f"{country_code} / {indicator} "
+                f"(attempt {attempt}/{MAX_RETRIES})"
             )
 
-    return pd.DataFrame(records)
+            response = requests.get(
+                url,
+                params=params,
+                timeout=REQUEST_TIMEOUT,
+            )
+
+            response.raise_for_status()
+
+            payload = response.json()
+
+            if not isinstance(payload, list) or len(payload) < 2:
+                raise ValueError(
+                    f"Invalid World Bank response for "
+                    f"{country_code} / {indicator}."
+                )
+
+            rows = payload[1]
+
+            if not isinstance(rows, list):
+                raise ValueError(
+                    f"Unexpected World Bank data structure for "
+                    f"{country_code} / {indicator}."
+                )
+
+            records = []
+
+            for row in rows:
+                year = int(row["date"])
+
+                if START_YEAR <= year <= END_YEAR:
+                    records.append(
+                        {
+                            "country_code": country_code,
+                            "country": COUNTRIES[country_code],
+                            "year": year,
+                            "value": row["value"],
+                        }
+                    )
+
+            dataframe = pd.DataFrame(records)
+
+            if dataframe.empty:
+                raise ValueError(
+                    f"No World Bank observations returned for "
+                    f"{country_code} / {indicator} "
+                    f"for {START_YEAR}-{END_YEAR}."
+                )
+
+            return dataframe
+
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+        ) as exc:
+            last_error = exc
+
+            print(
+                f"  Temporary World Bank connection error: "
+                f"{type(exc).__name__}"
+            )
+
+            if attempt < MAX_RETRIES:
+                wait_seconds = (
+                    BACKOFF_SECONDS * (2 ** (attempt - 1))
+                )
+
+                print(
+                    f"  Retrying in {wait_seconds} seconds..."
+                )
+
+                time.sleep(wait_seconds)
+
+        except requests.exceptions.HTTPError as exc:
+            status_code = (
+                exc.response.status_code
+                if exc.response is not None
+                else None
+            )
+
+            last_error = exc
+
+            if status_code in {
+                429,
+                500,
+                502,
+                503,
+                504,
+            } and attempt < MAX_RETRIES:
+                wait_seconds = (
+                    BACKOFF_SECONDS * (2 ** (attempt - 1))
+                )
+
+                print(
+                    f"  World Bank HTTP {status_code}. "
+                    f"Retrying in {wait_seconds} seconds..."
+                )
+
+                time.sleep(wait_seconds)
+            else:
+                raise
+
+    raise RuntimeError(
+        f"World Bank request failed after "
+        f"{MAX_RETRIES} attempts: "
+        f"{country_code} / {indicator}"
+    ) from last_error
 
 
 def download_trade_openness(country_code):
@@ -118,8 +211,6 @@ def download_trade_openness(country_code):
         }
     )
 
-    # Merge using the stable identifiers only.
-    # Country name is restored from the fixed country mapping.
     merged = pd.merge(
         exports[
             [
@@ -167,10 +258,26 @@ def main():
     print("JESI CONNECTIVITY DATA DOWNLOAD")
     print("=" * 72)
 
+    print(
+        f"World Bank period requested: "
+        f"{START_YEAR}-{END_YEAR}"
+    )
+
+    print(
+        f"Retry policy: "
+        f"{MAX_RETRIES} attempts"
+    )
+
+    print(
+        f"Request timeout: "
+        f"{REQUEST_TIMEOUT}"
+    )
+
     all_records = []
 
     for country_code in COUNTRIES:
 
+        print()
         print(
             f"Downloading Connectivity data: "
             f"{COUNTRIES[country_code]}"
@@ -328,6 +435,56 @@ def main():
         )
 
     # ------------------------------------------------------------------
+    # Complete-data validation
+    # ------------------------------------------------------------------
+
+    indicator_columns = [
+        "trade_openness",
+        "fdi_inflows",
+        "internet_use",
+    ]
+
+    for column in indicator_columns:
+
+        dataframe[column] = pd.to_numeric(
+            dataframe[column],
+            errors="coerce",
+        )
+
+        missing_count = int(
+            dataframe[column].isna().sum()
+        )
+
+        if missing_count > 0:
+            raise ValueError(
+                f"{column} contains "
+                f"{missing_count} missing values."
+            )
+
+        if not dataframe[column].map(
+            lambda value: pd.notna(value)
+        ).all():
+            raise ValueError(
+                f"{column} contains invalid values."
+            )
+
+    if (
+        dataframe["trade_openness"] < 0
+    ).any():
+        raise ValueError(
+            "Trade openness contains negative values."
+        )
+
+    if (
+        dataframe["internet_use"] < 0
+    ).any() or (
+        dataframe["internet_use"] > 100
+    ).any():
+        raise ValueError(
+            "Internet use must be between 0 and 100."
+        )
+
+    # ------------------------------------------------------------------
     # Save
     # ------------------------------------------------------------------
 
@@ -341,16 +498,52 @@ def main():
         index=False,
     )
 
+    # ------------------------------------------------------------------
+    # Final status
+    # ------------------------------------------------------------------
+
     print()
+    print("=" * 72)
+    print("CONNECTIVITY DOWNLOAD STATUS")
+    print("=" * 72)
+
     print(
-        f"Rows: {len(dataframe)}"
+        f"Rows              : {len(dataframe)}"
     )
 
     print(
-        f"Saved: {OUTPUT_FILE}"
+        f"Countries         : "
+        f"{dataframe['country_code'].nunique()}"
+    )
+
+    print(
+        f"Years             : "
+        f"{dataframe['year'].nunique()}"
+    )
+
+    print(
+        f"Year range        : "
+        f"{int(dataframe['year'].min())}-"
+        f"{int(dataframe['year'].max())}"
+    )
+
+    print(
+        "Missing values    : 0"
+    )
+
+    print(
+        "Duplicate rows    : 0"
+    )
+
+    print(
+        f"Saved             : {OUTPUT_FILE}"
     )
 
     print()
+    print(
+        "STATUS: GREEN"
+    )
+
     print(
         "JESI Connectivity data download "
         "completed successfully."
