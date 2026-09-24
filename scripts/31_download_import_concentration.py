@@ -1,23 +1,26 @@
 """
-Download and inspect UNCTAD merchandise product concentration data.
-
-This script downloads the official UNCTAD bulk dataset and extracts
-import product concentration observations for the five JESI target
-countries for 2015-2024.
+Download and extract UNCTAD merchandise import product
+concentration data for the JESI target countries.
 
 JESI target countries:
-BGD - Bangladesh
-IND - India
-VNM - Viet Nam
-IDN - Indonesia
-MYS - Malaysia
+    BGD - Bangladesh
+    IND - India
+    VNM - Viet Nam
+    IDN - Indonesia
+    MYS - Malaysia
 
-Required years:
-2015-2024
+Benchmark period:
+    2015-2024
 
-The script does not fabricate missing observations.
-It stops with an error if the required country-year observations
-cannot be identified and validated.
+The script:
+    1. Downloads the official UNCTAD bulk dataset.
+    2. Detects 7Z, ZIP, JSON, or text responses.
+    3. Extracts the actual UNCTAD data table.
+    4. Uses Economy Label for country identification.
+    5. Uses Flow Label for Import observations.
+    6. Uses Year and Concentration Index for long-format data.
+    7. Validates exactly 50 country-year observations.
+    8. Does not fabricate missing observations.
 """
 
 from __future__ import annotations
@@ -54,8 +57,6 @@ TARGET_COUNTRIES = {
     "Malaysia": "MYS",
 }
 
-TARGET_YEARS = set(range(2015, 2025))
-
 TARGET_CODE_TO_NAME = {
     "BGD": "Bangladesh",
     "IND": "India",
@@ -64,11 +65,13 @@ TARGET_CODE_TO_NAME = {
     "MYS": "Malaysia",
 }
 
+TARGET_YEARS = set(range(2015, 2025))
+
 SEVEN_Z_SIGNATURE = b"\x37\x7a\xbc\xaf\x27\x1c"
 
 
 def normalize_text(value: object) -> str:
-    """Normalize text for safe matching."""
+    """Normalize text for matching."""
     if pd.isna(value):
         return ""
 
@@ -79,7 +82,7 @@ def normalize_text(value: object) -> str:
 
 
 def normalize_column_name(value: object) -> str:
-    """Normalize a column name for flexible matching."""
+    """Normalize column names for flexible schema detection."""
     text = normalize_text(value)
     text = re.sub(r"[^a-z0-9]+", "_", text)
 
@@ -87,7 +90,7 @@ def normalize_column_name(value: object) -> str:
 
 
 def decode_unctad_text(raw: bytes) -> str:
-    """Decode a UNCTAD text response using common encodings."""
+    """Decode UNCTAD text using common encodings."""
     encodings = [
         "utf-8-sig",
         "utf-8",
@@ -116,7 +119,7 @@ def decode_unctad_text(raw: bytes) -> str:
 
 
 def download_unctad() -> tuple[bytes, str]:
-    """Download the official UNCTAD bulk response."""
+    """Download the official UNCTAD bulk dataset."""
     headers = {
         "User-Agent": (
             "JAS-JESI/1.0 "
@@ -168,7 +171,7 @@ def download_unctad() -> tuple[bytes, str]:
 
 
 def looks_like_html(content: bytes) -> bool:
-    """Return True if the response appears to be HTML."""
+    """Return True when the response appears to be HTML."""
     sample = content[:1000].lstrip().lower()
 
     return (
@@ -179,7 +182,7 @@ def looks_like_html(content: bytes) -> bool:
 
 
 def is_7z_archive(content: bytes) -> bool:
-    """Return True when content starts with the official 7z signature."""
+    """Return True when content starts with the 7z signature."""
     return content.startswith(
         SEVEN_Z_SIGNATURE
     )
@@ -188,14 +191,9 @@ def is_7z_archive(content: bytes) -> bool:
 def find_data_file(
     names: list[str],
 ) -> str | None:
-    """
-    Select the first likely tabular data file from an archive.
+    """Select the primary tabular file from an archive."""
 
-    UNCTAD bulk archives can contain metadata files as well as the
-    actual data table. Prefer CSV/TSV/TXT files and ignore obvious
-    documentation files when possible.
-    """
-    data_extensions = (
+    extensions = (
         ".csv",
         ".tsv",
         ".txt",
@@ -204,9 +202,7 @@ def find_data_file(
     candidates = [
         name
         for name in names
-        if name.lower().endswith(
-            data_extensions
-        )
+        if name.lower().endswith(extensions)
     ]
 
     if not candidates:
@@ -235,13 +231,8 @@ def find_data_file(
 def extract_7z_data(
     content: bytes,
 ) -> bytes:
-    """
-    Extract the primary tabular data file from a 7z archive.
+    """Extract the primary data file from a 7z archive."""
 
-    The archive is written to a temporary file because py7zr supports
-    reliable archive extraction from a filesystem path across Python
-    environments used by GitHub Actions.
-    """
     print(
         "Detected UNCTAD format: 7Z archive"
     )
@@ -262,6 +253,7 @@ def extract_7z_data(
                 archive_path,
                 mode="r",
             ) as archive:
+
                 names = archive.getnames()
 
                 print(
@@ -336,15 +328,9 @@ def extract_7z_data(
 def find_table_header(
     lines: list[str],
 ) -> int | None:
-    """
-    Locate the actual UNCTAD table header.
+    """Find the actual UNCTAD table header."""
 
-    UNCTAD bulk files can contain metadata before the actual
-    tabular data. The first line of the response must therefore
-    not automatically be treated as the CSV header.
-    """
-
-    candidates: list[int] = []
+    candidates = []
 
     for index, line in enumerate(lines):
         normalized = normalize_text(line)
@@ -386,7 +372,6 @@ def find_table_header(
     if candidates:
         return candidates[0]
 
-    # Broader fallback.
     for index, line in enumerate(lines):
         normalized = normalize_text(line)
 
@@ -403,7 +388,8 @@ def detect_delimiter(
     lines: list[str],
     header_index: int,
 ) -> str:
-    """Detect the delimiter using the actual table area."""
+    """Detect the delimiter in the actual data table."""
+
     sample_lines = lines[
         header_index:
         min(
@@ -445,25 +431,15 @@ def detect_delimiter(
 def parse_unctad_text(
     raw: bytes,
 ) -> pd.DataFrame:
-    """
-    Parse a text-based UNCTAD response.
-
-    The parser first identifies the actual data-table header and
-    only then passes the table portion to pandas. This prevents
-    metadata lines before the table from being interpreted as CSV
-    records.
-    """
+    """Parse the actual UNCTAD tabular data."""
 
     text = decode_unctad_text(
         raw
     )
 
     if text.lstrip().startswith("<"):
-        preview = text[:500]
-
         raise ValueError(
-            "UNCTAD returned markup/HTML instead of a data table. "
-            f"Response preview: {preview!r}"
+            "UNCTAD returned markup/HTML instead of data."
         )
 
     lines = text.splitlines()
@@ -483,9 +459,9 @@ def parse_unctad_text(
         )
 
         raise ValueError(
-            "Could not identify the UNCTAD data-table header.\n"
-            "First 50 response lines:\n"
-            f"{preview}"
+            "Could not identify the UNCTAD "
+            "data-table header.\n"
+            f"First 50 response lines:\n{preview}"
         )
 
     print(
@@ -507,7 +483,6 @@ def parse_unctad_text(
         lines[header_index:]
     )
 
-    # First attempt: strict parsing.
     try:
         df = pd.read_csv(
             io.StringIO(table_text),
@@ -519,11 +494,11 @@ def parse_unctad_text(
         print(
             "Primary UNCTAD table parser failed:"
         )
+
         print(
             str(exc)
         )
 
-        # Retry using the most likely alternative delimiter.
         alternatives = [
             "\t",
             ",",
@@ -563,25 +538,22 @@ def parse_unctad_text(
 
         if df is None:
             raise ValueError(
-                "Could not parse the UNCTAD data table after "
-                "locating the real header. "
+                "Could not parse UNCTAD data table. "
                 f"Primary error: {exc}. "
-                f"Last alternative error: {alternative_error}"
+                f"Last alternative error: "
+                f"{alternative_error}"
             ) from exc
 
     if len(df.columns) <= 1:
         raise ValueError(
-            "UNCTAD response was parsed, but only one column "
-            "was detected. The table delimiter may be incorrect."
+            "UNCTAD data was parsed into only one column."
         )
 
-    # Remove completely empty columns.
     df = df.dropna(
         axis=1,
         how="all",
     )
 
-    # Remove completely empty rows.
     df = df.dropna(
         axis=0,
         how="all",
@@ -615,13 +587,7 @@ def read_unctad_response(
     content: bytes,
     content_type: str,
 ) -> pd.DataFrame:
-    """
-    Read 7Z, ZIP, text/CSV, or JSON UNCTAD responses.
-
-    Format detection is based primarily on the actual response
-    bytes rather than the HTTP Content-Type because the UNCTAD
-    bulk endpoint may return an archive as application/octet-stream.
-    """
+    """Read 7Z, ZIP, JSON, or text UNCTAD responses."""
 
     if not content:
         raise ValueError(
@@ -636,9 +602,7 @@ def read_unctad_response(
     # 7Z
     # ---------------------------------------------------------
 
-    if is_7z_archive(
-        content
-    ):
+    if is_7z_archive(content):
         raw = extract_7z_data(
             content
         )
@@ -679,8 +643,8 @@ def read_unctad_response(
 
             if data_name is None:
                 raise ValueError(
-                    "UNCTAD returned a ZIP archive, "
-                    "but no CSV/TXT/TSV data file was found."
+                    "UNCTAD ZIP archive contains "
+                    "no CSV/TXT/TSV data file."
                 )
 
             print(
@@ -704,17 +668,15 @@ def read_unctad_response(
     # HTML
     # ---------------------------------------------------------
 
-    if looks_like_html(
-        content
-    ):
+    if looks_like_html(content):
         preview = content[:500].decode(
             "utf-8",
             errors="replace",
         )
 
         raise ValueError(
-            "UNCTAD returned HTML instead of a data file. "
-            f"Response preview: {preview!r}"
+            "UNCTAD returned HTML instead of data. "
+            f"Preview: {preview!r}"
         )
 
     # ---------------------------------------------------------
@@ -742,14 +704,10 @@ def read_unctad_response(
             json.JSONDecodeError,
         ) as exc:
             raise ValueError(
-                "UNCTAD response looks like JSON "
-                "but could not be parsed."
+                "UNCTAD JSON response could not be parsed."
             ) from exc
 
-        if isinstance(
-            payload,
-            dict,
-        ):
+        if isinstance(payload, dict):
             list_candidates = [
                 value
                 for value in payload.values()
@@ -781,24 +739,15 @@ def read_unctad_response(
                 len(df.columns),
             )
 
-            print(
-                "UNCTAD columns:"
-            )
-
-            for column in df.columns:
-                print(
-                    f"  - {column}"
-                )
-
             return df
 
         raise ValueError(
-            "UNCTAD returned JSON, but no "
-            "tabular record structure was found."
+            "UNCTAD JSON did not contain "
+            "tabular records."
         )
 
     # ---------------------------------------------------------
-    # Text / CSV / TSV
+    # Text
     # ---------------------------------------------------------
 
     print(
@@ -813,30 +762,45 @@ def read_unctad_response(
 def find_economy_column(
     df: pd.DataFrame,
 ) -> str | None:
-    """Find the economy/country name column."""
+    """
+    Find the human-readable economy/country column.
+
+    Important:
+    UNCTAD currently provides both:
+        Economy
+        Economy Label
+
+    Economy is a coded field.
+    Economy Label contains the country name.
+
+    Therefore Economy Label is deliberately preferred.
+    """
+
     normalized_columns = {
         normalize_column_name(column): column
         for column in df.columns
     }
 
     candidates = [
-        "economy",
         "economy_label",
         "economy_name",
-        "country",
         "country_label",
         "country_name",
+        "country",
+        "economy",
     ]
 
     for candidate in candidates:
         if candidate in normalized_columns:
             return normalized_columns[candidate]
 
-    # Fallback: find a column containing economy/country.
     for normalized, original in normalized_columns.items():
         if (
             "economy" in normalized
             or "country" in normalized
+        ) and (
+            "label" in normalized
+            or "name" in normalized
         ):
             return original
 
@@ -846,15 +810,16 @@ def find_economy_column(
 def find_country_code_column(
     df: pd.DataFrame,
 ) -> str | None:
-    """Find an economy/country code column."""
+    """Find an ISO-style country code column."""
+
     normalized_columns = {
         normalize_column_name(column): column
         for column in df.columns
     }
 
     candidates = [
-        "economy_code",
         "country_code",
+        "economy_code",
         "iso3",
         "iso_3",
         "iso3_code",
@@ -867,9 +832,7 @@ def find_country_code_column(
 
     for normalized, original in normalized_columns.items():
         if (
-            normalized.endswith(
-                "_code"
-            )
+            normalized.endswith("_code")
             and (
                 "economy" in normalized
                 or "country" in normalized
@@ -884,26 +847,25 @@ def find_country_code_column(
 def find_concentration_columns(
     df: pd.DataFrame,
 ) -> dict[int, str]:
-    """
-    Find annual concentration-index columns in wide-format data.
-    """
-    result: dict[int, str] = {}
+    """Find annual concentration columns in wide-format data."""
+
+    result = {}
 
     for column in df.columns:
         normalized = normalize_column_name(
             column
         )
 
-        year_match = re.match(
+        match = re.match(
             r"^(\d{4})_",
             normalized,
         )
 
-        if not year_match:
+        if not match:
             continue
 
         year = int(
-            year_match.group(1)
+            match.group(1)
         )
 
         if year not in TARGET_YEARS:
@@ -924,7 +886,8 @@ def find_concentration_columns(
 def find_year_column(
     df: pd.DataFrame,
 ) -> str | None:
-    """Find a year/time column for long-format data."""
+    """Find the year column in long-format data."""
+
     normalized_columns = {
         normalize_column_name(column): column
         for column in df.columns
@@ -957,23 +920,24 @@ def find_long_value_column(
     df: pd.DataFrame,
 ) -> str | None:
     """Find the concentration value column."""
+
     normalized_columns = {
         normalize_column_name(column): column
         for column in df.columns
     }
 
-    preferred = [
+    candidates = [
         "concentration_index_value",
         "concentration_value",
         "concentration_index",
         "concentration",
     ]
 
-    for candidate in preferred:
+    for candidate in candidates:
         if candidate in normalized_columns:
             return normalized_columns[candidate]
 
-    candidates = []
+    matches = []
 
     for normalized, original in normalized_columns.items():
         if "concentration" not in normalized:
@@ -983,94 +947,40 @@ def find_long_value_column(
             "value" in normalized
             or "index" in normalized
         ):
-            candidates.append(
-                original
-            )
+            matches.append(original)
 
-    if len(candidates) == 1:
-        return candidates[0]
+    if len(matches) == 1:
+        return matches[0]
 
     return None
-
-
-def find_target_rows(
-    df: pd.DataFrame,
-    economy_column: str,
-) -> pd.DataFrame:
-    """Find target countries by economy name."""
-    target_lookup = {}
-
-    for country, code in TARGET_COUNTRIES.items():
-        target_lookup[
-            normalize_text(country)
-        ] = code
-
-    temp = df.copy()
-
-    temp["_normalized_economy"] = (
-        temp[economy_column].map(
-            normalize_text
-        )
-    )
-
-    temp["country_code"] = (
-        temp["_normalized_economy"].map(
-            target_lookup
-        )
-    )
-
-    return temp[
-        temp["country_code"].notna()
-    ].copy()
-
-
-def find_target_rows_by_code(
-    df: pd.DataFrame,
-    country_code_column: str,
-) -> pd.DataFrame:
-    """Find target countries by official country/economy code."""
-    target_codes = set(
-        TARGET_CODE_TO_NAME.keys()
-    )
-
-    temp = df.copy()
-
-    temp["_normalized_country_code"] = (
-        temp[country_code_column]
-        .astype(str)
-        .str.strip()
-        .str.upper()
-    )
-
-    temp["country_code"] = (
-        temp["_normalized_country_code"]
-        .where(
-            temp["_normalized_country_code"].isin(
-                target_codes
-            )
-        )
-    )
-
-    return temp[
-        temp["country_code"].notna()
-    ].copy()
 
 
 def identify_import_dimension(
     df: pd.DataFrame,
 ) -> str | None:
     """
-    Identify a dimension column containing Import/Export information.
+    Identify the Import/Export dimension.
 
-    This is used only when the downloaded UNCTAD table contains
-    multiple trade-flow observations.
+    UNCTAD currently provides:
+        Flow
+        Flow Label
+
+    Flow is coded.
+    Flow Label contains the human-readable text such as Import.
+
+    Therefore Flow Label is deliberately preferred.
     """
+
     normalized_columns = {
         normalize_column_name(column): column
         for column in df.columns
     }
 
-    preferred_terms = [
+    preferred = [
+        "flow_label",
+        "trade_flow_label",
+        "direction_label",
+        "trade_direction_label",
         "flow",
         "trade_flow",
         "direction",
@@ -1084,14 +994,18 @@ def identify_import_dimension(
 
     candidates = []
 
-    for normalized, original in normalized_columns.items():
-        if any(
-            term in normalized
-            for term in preferred_terms
-        ):
+    for candidate in preferred:
+        if candidate in normalized_columns:
             candidates.append(
-                original
+                normalized_columns[candidate]
             )
+
+    for normalized, original in normalized_columns.items():
+        if (
+            "flow" in normalized
+            or "direction" in normalized
+        ) and original not in candidates:
+            candidates.append(original)
 
     for column in candidates:
         values = (
@@ -1124,13 +1038,8 @@ def identify_import_dimension(
 def filter_import_rows(
     df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """
-    Filter to import observations when a trade-flow dimension exists.
+    """Filter the dataset to Import observations."""
 
-    If no import/export dimension exists, the original data is
-    returned unchanged. The script will later validate whether
-    country-year observations are unique.
-    """
     dimension = identify_import_dimension(
         df
     )
@@ -1170,11 +1079,74 @@ def filter_import_rows(
 
     if filtered.empty:
         raise ValueError(
-            "An import/export dimension was detected, "
+            "Import/export dimension was detected, "
             "but no Import observations were found."
         )
 
     return filtered
+
+
+def find_target_rows(
+    df: pd.DataFrame,
+    economy_column: str,
+) -> pd.DataFrame:
+    """Find JESI target countries by economy label."""
+
+    target_lookup = {}
+
+    for country, code in TARGET_COUNTRIES.items():
+        target_lookup[
+            normalize_text(country)
+        ] = code
+
+    temp = df.copy()
+
+    temp["_normalized_economy"] = (
+        temp[economy_column]
+        .map(normalize_text)
+    )
+
+    temp["country_code"] = (
+        temp["_normalized_economy"]
+        .map(target_lookup)
+    )
+
+    return temp[
+        temp["country_code"].notna()
+    ].copy()
+
+
+def find_target_rows_by_code(
+    df: pd.DataFrame,
+    country_code_column: str,
+) -> pd.DataFrame:
+    """Find target countries by ISO-style code."""
+
+    target_codes = set(
+        TARGET_CODE_TO_NAME.keys()
+    )
+
+    temp = df.copy()
+
+    temp["_normalized_country_code"] = (
+        temp[country_code_column]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+
+    temp["country_code"] = (
+        temp["_normalized_country_code"]
+        .where(
+            temp["_normalized_country_code"].isin(
+                target_codes
+            )
+        )
+    )
+
+    return temp[
+        temp["country_code"].notna()
+    ].copy()
 
 
 def build_wide_output(
@@ -1182,7 +1154,8 @@ def build_wide_output(
     concentration_columns: dict[int, str],
     economy_column: str,
 ) -> pd.DataFrame:
-    """Build JESI output from wide-format UNCTAD data."""
+    """Build output from wide-format data."""
+
     rows = []
 
     for _, row in target_rows.iterrows():
@@ -1193,9 +1166,7 @@ def build_wide_output(
             str(row[economy_column]),
         )
 
-        for year in sorted(
-            TARGET_YEARS
-        ):
+        for year in sorted(TARGET_YEARS):
             value_column = (
                 concentration_columns[year]
             )
@@ -1214,9 +1185,7 @@ def build_wide_output(
                 }
             )
 
-    return pd.DataFrame(
-        rows
-    )
+    return pd.DataFrame(rows)
 
 
 def build_long_output(
@@ -1224,7 +1193,8 @@ def build_long_output(
     year_column: str,
     value_column: str,
 ) -> pd.DataFrame:
-    """Build JESI output from long-format UNCTAD data."""
+    """Build output from long-format data."""
+
     temp = target_rows.copy()
 
     temp["year"] = pd.to_numeric(
@@ -1254,9 +1224,8 @@ def build_long_output(
     ].copy()
 
     output["country"] = (
-        output["country_code"].map(
-            TARGET_CODE_TO_NAME
-        )
+        output["country_code"]
+        .map(TARGET_CODE_TO_NAME)
     )
 
     return output[
@@ -1272,9 +1241,8 @@ def build_long_output(
 def validate_output(
     output: pd.DataFrame,
 ) -> pd.DataFrame:
-    """
-    Validate exactly 50 unique country-year observations.
-    """
+    """Validate exactly 50 country-year observations."""
+
     expected_rows = (
         len(TARGET_CODE_TO_NAME)
         * len(TARGET_YEARS)
@@ -1300,10 +1268,6 @@ def validate_output(
         errors="coerce",
     )
 
-    # ---------------------------------------------------------
-    # Basic schema validation
-    # ---------------------------------------------------------
-
     required_columns = {
         "country",
         "country_code",
@@ -1321,10 +1285,6 @@ def validate_output(
             "Output is missing required columns: "
             f"{sorted(missing_columns)}"
         )
-
-    # ---------------------------------------------------------
-    # Country validation
-    # ---------------------------------------------------------
 
     actual_codes = set(
         output["country_code"]
@@ -1355,10 +1315,6 @@ def validate_output(
             f"{sorted(unexpected_codes)}"
         )
 
-    # ---------------------------------------------------------
-    # Year validation
-    # ---------------------------------------------------------
-
     actual_years = set(
         output["year"]
         .dropna()
@@ -1376,10 +1332,6 @@ def validate_output(
             f"{sorted(missing_years)}"
         )
 
-    # ---------------------------------------------------------
-    # Duplicate validation
-    # ---------------------------------------------------------
-
     duplicate_mask = output.duplicated(
         [
             "country_code",
@@ -1389,45 +1341,38 @@ def validate_output(
     )
 
     if duplicate_mask.any():
-        duplicates = output[
-            duplicate_mask
-        ].sort_values(
-            [
-                "country_code",
-                "year",
-            ]
-        )
-
         print(
             "Duplicate country-year observations:"
         )
 
         print(
-            duplicates.to_string(
-                index=False
+            output[
+                duplicate_mask
+            ]
+            .sort_values(
+                [
+                    "country_code",
+                    "year",
+                ]
             )
+            .to_string(index=False)
         )
 
         raise ValueError(
             "Duplicate country-year observations "
-            "were found in UNCTAD data."
+            "were found."
         )
-
-    # ---------------------------------------------------------
-    # Row-count validation
-    # ---------------------------------------------------------
 
     if len(output) != expected_rows:
-        print()
-        print(
-            "Country-year counts:"
-        )
-
         counts = (
             output.groupby(
                 "country_code"
             )["year"]
             .nunique()
+        )
+
+        print(
+            "Country-year counts:"
         )
 
         print(
@@ -1439,10 +1384,6 @@ def validate_output(
             f"observations: {len(output)}; "
             f"expected {expected_rows}."
         )
-
-    # ---------------------------------------------------------
-    # Missing-value validation
-    # ---------------------------------------------------------
 
     missing_values = (
         output[
@@ -1461,26 +1402,16 @@ def validate_output(
     )
 
     if missing_count:
-        missing_rows = output[
-            missing_values
-        ]
-
         print(
-            missing_rows.to_string(
-                index=False
-            )
+            output[
+                missing_values
+            ].to_string(index=False)
         )
 
         raise ValueError(
             "UNCTAD concentration data contains "
             f"{missing_count} missing observations."
         )
-
-    # ---------------------------------------------------------
-    # Numeric range validation
-    #
-    # UNCTAD concentration index is bounded between 0 and 1.
-    # ---------------------------------------------------------
 
     invalid_range = (
         (
@@ -1498,28 +1429,20 @@ def validate_output(
     )
 
     if invalid_range.any():
-        invalid_rows = output[
-            invalid_range
-        ]
-
         print(
             "Out-of-range concentration values:"
         )
 
         print(
-            invalid_rows.to_string(
-                index=False
-            )
+            output[
+                invalid_range
+            ].to_string(index=False)
         )
 
         raise ValueError(
             "UNCTAD concentration index contains "
             "values outside the expected 0-1 range."
         )
-
-    # ---------------------------------------------------------
-    # Final ordering
-    # ---------------------------------------------------------
 
     output = output.sort_values(
         [
@@ -1536,7 +1459,8 @@ def validate_output(
 def print_target_summary(
     output: pd.DataFrame,
 ) -> None:
-    """Print a compact validation summary."""
+    """Print country-year coverage summary."""
+
     print()
     print(
         "Validated country-year observations:"
@@ -1562,6 +1486,14 @@ def print_target_summary(
 
 def main() -> None:
     """Run the UNCTAD import concentration pipeline."""
+
+    print("=" * 70)
+    print(
+        "JESI UNCTAD Import Product Concentration"
+    )
+    print("=" * 70)
+
+    print()
     print(
         "Downloading official UNCTAD "
         "concentration dataset..."
@@ -1582,7 +1514,7 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # Identify country/economy columns
+    # Identify country/economy fields
     # ---------------------------------------------------------
 
     economy_column = find_economy_column(
@@ -1611,12 +1543,11 @@ def main() -> None:
     ):
         raise ValueError(
             "Could not identify an economy/country "
-            "column or country-code column in "
-            "the UNCTAD dataset."
+            "column or country-code column."
         )
 
     # ---------------------------------------------------------
-    # Detect wide-format annual concentration columns
+    # Detect wide-format annual columns
     # ---------------------------------------------------------
 
     concentration_columns = (
@@ -1633,8 +1564,7 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # Filter to import observations when the source contains
-    # multiple trade-flow dimensions.
+    # Filter Import observations
     # ---------------------------------------------------------
 
     df = filter_import_rows(
@@ -1642,21 +1572,29 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # Re-detect columns after filtering.
+    # Identify target countries
+    #
+    # IMPORTANT:
+    # Economy Label is preferred because UNCTAD's Economy
+    # field may contain numeric economy codes.
     # ---------------------------------------------------------
 
-    if country_code_column is not None:
-        target_rows = (
-            find_target_rows_by_code(
-                df,
-                country_code_column,
-            )
-        )
-
-    else:
+    if economy_column is not None:
         target_rows = find_target_rows(
             df,
             economy_column,
+        )
+
+    elif country_code_column is not None:
+        target_rows = find_target_rows_by_code(
+            df,
+            country_code_column,
+        )
+
+    else:
+        raise ValueError(
+            "No usable country/economy identifier "
+            "was found."
         )
 
     print(
@@ -1672,8 +1610,8 @@ def main() -> None:
 
         print()
         print(
-            "The downloaded UNCTAD table contains "
-            "no individual rows for the JESI target countries:"
+            "No individual rows were found for "
+            "the JESI target countries."
         )
 
         for code, country in (
@@ -1690,15 +1628,15 @@ def main() -> None:
 
         raise ValueError(
             "UNCTAD individual-economy "
-            "concentration data is not present "
-            "in the downloaded table."
+            "concentration data was not identified."
         )
 
     # ---------------------------------------------------------
-    # Build output.
+    # Build final output
     # ---------------------------------------------------------
 
     if concentration_columns:
+
         missing_years = [
             year
             for year in sorted(
@@ -1715,8 +1653,8 @@ def main() -> None:
 
         if economy_column is None:
             raise ValueError(
-                "Wide-format UNCTAD data was detected, "
-                "but no economy column was found."
+                "Wide-format data requires "
+                "an economy column."
             )
 
         output = build_wide_output(
@@ -1726,6 +1664,7 @@ def main() -> None:
         )
 
     else:
+
         year_column = find_year_column(
             df
         )
@@ -1748,16 +1687,13 @@ def main() -> None:
 
         if year_column is None:
             raise ValueError(
-                "UNCTAD data is not in the expected "
-                "wide format and no year column "
-                "could be identified."
+                "No year column was identified."
             )
 
         if value_column is None:
             raise ValueError(
-                "UNCTAD data is not in the expected "
-                "wide format and no concentration "
-                "value column could be identified."
+                "No concentration value column "
+                "was identified."
             )
 
         output = build_long_output(
@@ -1767,7 +1703,7 @@ def main() -> None:
         )
 
     # ---------------------------------------------------------
-    # Validate final dataset.
+    # Validate
     # ---------------------------------------------------------
 
     output = validate_output(
@@ -1779,7 +1715,7 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # Save final raw-derived dataset.
+    # Save
     # ---------------------------------------------------------
 
     OUTPUT.parent.mkdir(
@@ -1797,14 +1733,34 @@ def main() -> None:
         f"Saved: {OUTPUT}"
     )
 
+    print()
     print(
-        f"Rows: {len(output)}"
+        "Final observations:",
+        len(output),
+    )
+
+    print(
+        "Countries:",
+        output["country_code"].nunique(),
+    )
+
+    print(
+        "Years:",
+        output["year"].min(),
+        "to",
+        output["year"].max(),
     )
 
     print()
+    print("=" * 70)
     print(
-        "STATUS: SUCCESS"
+        "STATUS: GREEN"
     )
+    print(
+        "UNCTAD import product concentration "
+        "data download and validation completed."
+    )
+    print("=" * 70)
 
 
 if __name__ == "__main__":
