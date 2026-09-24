@@ -337,17 +337,96 @@ All datasets used in the final calculation must record:
 
 15. Missing Data
 
-Missing observations must be handled using a documented and reproducible protocol.
+Missing observations must be handled using a documented,
+reproducible, and indicator-specific protocol.
 
-Potential methods include:
+The baseline JESI implementation follows a
+"No Silent Imputation" principle.
 
-- Limited interpolation where economically defensible
-- Carry-forward or carry-backward methods only when justified
-- Cross-sectional imputation
-- Indicator exclusion where coverage is inadequate
-- Country-year exclusion when data quality is insufficient
+15.1 Source-Missing Observations
 
-Missing-data treatment must never be hidden from the final research dataset.
+If an official source does not report a valid observation
+for a country-year, the observation must remain missing.
+
+A missing observation must NOT be replaced by:
+
+- Zero
+- An arbitrary constant
+- Unrelated proxy indicators
+- Unverified secondary estimates
+- Interpolation solely to complete the dataset
+
+The absence of reported data must not be interpreted as
+a value of zero.
+
+For example, if an official trade-data source does not
+report a high-technology export value for a country-year,
+JESI will preserve that observation as missing unless an
+independently documented and methodologically equivalent
+source provides a valid observation.
+
+15.2 Imputation
+
+Imputation may be considered only when all of the following
+conditions are satisfied:
+
+1. The method is economically defensible.
+2. The method is explicitly documented.
+3. The source and transformation are reproducible.
+4. The imputation does not introduce an artificial
+   advantage or disadvantage for a country.
+5. Results are tested against a no-imputation specification.
+
+Any imputed observations must be explicitly flagged in the
+research dataset.
+
+15.3 Indicator Coverage
+
+Indicator validity and data availability are separate
+methodological questions.
+
+An indicator must not be declared theoretically invalid
+merely because its international coverage is incomplete.
+
+However, an indicator with substantial missingness may be
+excluded from the baseline specification if its coverage
+prevents reliable construction of the intended country-year
+sample.
+
+Such an exclusion must be documented as a methodological
+decision and tested through sensitivity analysis.
+
+15.4 Country-Year Eligibility
+
+A country-year may enter the baseline JESI calculation only
+when valid observations are available for all required
+indicators and all five pillar scores can be constructed
+without undocumented imputation.
+
+Country-years failing this condition must be excluded from
+the corresponding baseline index calculation rather than
+assigned artificial values.
+
+The number and identity of excluded country-years must be
+reported in the final research outputs.
+
+15.5 Missingness Sensitivity
+
+Missing-data sensitivity must be evaluated separately from
+the baseline calculation.
+
+Where feasible, robustness analysis should compare:
+
+- Complete-case baseline results
+- Alternative indicator specifications
+- Alternative defensible data sources
+- Explicitly documented imputation scenarios, if justified
+
+The final methodological judgment must report whether
+missing-data assumptions materially affect the conclusions.
+
+Missing-data treatment must never be hidden from the final
+research dataset or final research report.
 
 ---
 
