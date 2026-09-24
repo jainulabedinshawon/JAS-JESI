@@ -17,8 +17,12 @@ Countries:
     Bangladesh, India, Viet Nam, Indonesia, Malaysia
 
 Important:
-    Missing World Bank observations are NOT replaced with zero,
-    interpolation, or fabricated values.
+    Missing World Bank observations are NOT replaced
+    with zero, interpolation, mean values, or proxies.
+
+Purpose:
+    Preserve official source data and explicitly diagnose
+    missing country-year observations for methodological review.
 """
 
 from pathlib import Path
@@ -33,17 +37,41 @@ OUTPUT_FILE = Path(
 )
 
 COUNTRIES = {
-    "BGD": {"name": "Bangladesh", "atlas_id": 50},
-    "IND": {"name": "India", "atlas_id": 356},
-    "VNM": {"name": "Viet Nam", "atlas_id": 704},
-    "IDN": {"name": "Indonesia", "atlas_id": 360},
-    "MYS": {"name": "Malaysia", "atlas_id": 458},
+    "BGD": {
+        "name": "Bangladesh",
+        "atlas_id": 50,
+    },
+    "IND": {
+        "name": "India",
+        "atlas_id": 356,
+    },
+    "VNM": {
+        "name": "Viet Nam",
+        "atlas_id": 704,
+    },
+    "IDN": {
+        "name": "Indonesia",
+        "atlas_id": 360,
+    },
+    "MYS": {
+        "name": "Malaysia",
+        "atlas_id": 458,
+    },
 }
 
 START_YEAR = 2015
 END_YEAR = 2024
 
-YEARS = set(range(START_YEAR, END_YEAR + 1))
+YEARS = set(
+    range(
+        START_YEAR,
+        END_YEAR + 1,
+    )
+)
+
+EXPECTED_ROWS = (
+    len(COUNTRIES) * len(YEARS)
+)
 
 ATLAS_URL = (
     "https://atlas.hks.harvard.edu/api/graphql"
@@ -59,8 +87,6 @@ REQUEST_TIMEOUT = (30, 120)
 MAX_RETRIES = 4
 BACKOFF_SECONDS = 3
 
-EXPECTED_ROWS = len(COUNTRIES) * len(YEARS)
-
 
 def request_with_retry(
     method,
@@ -71,15 +97,21 @@ def request_with_retry(
     Execute an HTTP request with retry handling.
 
     Retries:
-        - timeouts
+        - timeout
         - connection errors
         - HTTP 429
-        - HTTP 500/502/503/504
+        - HTTP 500
+        - HTTP 502
+        - HTTP 503
+        - HTTP 504
     """
 
     last_error = None
 
-    for attempt in range(1, MAX_RETRIES + 1):
+    for attempt in range(
+        1,
+        MAX_RETRIES + 1,
+    ):
         try:
             response = requests.request(
                 method,
@@ -96,8 +128,10 @@ def request_with_retry(
                 504,
             }:
                 raise requests.HTTPError(
-                    "Retryable HTTP status "
-                    f"{response.status_code}",
+                    (
+                        "Retryable HTTP status "
+                        f"{response.status_code}"
+                    ),
                     response=response,
                 )
 
@@ -116,7 +150,8 @@ def request_with_retry(
                 break
 
             wait_seconds = (
-                BACKOFF_SECONDS * (2 ** (attempt - 1))
+                BACKOFF_SECONDS
+                * (2 ** (attempt - 1))
             )
 
             print(
@@ -125,10 +160,13 @@ def request_with_retry(
             )
 
             print(
-                f"Retrying in {wait_seconds} seconds..."
+                f"Retrying in "
+                f"{wait_seconds} seconds..."
             )
 
-            time.sleep(wait_seconds)
+            time.sleep(
+                wait_seconds
+            )
 
     raise RuntimeError(
         "HTTP request failed after "
@@ -137,7 +175,7 @@ def request_with_retry(
 
 
 def download_eci():
-    """Download ECI from Harvard Atlas GraphQL API."""
+    """Download ECI from Harvard Atlas."""
 
     query = """
     query {
@@ -162,13 +200,18 @@ def download_eci():
 
         country_query = query.replace(
             "countryId: 50",
-            f"countryId: {info['atlas_id']}",
+            (
+                f"countryId: "
+                f"{info['atlas_id']}"
+            ),
         )
 
         response = request_with_retry(
             "POST",
             ATLAS_URL,
-            json={"query": country_query},
+            json={
+                "query": country_query
+            },
         )
 
         payload = response.json()
@@ -180,12 +223,14 @@ def download_eci():
                 f"{payload['errors']}"
             )
 
-        data_block = payload.get("data")
+        data_block = payload.get(
+            "data"
+        )
 
         if not data_block:
             raise RuntimeError(
-                f"Atlas API returned no data for "
-                f"{info['name']}."
+                f"Atlas API returned no data "
+                f"for {info['name']}."
             )
 
         rows = data_block.get(
@@ -200,23 +245,34 @@ def download_eci():
             )
 
         for row in rows:
-            year = int(row["year"])
+            year = int(
+                row["year"]
+            )
 
-            if START_YEAR <= year <= END_YEAR:
+            if (
+                START_YEAR
+                <= year
+                <= END_YEAR
+            ):
                 records.append(
                     {
                         "country_code": code,
-                        "country": info["name"],
+                        "country": info[
+                            "name"
+                        ],
                         "year": year,
                         "eci": row["eci"],
                     }
                 )
 
-    data = pd.DataFrame(records)
+    data = pd.DataFrame(
+        records
+    )
 
     if data.empty:
         raise ValueError(
-            "No ECI observations were downloaded."
+            "No ECI observations "
+            "were downloaded."
         )
 
     return data
@@ -224,9 +280,10 @@ def download_eci():
 
 def download_high_tech():
     """
-    Download high-tech exports from World Bank WDI.
+    Download high-tech exports from
+    World Bank WDI.
 
-    Missing World Bank values remain missing.
+    Missing values are preserved.
     They are never converted to zero.
     """
 
@@ -234,7 +291,7 @@ def download_high_tech():
 
     for code, info in COUNTRIES.items():
         print(
-            f"Downloading high-tech exports: "
+            "Downloading high-tech exports: "
             f"{info['name']}"
         )
 
@@ -249,7 +306,10 @@ def download_high_tech():
 
         payload = response.json()
 
-        if not isinstance(payload, list):
+        if not isinstance(
+            payload,
+            list,
+        ):
             raise ValueError(
                 "Unexpected World Bank API "
                 f"response for {code}."
@@ -264,23 +324,27 @@ def download_high_tech():
         rows = payload[1]
 
         if rows is None:
-            print(
-                f"WARNING: World Bank returned "
-                f"no observations for {code}."
-            )
             rows = []
 
         for row in rows:
             if row.get("date") is None:
                 continue
 
-            year = int(row["date"])
+            year = int(
+                row["date"]
+            )
 
-            if START_YEAR <= year <= END_YEAR:
+            if (
+                START_YEAR
+                <= year
+                <= END_YEAR
+            ):
                 records.append(
                     {
                         "country_code": code,
-                        "country": info["name"],
+                        "country": info[
+                            "name"
+                        ],
                         "year": year,
                         "high_tech_exports": row.get(
                             "value"
@@ -288,40 +352,52 @@ def download_high_tech():
                     }
                 )
 
-    data = pd.DataFrame(records)
+    data = pd.DataFrame(
+        records
+    )
 
     if data.empty:
         raise ValueError(
-            "No high-tech export observations "
-            "were downloaded from World Bank."
+            "No high-tech export "
+            "observations were downloaded."
         )
 
     return data
 
 
-def build_complete_country_year_grid():
-    """Create the complete JESI country-year grid."""
+def build_complete_grid():
+    """
+    Build the complete expected
+    country-year grid.
+    """
 
-    rows = []
+    records = []
 
     for code, info in COUNTRIES.items():
         for year in sorted(YEARS):
-            rows.append(
+            records.append(
                 {
                     "country_code": code,
-                    "country": info["name"],
+                    "country": info[
+                        "name"
+                    ],
                     "year": year,
                 }
             )
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(
+        records
+    )
 
 
 def validate_eci(data):
-    """Validate ECI coverage."""
+    """Validate ECI country-year coverage."""
 
     expected_keys = {
-        (code, year)
+        (
+            code,
+            year,
+        )
         for code in COUNTRIES
         for year in YEARS
     }
@@ -334,18 +410,19 @@ def validate_eci(data):
     )
 
     missing_keys = sorted(
-        expected_keys - actual_keys
+        expected_keys
+        - actual_keys
     )
 
     if missing_keys:
         print()
         print(
-            "WARNING: Missing ECI observations:"
+            "MISSING ECI OBSERVATIONS:"
         )
 
         for code, year in missing_keys:
             print(
-                f"  {code} {year}"
+                f"  {code} - {year}"
             )
 
         raise ValueError(
@@ -355,7 +432,10 @@ def validate_eci(data):
         )
 
     if data.duplicated(
-        ["country_code", "year"]
+        [
+            "country_code",
+            "year",
+        ]
     ).any():
         raise ValueError(
             "Duplicate ECI country-year "
@@ -367,100 +447,161 @@ def validate_eci(data):
     )
 
 
-def report_high_tech_missing(data):
+def diagnose_high_tech_missing(
+    data
+):
     """
-    Report missing high-tech observations.
+    Diagnose every missing high-tech
+    country-year observation.
 
-    Missing observations are retained as NA.
+    This function does NOT impute
+    or modify missing values.
     """
 
-    expected_grid = (
-        build_complete_country_year_grid()
+    grid = build_complete_grid()
+
+    data = data.copy()
+
+    data["year"] = pd.to_numeric(
+        data["year"],
+        errors="coerce",
     )
 
-    merged = expected_grid.merge(
-        data,
+    data["high_tech_exports"] = (
+        pd.to_numeric(
+            data["high_tech_exports"],
+            errors="coerce",
+        )
+    )
+
+    merged = grid.merge(
+        data[
+            [
+                "country_code",
+                "country",
+                "year",
+                "high_tech_exports",
+            ]
+        ],
         on=[
             "country_code",
             "country",
             "year",
         ],
         how="left",
-    )
-
-    merged["high_tech_exports"] = pd.to_numeric(
-        merged["high_tech_exports"],
-        errors="coerce",
+        validate="one_to_one",
     )
 
     missing = merged[
-        merged["high_tech_exports"].isna()
+        merged[
+            "high_tech_exports"
+        ].isna()
     ].copy()
 
     print()
+    print("=" * 72)
     print(
-        "High-tech export coverage:"
+        "HIGH-TECH EXPORTS DATA DIAGNOSTIC"
+    )
+    print("=" * 72)
+
+    print()
+    print(
+        "Expected observations:",
+        EXPECTED_ROWS,
+    )
+
+    available = (
+        EXPECTED_ROWS
+        - len(missing)
     )
 
     print(
-        f"Expected observations: "
-        f"{EXPECTED_ROWS}"
+        "Available observations:",
+        available,
     )
 
     print(
-        f"Available observations: "
-        f"{EXPECTED_ROWS - len(missing)}"
+        "Missing observations:",
+        len(missing),
     )
 
-    print(
-        f"Missing observations: "
-        f"{len(missing)}"
-    )
-
-    if not missing.empty:
+    if missing.empty:
         print()
         print(
-            "Missing World Bank "
-            "high-tech observations:"
+            "No missing high-tech "
+            "observations detected."
+        )
+    else:
+        print()
+        print(
+            "EXACT MISSING "
+            "COUNTRY-YEAR OBSERVATIONS:"
+        )
+
+        print(
+            "-" * 72
         )
 
         for _, row in missing.iterrows():
             print(
-                f"  {row['country_code']} "
-                f"{int(row['year'])} "
-                f"({row['country']})"
+                f"{row['country_code']} | "
+                f"{row['country']} | "
+                f"{int(row['year'])}"
             )
+
+        print(
+            "-" * 72
+        )
 
         print()
         print(
-            "IMPORTANT: Missing values are "
-            "retained as NA."
+            "These observations are "
+            "intentionally NOT imputed."
         )
 
         print(
-            "No zero, interpolation, or "
-            "proxy value has been inserted."
+            "No zero, mean, interpolation, "
+            "or proxy value has been inserted."
         )
+
+    print()
+    print(
+        "High-tech diagnostic completed."
+    )
+
+    print(
+        "=" * 72
+    )
 
     return merged
 
 
-def validate_high_tech_duplicates(data):
-    """Check for duplicate World Bank observations."""
+def validate_high_tech_duplicates(
+    data
+):
+    """Check for duplicate country-year rows."""
 
     if data.duplicated(
-        ["country_code", "year"]
+        [
+            "country_code",
+            "year",
+        ]
     ).any():
         duplicates = data[
             data.duplicated(
-                ["country_code", "year"],
+                [
+                    "country_code",
+                    "year",
+                ],
                 keep=False,
             )
         ]
 
         print()
         print(
-            "Duplicate high-tech observations:"
+            "DUPLICATE HIGH-TECH "
+            "OBSERVATIONS:"
         )
 
         print(
@@ -470,7 +611,9 @@ def validate_high_tech_duplicates(data):
                     "year",
                     "high_tech_exports",
                 ]
-            ].to_string(index=False)
+            ].to_string(
+                index=False
+            )
         )
 
         raise ValueError(
@@ -481,7 +624,7 @@ def validate_high_tech_duplicates(data):
 
 
 def main():
-    """Download and prepare Strategic Autonomy data."""
+    """Download Strategic Autonomy data."""
 
     print("=" * 72)
     print(
@@ -507,48 +650,53 @@ def main():
 
     print()
     print(
-        "Downloading Economic Complexity "
-        "Index (ECI)..."
+        "Downloading Economic "
+        "Complexity Index..."
     )
 
     eci = download_eci()
 
     print()
     print(
-        f"ECI rows downloaded: {len(eci)}"
+        "ECI rows downloaded:",
+        len(eci),
     )
 
-    validate_eci(eci)
+    validate_eci(
+        eci
+    )
 
     print()
     print(
-        "Downloading high-technology "
-        "exports from World Bank..."
+        "Downloading high-tech exports "
+        "from World Bank..."
     )
 
     high_tech = download_high_tech()
 
     print()
     print(
-        f"World Bank rows downloaded: "
-        f"{len(high_tech)}"
+        "World Bank rows downloaded:",
+        len(high_tech),
     )
 
     validate_high_tech_duplicates(
         high_tech
     )
 
-    high_tech = report_high_tech_missing(
-        high_tech
+    diagnostic = (
+        diagnose_high_tech_missing(
+            high_tech
+        )
     )
 
     print()
     print(
-        "Building complete country-year "
-        "autonomy grid..."
+        "Building final Strategic "
+        "Autonomy raw dataset..."
     )
 
-    grid = build_complete_country_year_grid()
+    grid = build_complete_grid()
 
     data = grid.merge(
         eci,
@@ -562,7 +710,7 @@ def main():
     )
 
     data = data.merge(
-        high_tech[
+        diagnostic[
             [
                 "country_code",
                 "country",
@@ -579,17 +727,14 @@ def main():
         validate="one_to_one",
     )
 
-    # Import concentration is intentionally kept
-    # as a separate field for official UNCTAD
-    # dataset integration in Script 30.
+    # UNCTAD import concentration is
+    # intentionally integrated separately
+    # by Script 30.
     #
-    # It is not fabricated or replaced by
-    # an arbitrary proxy.
+    # No proxy or fabricated value is used.
     data[
         "import_product_concentration"
     ] = pd.NA
-
-    data["year"] = data["year"].astype(int)
 
     data = data.sort_values(
         [
@@ -608,11 +753,15 @@ def main():
         )
 
     if data.duplicated(
-        ["country_code", "year"]
+        [
+            "country_code",
+            "year",
+        ]
     ).any():
         raise ValueError(
-            "Duplicate country-year observations "
-            "found in final autonomy dataset."
+            "Duplicate country-year "
+            "observations found in final "
+            "autonomy dataset."
         )
 
     OUTPUT_FILE.parent.mkdir(
@@ -625,57 +774,65 @@ def main():
         index=False,
     )
 
-    missing_high_tech = int(
+    missing_count = int(
         data[
             "high_tech_exports"
         ].isna().sum()
     )
 
     print()
+    print("=" * 72)
     print(
-        "Strategic Autonomy data download "
-        "completed."
+        "STRATEGIC AUTONOMY DOWNLOAD SUMMARY"
     )
+    print("=" * 72)
 
     print(
         f"Rows: {len(data)}"
     )
 
     print(
-        f"Countries: "
-        f"{data['country_code'].nunique()}"
+        "Countries:",
+        data[
+            "country_code"
+        ].nunique(),
     )
 
     print(
-        f"Years: "
-        f"{data['year'].nunique()}"
+        "Years:",
+        data[
+            "year"
+        ].nunique(),
     )
 
     print(
-        f"High-tech missing observations: "
-        f"{missing_high_tech}"
+        "High-tech missing:",
+        missing_count,
     )
 
     print(
-        "UNCTAD import concentration "
-        "field: reserved for Script 30."
+        "Import concentration:",
+        "reserved for UNCTAD integration",
     )
 
     print(
-        f"Output: {OUTPUT_FILE}"
+        "Output:",
+        OUTPUT_FILE,
     )
 
     print()
-    print("=" * 72)
     print(
         "STATUS: DOWNLOAD COMPLETED"
     )
+
     print(
-        "Official source values were preserved."
+        "Official source values preserved."
     )
+
     print(
         "Missing observations were not fabricated."
     )
+
     print("=" * 72)
 
 
