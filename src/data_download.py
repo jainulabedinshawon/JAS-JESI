@@ -7,11 +7,17 @@ This module provides reproducible functions for downloading
 economic indicator data from public APIs.
 """
 
-import requests
+import time
+
 import pandas as pd
+import requests
 
 
 WORLD_BANK_API = "https://api.worldbank.org/v2/country"
+
+WORLD_BANK_TIMEOUT = 60
+WORLD_BANK_MAX_RETRIES = 3
+WORLD_BANK_RETRY_DELAY = 2
 
 
 def download_world_bank_indicator(
@@ -50,43 +56,73 @@ def download_world_bank_indicator(
         f"&date={start_year}:{end_year}"
     )
 
-    response = requests.get(
-        url,
-        timeout=30,
-    )
+    last_error = None
 
-    response.raise_for_status()
+    for attempt in range(1, WORLD_BANK_MAX_RETRIES + 1):
+        try:
+            response = requests.get(
+                url,
+                timeout=WORLD_BANK_TIMEOUT,
+            )
 
-    data = response.json()
+            response.raise_for_status()
 
-    if len(data) < 2 or not data[1]:
-        return pd.DataFrame(
-            columns=[
-                "country",
-                "year",
-                "value",
-                "indicator",
-            ]
-        )
+            data = response.json()
 
-    records = []
+            if len(data) < 2 or not data[1]:
+                return pd.DataFrame(
+                    columns=[
+                        "country",
+                        "year",
+                        "value",
+                        "indicator",
+                    ]
+                )
 
-    for item in data[1]:
-        records.append(
-            {
-                "country": item.get(
-                    "country",
-                    {},
-                ).get(
-                    "value"
-                ),
-                "year": int(item["date"]),
-                "value": item.get("value"),
-                "indicator": indicator,
-            }
-        )
+            records = []
 
-    return pd.DataFrame(records)
+            for item in data[1]:
+                records.append(
+                    {
+                        "country": item.get(
+                            "country",
+                            {},
+                        ).get(
+                            "value"
+                        ),
+                        "year": int(item["date"]),
+                        "value": item.get("value"),
+                        "indicator": indicator,
+                    }
+                )
+
+            return pd.DataFrame(records)
+
+        except requests.exceptions.RequestException as exc:
+            last_error = exc
+
+            print(
+                f"World Bank request failed "
+                f"(attempt {attempt}/"
+                f"{WORLD_BANK_MAX_RETRIES}): {exc}"
+            )
+
+            if attempt < WORLD_BANK_MAX_RETRIES:
+                delay = (
+                    WORLD_BANK_RETRY_DELAY
+                    * (2 ** (attempt - 1))
+                )
+
+                print(
+                    f"Retrying in {delay} seconds..."
+                )
+
+                time.sleep(delay)
+
+    raise RuntimeError(
+        "World Bank API request failed after "
+        f"{WORLD_BANK_MAX_RETRIES} attempts."
+    ) from last_error
 
 
 def save_dataframe(
