@@ -26,10 +26,12 @@ import csv
 import io
 import json
 import re
+import tempfile
 import zipfile
 from pathlib import Path
 
 import pandas as pd
+import py7zr
 import requests
 
 
@@ -61,6 +63,8 @@ TARGET_CODE_TO_NAME = {
     "IDN": "Indonesia",
     "MYS": "Malaysia",
 }
+
+SEVEN_Z_SIGNATURE = b"\x37\x7a\xbc\xaf\x27\x1c"
 
 
 def normalize_text(value: object) -> str:
@@ -120,7 +124,9 @@ def download_unctad() -> tuple[bytes, str]:
         ),
         "Accept": (
             "text/csv, text/plain, "
-            "application/zip, application/octet-stream, */*"
+            "application/zip, "
+            "application/x-7z-compressed, "
+            "application/octet-stream, */*"
         ),
     }
 
@@ -170,6 +176,161 @@ def looks_like_html(content: bytes) -> bool:
         or sample.startswith(b"<html")
         or b"<html" in sample[:500]
     )
+
+
+def is_7z_archive(content: bytes) -> bool:
+    """Return True when content starts with the official 7z signature."""
+    return content.startswith(
+        SEVEN_Z_SIGNATURE
+    )
+
+
+def find_data_file(
+    names: list[str],
+) -> str | None:
+    """
+    Select the first likely tabular data file from an archive.
+
+    UNCTAD bulk archives can contain metadata files as well as the
+    actual data table. Prefer CSV/TSV/TXT files and ignore obvious
+    documentation files when possible.
+    """
+    data_extensions = (
+        ".csv",
+        ".tsv",
+        ".txt",
+    )
+
+    candidates = [
+        name
+        for name in names
+        if name.lower().endswith(
+            data_extensions
+        )
+    ]
+
+    if not candidates:
+        return None
+
+    preferred = [
+        name
+        for name in candidates
+        if any(
+            term in Path(name).name.lower()
+            for term in (
+                "concent",
+                "divers",
+                "data",
+                "bulk",
+            )
+        )
+    ]
+
+    if preferred:
+        return preferred[0]
+
+    return candidates[0]
+
+
+def extract_7z_data(
+    content: bytes,
+) -> bytes:
+    """
+    Extract the primary tabular data file from a 7z archive.
+
+    The archive is written to a temporary file because py7zr supports
+    reliable archive extraction from a filesystem path across Python
+    environments used by GitHub Actions.
+    """
+    print(
+        "Detected UNCTAD format: 7Z archive"
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+
+        archive_path = (
+            temp_path / "unctad_response.7z"
+        )
+
+        archive_path.write_bytes(
+            content
+        )
+
+        try:
+            with py7zr.SevenZipFile(
+                archive_path,
+                mode="r",
+            ) as archive:
+                names = archive.getnames()
+
+                print(
+                    "Files inside UNCTAD 7Z archive:"
+                )
+
+                for name in names:
+                    print(
+                        f"  - {name}"
+                    )
+
+                data_name = find_data_file(
+                    names
+                )
+
+                if data_name is None:
+                    raise ValueError(
+                        "UNCTAD returned a 7Z archive, "
+                        "but no CSV/TXT/TSV data file was found."
+                    )
+
+                print(
+                    "Selected UNCTAD 7Z data file:",
+                    data_name,
+                )
+
+                archive.extractall(
+                    path=temp_path
+                )
+
+        except (
+            py7zr.Bad7zFile,
+            py7zr.exceptions.Bad7zFile,
+            py7zr.exceptions.UnsupportedCompressionMethodError,
+        ) as exc:
+            raise ValueError(
+                "UNCTAD returned a 7Z archive, "
+                "but the archive could not be extracted."
+            ) from exc
+
+        extracted_path = (
+            temp_path / data_name
+        )
+
+        if not extracted_path.exists():
+            matches = list(
+                temp_path.rglob(
+                    Path(data_name).name
+                )
+            )
+
+            if not matches:
+                raise ValueError(
+                    "UNCTAD 7Z archive was extracted, "
+                    "but the selected data file "
+                    "could not be located."
+                )
+
+            extracted_path = matches[0]
+
+        raw = extracted_path.read_bytes()
+
+        print(
+            "Extracted UNCTAD data size:",
+            f"{len(raw):,}",
+            "bytes",
+        )
+
+        return raw
 
 
 def find_table_header(
@@ -281,7 +442,9 @@ def detect_delimiter(
     return delimiter
 
 
-def parse_unctad_text(raw: bytes) -> pd.DataFrame:
+def parse_unctad_text(
+    raw: bytes,
+) -> pd.DataFrame:
     """
     Parse a text-based UNCTAD response.
 
@@ -291,7 +454,9 @@ def parse_unctad_text(raw: bytes) -> pd.DataFrame:
     records.
     """
 
-    text = decode_unctad_text(raw)
+    text = decode_unctad_text(
+        raw
+    )
 
     if text.lstrip().startswith("<"):
         preview = text[:500]
@@ -451,8 +616,13 @@ def read_unctad_response(
     content_type: str,
 ) -> pd.DataFrame:
     """
-    Read ZIP, text/CSV, or JSON UNCTAD responses.
+    Read 7Z, ZIP, text/CSV, or JSON UNCTAD responses.
+
+    Format detection is based primarily on the actual response
+    bytes rather than the HTTP Content-Type because the UNCTAD
+    bulk endpoint may return an archive as application/octet-stream.
     """
+
     if not content:
         raise ValueError(
             "UNCTAD returned an empty response."
@@ -461,6 +631,21 @@ def read_unctad_response(
     print(
         "Inspecting UNCTAD response format..."
     )
+
+    # ---------------------------------------------------------
+    # 7Z
+    # ---------------------------------------------------------
+
+    if is_7z_archive(
+        content
+    ):
+        raw = extract_7z_data(
+            content
+        )
+
+        return parse_unctad_text(
+            raw
+        )
 
     # ---------------------------------------------------------
     # ZIP
@@ -488,25 +673,15 @@ def read_unctad_response(
                     f"  - {name}"
                 )
 
-            data_files = [
-                name
-                for name in names
-                if name.lower().endswith(
-                    (
-                        ".csv",
-                        ".txt",
-                        ".tsv",
-                    )
-                )
-            ]
+            data_name = find_data_file(
+                names
+            )
 
-            if not data_files:
+            if data_name is None:
                 raise ValueError(
                     "UNCTAD returned a ZIP archive, "
                     "but no CSV/TXT/TSV data file was found."
                 )
-
-            data_name = data_files[0]
 
             print(
                 "Selected UNCTAD data file:",
@@ -522,14 +697,16 @@ def read_unctad_response(
         )
 
     print(
-        "Response is not a ZIP archive."
+        "Response is not a 7Z or ZIP archive."
     )
 
     # ---------------------------------------------------------
     # HTML
     # ---------------------------------------------------------
 
-    if looks_like_html(content):
+    if looks_like_html(
+        content
+    ):
         preview = content[:500].decode(
             "utf-8",
             errors="replace",
@@ -1306,13 +1483,17 @@ def validate_output(
     # ---------------------------------------------------------
 
     invalid_range = (
-        (output[
-            "import_product_concentration"
-        ] < 0)
+        (
+            output[
+                "import_product_concentration"
+            ]
+            < 0
+        )
         | (
             output[
                 "import_product_concentration"
-            ] > 1
+            ]
+            > 1
         )
     )
 
