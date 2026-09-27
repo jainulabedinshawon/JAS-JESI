@@ -3,41 +3,36 @@ JESI Strategic Autonomy Coverage Impact Analysis
 Master Version 1.0
 
 Script 43:
-Analyzes the coverage and missing-data impact of the
-Strategic Autonomy high-tech export indicator before
-any scoring, pillar construction, or missing-data policy
-changes are made.
-
-Purpose:
-    - Quantify overall indicator coverage.
-    - Quantify country-level coverage.
-    - Quantify year-level coverage.
-    - Identify exact missing country-years.
-    - Measure the impact on the final JESI sample
-      (2016-2023).
-    - Measure complete-case retention.
-    - Identify the balanced-panel country sample.
-    - Measure consecutive missing-data gaps.
-    - Produce reproducible CSV outputs.
+Analyzes Strategic Autonomy indicator coverage and
+missing-data impact before scoring or pillar construction.
 
 Important methodological rule:
-    This script does NOT impute, interpolate, replace,
-    or otherwise modify missing observations.
+    No silent imputation.
 
-    Missing observations remain missing.
+This script does NOT:
+    - impute
+    - interpolate
+    - replace
+    - fabricate
+    - proxy missing observations
+
+Sources:
+    1. Strategic Autonomy base dataset from Script 29
+    2. Official UNCTAD import concentration dataset
+       from Script 31
 
 Strategic Autonomy indicators:
     - Economic Complexity Index (ECI)
     - High-Tech Exports
     - Import Product Concentration
 
-Current source dataset:
-    data/raw/autonomy_indicators_2015_2024.csv
-
-Expected benchmark:
+Benchmark:
     5 countries
     2015-2024
     50 country-year observations
+
+Final JESI sample:
+    2016-2023
 """
 
 from pathlib import Path
@@ -50,8 +45,12 @@ import pandas as pd
 # Configuration
 # -------------------------------------------------------------------
 
-INPUT_FILE = Path(
+BASE_INPUT_FILE = Path(
     "data/raw/autonomy_indicators_2015_2024.csv"
+)
+
+CONCENTRATION_INPUT_FILE = Path(
+    "data/raw/import_product_concentration_2015_2024.csv"
 )
 
 OUTPUT_DIR = Path(
@@ -123,41 +122,40 @@ INDICATORS = [
     "import_product_concentration",
 ]
 
-REQUIRED_COLUMNS = [
-    "country_code",
-    "country",
-    "year",
-    "eci",
-    "high_tech_exports",
-    "import_product_concentration",
-]
-
 
 # -------------------------------------------------------------------
-# Input validation
+# Base dataset loading
 # -------------------------------------------------------------------
 
-def load_and_validate_input():
-    """Load the autonomy dataset and validate its structure."""
+def load_base_data():
+    """Load and validate Script 29 Strategic Autonomy data."""
 
-    if not INPUT_FILE.exists():
+    if not BASE_INPUT_FILE.exists():
         raise FileNotFoundError(
-            f"Missing input file: {INPUT_FILE}"
+            f"Missing base input file: {BASE_INPUT_FILE}"
         )
 
     df = pd.read_csv(
-        INPUT_FILE
+        BASE_INPUT_FILE
     )
+
+    required_columns = [
+        "country_code",
+        "country",
+        "year",
+        "eci",
+        "high_tech_exports",
+    ]
 
     missing_columns = [
         column
-        for column in REQUIRED_COLUMNS
+        for column in required_columns
         if column not in df.columns
     ]
 
     if missing_columns:
         raise ValueError(
-            "Input dataset is missing required columns: "
+            "Base dataset is missing required columns: "
             f"{missing_columns}"
         )
 
@@ -168,12 +166,16 @@ def load_and_validate_input():
 
     if df["year"].isna().any():
         raise ValueError(
-            "Year column contains missing or non-numeric values."
+            "Base year column contains missing or "
+            "non-numeric values."
         )
 
     df["year"] = df["year"].astype(int)
 
-    for indicator in INDICATORS:
+    for indicator in [
+        "eci",
+        "high_tech_exports",
+    ]:
         df[indicator] = pd.to_numeric(
             df[indicator],
             errors="coerce",
@@ -181,42 +183,236 @@ def load_and_validate_input():
 
     if len(df) != EXPECTED_BENCHMARK_ROWS:
         raise ValueError(
-            f"Expected {EXPECTED_BENCHMARK_ROWS} rows, "
+            f"Expected {EXPECTED_BENCHMARK_ROWS} base rows, "
             f"found {len(df)}."
         )
 
     if set(df["country_code"]) != set(COUNTRIES):
         raise ValueError(
-            "Country-code coverage does not match the JESI sample."
+            "Base country-code coverage does not match "
+            "the JESI sample."
         )
 
     if set(df["year"]) != EXPECTED_YEARS:
         raise ValueError(
-            "Year coverage is not exactly 2015-2024."
+            "Base year coverage is not exactly 2015-2024."
         )
 
     if df.duplicated(
         ["country_code", "year"]
     ).any():
         raise ValueError(
-            "Duplicate country-year observations detected."
+            "Duplicate country-year observations detected "
+            "in base data."
         )
 
     return df
 
 
 # -------------------------------------------------------------------
+# UNCTAD concentration loading
+# -------------------------------------------------------------------
+
+def load_concentration_data():
+    """Load and validate official UNCTAD concentration data."""
+
+    if not CONCENTRATION_INPUT_FILE.exists():
+        raise FileNotFoundError(
+            "Missing UNCTAD concentration file: "
+            f"{CONCENTRATION_INPUT_FILE}"
+        )
+
+    concentration = pd.read_csv(
+        CONCENTRATION_INPUT_FILE
+    )
+
+    required_columns = [
+        "country_code",
+        "country",
+        "year",
+        "import_product_concentration",
+    ]
+
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in concentration.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            "UNCTAD concentration data is missing "
+            f"required columns: {missing_columns}"
+        )
+
+    concentration["year"] = pd.to_numeric(
+        concentration["year"],
+        errors="coerce",
+    )
+
+    concentration[
+        "import_product_concentration"
+    ] = pd.to_numeric(
+        concentration[
+            "import_product_concentration"
+        ],
+        errors="coerce",
+    )
+
+    if concentration["year"].isna().any():
+        raise ValueError(
+            "UNCTAD concentration year contains "
+            "missing or non-numeric values."
+        )
+
+    if concentration[
+        "import_product_concentration"
+    ].isna().any():
+        raise ValueError(
+            "UNCTAD concentration contains missing values."
+        )
+
+    concentration["year"] = (
+        concentration["year"].astype(int)
+    )
+
+    if len(concentration) != EXPECTED_BENCHMARK_ROWS:
+        raise ValueError(
+            f"Expected {EXPECTED_BENCHMARK_ROWS} UNCTAD "
+            f"rows, found {len(concentration)}."
+        )
+
+    if set(
+        concentration["country_code"]
+    ) != set(COUNTRIES):
+        raise ValueError(
+            "UNCTAD country-code coverage does not match "
+            "the JESI sample."
+        )
+
+    if set(
+        concentration["year"]
+    ) != EXPECTED_YEARS:
+        raise ValueError(
+            "UNCTAD year coverage is not exactly 2015-2024."
+        )
+
+    if concentration.duplicated(
+        ["country_code", "year"]
+    ).any():
+        raise ValueError(
+            "Duplicate country-year observations detected "
+            "in UNCTAD concentration data."
+        )
+
+    values = concentration[
+        "import_product_concentration"
+    ]
+
+    if (
+        (values < 0)
+        | (values > 1)
+    ).any():
+        raise ValueError(
+            "UNCTAD import concentration contains values "
+            "outside the expected [0, 1] range."
+        )
+
+    return concentration[
+        [
+            "country_code",
+            "country",
+            "year",
+            "import_product_concentration",
+        ]
+    ].copy()
+
+
+# -------------------------------------------------------------------
+# Build integrated dataset
+# -------------------------------------------------------------------
+
+def build_integrated_dataset(
+    base,
+    concentration,
+):
+    """Integrate official UNCTAD concentration into base data."""
+
+    if (
+        base["country_code"].astype(str)
+        .str.len()
+        .eq(0)
+        .any()
+    ):
+        raise ValueError(
+            "Base dataset contains empty country codes."
+        )
+
+    integrated = base.drop(
+        columns=[
+            "import_product_concentration"
+        ],
+        errors="ignore",
+    ).merge(
+        concentration[
+            [
+                "country_code",
+                "year",
+                "import_product_concentration",
+            ]
+        ],
+        on=[
+            "country_code",
+            "year",
+        ],
+        how="left",
+        validate="one_to_one",
+    )
+
+    if len(integrated) != EXPECTED_BENCHMARK_ROWS:
+        raise ValueError(
+            "Integrated dataset does not contain the "
+            "expected 50 country-year observations."
+        )
+
+    missing_concentration = int(
+        integrated[
+            "import_product_concentration"
+        ].isna().sum()
+    )
+
+    if missing_concentration:
+        raise ValueError(
+            "UNCTAD integration produced "
+            f"{missing_concentration} missing "
+            "import concentration observations."
+        )
+
+    return integrated.sort_values(
+        [
+            "country_code",
+            "year",
+        ]
+    ).reset_index(
+        drop=True
+    )
+
+
+# -------------------------------------------------------------------
 # Overall indicator coverage
 # -------------------------------------------------------------------
 
-def calculate_indicator_coverage(df):
-    """Calculate overall coverage for every autonomy indicator."""
+def calculate_indicator_coverage(
+    df,
+):
+    """Calculate overall coverage for each indicator."""
 
     records = []
 
     total_rows = len(df)
 
     for indicator in INDICATORS:
+
         available = int(
             df[indicator].notna().sum()
         )
@@ -255,7 +451,9 @@ def calculate_indicator_coverage(df):
 # Country-level coverage
 # -------------------------------------------------------------------
 
-def calculate_country_coverage(df):
+def calculate_country_coverage(
+    df,
+):
     """Calculate indicator coverage by country."""
 
     records = []
@@ -278,6 +476,7 @@ def calculate_country_coverage(df):
         }
 
         for indicator in INDICATORS:
+
             available = int(
                 country_df[indicator].notna().sum()
             )
@@ -317,7 +516,9 @@ def calculate_country_coverage(df):
 # Year-level coverage
 # -------------------------------------------------------------------
 
-def calculate_year_coverage(df):
+def calculate_year_coverage(
+    df,
+):
     """Calculate indicator coverage by year."""
 
     records = []
@@ -338,6 +539,7 @@ def calculate_year_coverage(df):
         }
 
         for indicator in INDICATORS:
+
             available = int(
                 year_df[indicator].notna().sum()
             )
@@ -377,8 +579,10 @@ def calculate_year_coverage(df):
 # Exact missing observations
 # -------------------------------------------------------------------
 
-def identify_missing_observations(df):
-    """Identify every missing country-year-indicator observation."""
+def identify_missing_observations(
+    df,
+):
+    """Identify every missing country-year-indicator."""
 
     records = []
 
@@ -416,14 +620,74 @@ def identify_missing_observations(df):
 
 
 # -------------------------------------------------------------------
+# Complete-case summary
+# -------------------------------------------------------------------
+
+def calculate_complete_case_summary(
+    df,
+):
+    """Calculate complete Strategic Autonomy country-years."""
+
+    working = df.copy()
+
+    working[
+        "strategic_autonomy_complete"
+    ] = ~working[
+        INDICATORS
+    ].isna().any(axis=1)
+
+    records = []
+
+    for country_code, country_name in COUNTRIES.items():
+
+        country_df = working[
+            working["country_code"]
+            == country_code
+        ]
+
+        expected = len(
+            EXPECTED_YEARS
+        )
+
+        complete = int(
+            country_df[
+                "strategic_autonomy_complete"
+            ].sum()
+        )
+
+        excluded = (
+            expected - complete
+        )
+
+        records.append(
+            {
+                "country_code": country_code,
+                "country": country_name,
+                "period": "2015-2024",
+                "expected_country_years": expected,
+                "complete_country_years": complete,
+                "excluded_country_years": excluded,
+                "retention_percent": (
+                    complete
+                    / expected
+                    * 100
+                ),
+            }
+        )
+
+    return pd.DataFrame(
+        records
+    )
+
+
+# -------------------------------------------------------------------
 # Final JESI sample impact
 # -------------------------------------------------------------------
 
-def calculate_final_jesi_impact(df):
-    """
-    Measure the effect of missing autonomy observations on
-    the current final JESI calculation period: 2016-2023.
-    """
+def calculate_final_jesi_impact(
+    df,
+):
+    """Measure missing-data impact on 2016-2023 JESI sample."""
 
     final_df = df[
         df["year"].isin(
@@ -437,8 +701,6 @@ def calculate_final_jesi_impact(df):
             "2016-2023 JESI sample."
         )
 
-    # A country-year is complete only when all three
-    # Strategic Autonomy indicators are available.
     final_df[
         "strategic_autonomy_complete"
     ] = ~final_df[
@@ -455,12 +717,8 @@ def calculate_final_jesi_impact(df):
         ].sum()
     )
 
-    excluded = expected - complete
-
-    retention = (
-        complete / expected
-        if expected
-        else np.nan
+    excluded = (
+        expected - complete
     )
 
     summary = pd.DataFrame(
@@ -472,7 +730,9 @@ def calculate_final_jesi_impact(df):
                 "complete_country_years": complete,
                 "excluded_country_years": excluded,
                 "retention_percent": (
-                    retention * 100
+                    complete
+                    / expected
+                    * 100
                 ),
             }
         ]
@@ -485,28 +745,21 @@ def calculate_final_jesi_impact(df):
         country_df = final_df[
             final_df["country_code"]
             == country_code
-        ].copy()
+        ]
 
-        country_expected = len(
+        expected_country = len(
             FINAL_JESI_YEARS
         )
 
-        country_complete = int(
+        complete_country = int(
             country_df[
                 "strategic_autonomy_complete"
             ].sum()
         )
 
-        country_excluded = (
-            country_expected
-            - country_complete
-        )
-
-        country_retention = (
-            country_complete
-            / country_expected
-            if country_expected
-            else np.nan
+        excluded_country = (
+            expected_country
+            - complete_country
         )
 
         country_records.append(
@@ -515,16 +768,18 @@ def calculate_final_jesi_impact(df):
                 "country": country_name,
                 "period": "2016-2023",
                 "expected_country_years": (
-                    country_expected
+                    expected_country
                 ),
                 "complete_country_years": (
-                    country_complete
+                    complete_country
                 ),
                 "excluded_country_years": (
-                    country_excluded
+                    excluded_country
                 ),
                 "retention_percent": (
-                    country_retention * 100
+                    complete_country
+                    / expected_country
+                    * 100
                 ),
             }
         )
@@ -547,10 +802,7 @@ def calculate_final_jesi_impact(df):
 def calculate_balanced_panel(
     final_df,
 ):
-    """
-    Identify countries with complete Strategic Autonomy
-    indicator coverage for every year from 2016-2023.
-    """
+    """Identify countries with complete 2016-2023 coverage."""
 
     records = []
 
@@ -559,7 +811,7 @@ def calculate_balanced_panel(
         country_df = final_df[
             final_df["country_code"]
             == country_code
-        ].copy()
+        ]
 
         complete = bool(
             country_df[
@@ -590,29 +842,23 @@ def calculate_balanced_panel(
         records
     )
 
-    eligible = panel[
-        panel["balanced_panel_eligible"]
-    ].copy()
-
-    eligible_country_count = len(
-        eligible
+    eligible_count = int(
+        panel[
+            "balanced_panel_eligible"
+        ].sum()
     )
 
     balanced_observations = (
-        eligible_country_count
+        eligible_count
         * len(FINAL_JESI_YEARS)
     )
 
-    summary_row = pd.DataFrame(
+    summary = pd.DataFrame(
         [
             {
                 "period": "2016-2023",
-                "total_countries": (
-                    EXPECTED_COUNTRY_COUNT
-                ),
-                "balanced_panel_countries": (
-                    eligible_country_count
-                ),
+                "total_countries": EXPECTED_COUNTRY_COUNT,
+                "balanced_panel_countries": eligible_count,
                 "balanced_panel_observations": (
                     balanced_observations
                 ),
@@ -630,19 +876,18 @@ def calculate_balanced_panel(
 
     return (
         panel,
-        summary_row,
+        summary,
     )
 
 
 # -------------------------------------------------------------------
-# Consecutive missing-gap analysis
+# Missing-gap analysis
 # -------------------------------------------------------------------
 
-def calculate_missing_gaps(df):
-    """
-    Calculate missing years and the longest consecutive
-    missing-data gap for each country-indicator pair.
-    """
+def calculate_missing_gaps(
+    df,
+):
+    """Calculate consecutive missing-data gaps."""
 
     records = []
 
@@ -653,7 +898,7 @@ def calculate_missing_gaps(df):
             == country_code
         ].sort_values(
             "year"
-        ).copy()
+        )
 
         for indicator in INDICATORS:
 
@@ -664,9 +909,10 @@ def calculate_missing_gaps(df):
                 ].astype(int).tolist()
             )
 
-            if not missing_years:
-                longest_gap = 0
-            else:
+            longest_gap = 0
+
+            if missing_years:
+
                 longest_gap = 1
                 current_gap = 1
 
@@ -674,6 +920,7 @@ def calculate_missing_gaps(df):
                     1,
                     len(missing_years),
                 ):
+
                     if (
                         missing_years[index]
                         == missing_years[index - 1]
@@ -688,15 +935,6 @@ def calculate_missing_gaps(df):
                         current_gap,
                     )
 
-            missing_year_text = (
-                ", ".join(
-                    str(year)
-                    for year in missing_years
-                )
-                if missing_years
-                else ""
-            )
-
             records.append(
                 {
                     "country_code": country_code,
@@ -705,8 +943,9 @@ def calculate_missing_gaps(df):
                     "missing_observations": len(
                         missing_years
                     ),
-                    "missing_years": (
-                        missing_year_text
+                    "missing_years": ", ".join(
+                        str(year)
+                        for year in missing_years
                     ),
                     "longest_consecutive_missing_gap": (
                         longest_gap
@@ -720,76 +959,11 @@ def calculate_missing_gaps(df):
 
 
 # -------------------------------------------------------------------
-# Complete-case country-year summary
-# -------------------------------------------------------------------
-
-def calculate_complete_case_summary(
-    df,
-):
-    """
-    Identify country-years where all three Strategic
-    Autonomy indicators are simultaneously available.
-    """
-
-    working = df.copy()
-
-    working[
-        "strategic_autonomy_complete"
-    ] = ~working[
-        INDICATORS
-    ].isna().any(axis=1)
-
-    country_records = []
-
-    for country_code, country_name in COUNTRIES.items():
-
-        country_df = working[
-            working["country_code"]
-            == country_code
-        ].copy()
-
-        expected = len(
-            EXPECTED_YEARS
-        )
-
-        complete = int(
-            country_df[
-                "strategic_autonomy_complete"
-            ].sum()
-        )
-
-        excluded = (
-            expected
-            - complete
-        )
-
-        country_records.append(
-            {
-                "country_code": country_code,
-                "country": country_name,
-                "period": "2015-2024",
-                "expected_country_years": expected,
-                "complete_country_years": complete,
-                "excluded_country_years": excluded,
-                "retention_percent": (
-                    complete
-                    / expected
-                    * 100
-                ),
-            }
-        )
-
-    return pd.DataFrame(
-        country_records
-    )
-
-
-# -------------------------------------------------------------------
 # Main
 # -------------------------------------------------------------------
 
 def main():
-    """Run Strategic Autonomy coverage-impact analysis."""
+    """Run the complete Strategic Autonomy coverage analysis."""
 
     print("=" * 72)
     print(
@@ -800,8 +974,13 @@ def main():
 
     print()
     print(
-        "Input:",
-        INPUT_FILE,
+        "Base input:",
+        BASE_INPUT_FILE,
+    )
+
+    print(
+        "UNCTAD input:",
+        CONCENTRATION_INPUT_FILE,
     )
 
     print(
@@ -815,29 +994,52 @@ def main():
     print()
 
     # ---------------------------------------------------------------
-    # Load
+    # Load base data
     # ---------------------------------------------------------------
 
-    df = load_and_validate_input()
+    base = load_base_data()
 
     print(
-        "Input validation: GREEN"
+        "Base Strategic Autonomy validation: GREEN"
     )
 
     print(
-        f"Rows: {len(df)}"
-    )
-
-    print(
-        f"Countries: {df['country_code'].nunique()}"
-    )
-
-    print(
-        f"Years: {df['year'].nunique()}"
+        f"Base rows: {len(base)}"
     )
 
     # ---------------------------------------------------------------
-    # Overall indicator coverage
+    # Load UNCTAD data
+    # ---------------------------------------------------------------
+
+    concentration = load_concentration_data()
+
+    print(
+        "UNCTAD import concentration validation: GREEN"
+    )
+
+    print(
+        f"UNCTAD rows: {len(concentration)}"
+    )
+
+    # ---------------------------------------------------------------
+    # Integrate
+    # ---------------------------------------------------------------
+
+    df = build_integrated_dataset(
+        base,
+        concentration,
+    )
+
+    print(
+        "Integrated Strategic Autonomy dataset: GREEN"
+    )
+
+    print(
+        f"Integrated rows: {len(df)}"
+    )
+
+    # ---------------------------------------------------------------
+    # Indicator coverage
     # ---------------------------------------------------------------
 
     coverage = calculate_indicator_coverage(
@@ -848,6 +1050,7 @@ def main():
     print(
         "Overall indicator coverage:"
     )
+
     print(
         coverage.to_string(
             index=False
@@ -866,6 +1069,7 @@ def main():
     print(
         "Country-level coverage:"
     )
+
     print(
         country_coverage.to_string(
             index=False
@@ -884,6 +1088,7 @@ def main():
     print(
         "Year-level coverage:"
     )
+
     print(
         year_coverage.to_string(
             index=False
@@ -926,6 +1131,7 @@ def main():
     print(
         "Complete-case coverage by country:"
     )
+
     print(
         complete_case.to_string(
             index=False
@@ -933,7 +1139,7 @@ def main():
     )
 
     # ---------------------------------------------------------------
-    # Final JESI sample impact
+    # Final JESI impact
     # ---------------------------------------------------------------
 
     (
@@ -948,6 +1154,7 @@ def main():
     print(
         "Final JESI sample impact:"
     )
+
     print(
         final_summary.to_string(
             index=False
@@ -958,6 +1165,7 @@ def main():
     print(
         "Final JESI country-level impact:"
     )
+
     print(
         final_country_impact.to_string(
             index=False
@@ -979,6 +1187,7 @@ def main():
     print(
         "Balanced-panel eligibility:"
     )
+
     print(
         balanced_panel.to_string(
             index=False
@@ -989,6 +1198,7 @@ def main():
     print(
         "Balanced-panel summary:"
     )
+
     print(
         balanced_summary.to_string(
             index=False
@@ -996,7 +1206,7 @@ def main():
     )
 
     # ---------------------------------------------------------------
-    # Missing-gap analysis
+    # Gap analysis
     # ---------------------------------------------------------------
 
     gap_analysis = calculate_missing_gaps(
@@ -1007,6 +1217,7 @@ def main():
     print(
         "Missing-gap analysis:"
     )
+
     print(
         gap_analysis.to_string(
             index=False
@@ -1014,22 +1225,22 @@ def main():
     )
 
     # ---------------------------------------------------------------
-    # Overall final impact metrics
+    # Final metrics
     # ---------------------------------------------------------------
 
-    complete_country_years = int(
+    complete_observations = int(
         final_df[
             "strategic_autonomy_complete"
         ].sum()
     )
 
-    excluded_country_years = (
+    excluded_observations = (
         EXPECTED_FINAL_JESI_ROWS
-        - complete_country_years
+        - complete_observations
     )
 
-    final_retention = (
-        complete_country_years
+    retention = (
+        complete_observations
         / EXPECTED_FINAL_JESI_ROWS
         * 100
     )
@@ -1046,17 +1257,17 @@ def main():
 
     print(
         f"Complete observations: "
-        f"{complete_country_years}"
+        f"{complete_observations}"
     )
 
     print(
         f"Excluded observations: "
-        f"{excluded_country_years}"
+        f"{excluded_observations}"
     )
 
     print(
         f"Complete-case retention: "
-        f"{final_retention:.2f}%"
+        f"{retention:.2f}%"
     )
 
     # ---------------------------------------------------------------
@@ -1088,7 +1299,7 @@ def main():
         index=False,
     )
 
-    final_impact_output = pd.concat(
+    final_output = pd.concat(
         [
             final_summary.assign(
                 level="overall"
@@ -1101,7 +1312,7 @@ def main():
         sort=False,
     )
 
-    final_impact_output.to_csv(
+    final_output.to_csv(
         JESI_SAMPLE_FILE,
         index=False,
     )
@@ -1128,10 +1339,6 @@ def main():
         GAP_FILE,
         index=False,
     )
-
-    # ---------------------------------------------------------------
-    # Final status
-    # ---------------------------------------------------------------
 
     print()
     print(
@@ -1172,12 +1379,16 @@ def main():
         "STATUS: GREEN"
     )
     print(
-        "Strategic Autonomy coverage-impact analysis "
+        "Strategic Autonomy coverage analysis "
         "completed without imputation."
     )
     print(
-        "No missing observation was modified, replaced, "
-        "or fabricated."
+        "Official UNCTAD concentration data was "
+        "integrated before coverage analysis."
+    )
+    print(
+        "No missing observation was modified, "
+        "replaced, or fabricated."
     )
     print("=" * 72)
 
