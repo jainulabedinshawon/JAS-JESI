@@ -3,14 +3,9 @@ JESI Strategic Autonomy Scoring
 Master Version 1.0
 
 Scores Strategic Autonomy indicators using empirical
-P10–P90 reference bounds.
+P10-P90 reference bounds.
 
-Positive indicators:
-    ECI
-    High-Tech Exports
-
-Negative indicator:
-    Import Product Concentration
+No missing-value imputation is permitted.
 """
 
 from pathlib import Path
@@ -36,23 +31,43 @@ INDICATORS = [
 def normalize_positive(value, lower, upper):
     if upper == lower:
         raise ValueError(
-            "Upper and lower reference values cannot be equal."
+            "Upper and lower reference values "
+            "cannot be equal."
         )
 
-    score = (value - lower) / (upper - lower)
+    score = (
+        (value - lower)
+        / (upper - lower)
+    )
 
-    return max(0.0, min(1.0, score))
+    return max(
+        0.0,
+        min(
+            1.0,
+            score,
+        ),
+    )
 
 
 def normalize_negative(value, lower, upper):
     if upper == lower:
         raise ValueError(
-            "Upper and lower reference values cannot be equal."
+            "Upper and lower reference values "
+            "cannot be equal."
         )
 
-    score = (upper - value) / (upper - lower)
+    score = (
+        (upper - value)
+        / (upper - lower)
+    )
 
-    return max(0.0, min(1.0, score))
+    return max(
+        0.0,
+        min(
+            1.0,
+            score,
+        ),
+    )
 
 
 def main():
@@ -65,7 +80,9 @@ def main():
             f"Missing input file: {INPUT_FILE}"
         )
 
-    df = pd.read_csv(INPUT_FILE)
+    df = pd.read_csv(
+        INPUT_FILE
+    )
 
     for indicator in INDICATORS:
         df[indicator] = pd.to_numeric(
@@ -73,31 +90,49 @@ def main():
             errors="coerce",
         )
 
-    if df[INDICATORS].isna().any().any():
-        raise ValueError(
-            "Missing values detected in Strategic Autonomy indicators."
-        )
+    missing = (
+        df[INDICATORS]
+        .isna()
+        .sum()
+    )
 
-    # ------------------------------------------------------------
-    # Empirical P10–P90 reference bounds
-    # ------------------------------------------------------------
+    if missing.any():
+        print()
+        print(
+            "SCORING BLOCKED:"
+        )
+        print(
+            "Missing source observations "
+            "remain in the dataset."
+        )
+        print()
+        print(missing)
+
+        raise ValueError(
+            "Strategic Autonomy scoring cannot proceed "
+            "until the official-source coverage issue "
+            "is resolved. No imputation is permitted."
+        )
 
     bounds = {}
 
     for indicator in INDICATORS:
-        lower = df[indicator].quantile(0.10)
-        upper = df[indicator].quantile(0.90)
+        lower = df[
+            indicator
+        ].quantile(0.10)
+
+        upper = df[
+            indicator
+        ].quantile(0.90)
 
         bounds[indicator] = {
             "lower": lower,
             "upper": upper,
         }
 
-    # ------------------------------------------------------------
-    # Score indicators
-    # ------------------------------------------------------------
-
-    df["eci_score"] = df["eci"].apply(
+    df["eci_score"] = df[
+        "eci"
+    ].apply(
         lambda x: normalize_positive(
             x,
             bounds["eci"]["lower"],
@@ -110,25 +145,30 @@ def main():
     ].apply(
         lambda x: normalize_positive(
             x,
-            bounds["high_tech_exports"]["lower"],
-            bounds["high_tech_exports"]["upper"],
+            bounds[
+                "high_tech_exports"
+            ]["lower"],
+            bounds[
+                "high_tech_exports"
+            ]["upper"],
         )
     )
 
-    # Higher import concentration = weaker autonomy.
-    df["import_product_concentration_score"] = df[
+    df[
+        "import_product_concentration_score"
+    ] = df[
         "import_product_concentration"
     ].apply(
         lambda x: normalize_negative(
             x,
-            bounds["import_product_concentration"]["lower"],
-            bounds["import_product_concentration"]["upper"],
+            bounds[
+                "import_product_concentration"
+            ]["lower"],
+            bounds[
+                "import_product_concentration"
+            ]["upper"],
         )
     )
-
-    # ------------------------------------------------------------
-    # Save
-    # ------------------------------------------------------------
 
     OUTPUT_FILE.parent.mkdir(
         parents=True,
@@ -140,38 +180,30 @@ def main():
         index=False,
     )
 
-    # ------------------------------------------------------------
-    # Print reference bounds
-    # ------------------------------------------------------------
-
     print()
-    print("P10–P90 reference bounds:")
+    print(
+        "P10-P90 reference bounds:"
+    )
 
     for indicator, values in bounds.items():
         print(
             f"{indicator}: "
-            f"{values['lower']:.6f} → "
+            f"{values['lower']:.6f} -> "
             f"{values['upper']:.6f}"
         )
 
     print()
-    print("Score summary:")
-
-    score_columns = [
-        "eci_score",
-        "high_tech_exports_score",
-        "import_product_concentration_score",
-    ]
-
-    print(df[score_columns].describe())
-
-    print()
-    print(f"Output: {OUTPUT_FILE}")
+    print(
+        "Output:",
+        OUTPUT_FILE,
+    )
 
     print()
     print("=" * 70)
     print("STATUS: GREEN")
-    print("Strategic Autonomy indicator scoring completed.")
+    print(
+        "Strategic Autonomy scoring completed."
+    )
     print("=" * 70)
 
 
