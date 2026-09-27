@@ -1,16 +1,17 @@
 """
 JESI Strategic Autonomy Data Validation
-JAS Unified Economic Strength Index (JESI)
+Master Version 1.0
 
 Script 30:
 Integrate official UNCTAD import product concentration
-data into the Strategic Autonomy dataset and validate
-the completed 2015-2024 benchmark dataset.
+data into the Strategic Autonomy dataset.
 
-Indicators:
-    - Economic Complexity Index (ECI)
-    - High-tech exports
-    - Import product concentration
+Important methodological rule:
+Missing official high-tech export observations are NOT
+imputed, interpolated, replaced, or converted to zero.
+
+They remain explicit missing observations for subsequent
+coverage and methodological diagnosis.
 """
 
 from pathlib import Path
@@ -51,7 +52,7 @@ REQUIRED_COLUMNS = [
 
 
 def validate_base_data(data):
-    """Validate the ECI and high-tech base dataset."""
+    """Validate the base Strategic Autonomy dataset."""
 
     expected_rows = len(COUNTRIES) * len(YEARS)
 
@@ -66,7 +67,7 @@ def validate_base_data(data):
             "Country set does not match JESI sample."
         )
 
-    if set(data["year"]) != YEARS:
+    if set(data["year"].astype(int)) != YEARS:
         raise ValueError(
             "Year coverage must be 2015-2024."
         )
@@ -83,27 +84,25 @@ def validate_base_data(data):
         "eci",
         "high_tech_exports",
     ]:
-        values = pd.to_numeric(
+        data[column] = pd.to_numeric(
             data[column],
             errors="coerce",
         )
 
-        finite_values = values.dropna()
+        finite = data[column].dropna()
 
         if not np.isfinite(
-            finite_values.to_numpy()
+            finite.to_numpy()
         ).all():
             raise ValueError(
                 f"Non-finite values found in {column}."
             )
 
-        data[column] = values
-
     return data
 
 
 def load_import_concentration():
-    """Load and validate official UNCTAD concentration data."""
+    """Load official UNCTAD import concentration data."""
 
     if not IMPORT_CONCENTRATION_FILE.exists():
         raise FileNotFoundError(
@@ -150,15 +149,9 @@ def load_import_concentration():
     if concentration[
         "import_product_concentration"
     ].isna().any():
-        missing = int(
-            concentration[
-                "import_product_concentration"
-            ].isna().sum()
-        )
-
         raise ValueError(
             "UNCTAD concentration data contains "
-            f"{missing} missing observations."
+            "missing observations."
         )
 
     if concentration.duplicated(
@@ -220,7 +213,7 @@ def integrate_concentration(
     data,
     concentration,
 ):
-    """Merge official UNCTAD data into autonomy data."""
+    """Merge official UNCTAD data."""
 
     merged = data.drop(
         columns=[
@@ -239,8 +232,8 @@ def integrate_concentration(
 
     if len(merged) != len(data):
         raise ValueError(
-            "Country-year integration changed the "
-            "expected number of autonomy observations."
+            "Country-year integration changed "
+            "the expected number of observations."
         )
 
     missing = int(
@@ -251,15 +244,98 @@ def integrate_concentration(
 
     if missing:
         raise ValueError(
-            "UNCTAD import concentration integration "
-            f"left {missing} missing observations."
+            "UNCTAD integration left "
+            f"{missing} missing observations."
         )
 
     return merged
 
 
+def report_high_tech_coverage(data):
+    """Report high-tech coverage without modifying values."""
+
+    data = data.copy()
+
+    data["high_tech_exports"] = pd.to_numeric(
+        data["high_tech_exports"],
+        errors="coerce",
+    )
+
+    missing = data[
+        data["high_tech_exports"].isna()
+    ][
+        [
+            "country_code",
+            "country",
+            "year",
+        ]
+    ].sort_values(
+        [
+            "country_code",
+            "year",
+        ]
+    )
+
+    print()
+    print("=" * 72)
+    print("HIGH-TECH EXPORTS COVERAGE DIAGNOSTIC")
+    print("=" * 72)
+
+    print(
+        f"Total observations: {len(data)}"
+    )
+
+    print(
+        "Available high-tech observations:",
+        int(data["high_tech_exports"].notna().sum()),
+    )
+
+    print(
+        "Missing high-tech observations:",
+        len(missing),
+    )
+
+    if missing.empty:
+        print(
+            "High-tech coverage: COMPLETE"
+        )
+    else:
+        print()
+        print(
+            "Missing official observations:"
+        )
+
+        for _, row in missing.iterrows():
+            print(
+                f"{row['country_code']} | "
+                f"{row['country']} | "
+                f"{int(row['year'])}"
+            )
+
+        print()
+        print(
+            "IMPORTANT:"
+        )
+        print(
+            "These values remain missing."
+        )
+        print(
+            "No zero, interpolation, mean, or proxy "
+            "has been inserted."
+        )
+
+    print("=" * 72)
+
+    return missing
+
+
 def validate_completed_data(data):
-    """Validate the completed Strategic Autonomy dataset."""
+    """
+    Validate the integrated dataset.
+
+    High-tech missing values are allowed at this stage
+    because they are an explicit source-coverage issue.
+    """
 
     expected_rows = len(COUNTRIES) * len(YEARS)
 
@@ -267,18 +343,6 @@ def validate_completed_data(data):
         raise ValueError(
             f"Expected {expected_rows} completed rows, "
             f"found {len(data)}."
-        )
-
-    if set(data["country_code"]) != set(COUNTRIES):
-        raise ValueError(
-            "Completed dataset country set does not "
-            "match JESI sample."
-        )
-
-    if set(data["year"]) != YEARS:
-        raise ValueError(
-            "Completed dataset year coverage must be "
-            "exactly 2015-2024."
         )
 
     if data.duplicated(
@@ -301,20 +365,10 @@ def validate_completed_data(data):
             errors="coerce",
         )
 
-        values = data[column]
-
-        if values.isna().any():
-            missing = int(
-                values.isna().sum()
-            )
-
-            raise ValueError(
-                f"{column} contains "
-                f"{missing} missing/non-numeric values."
-            )
+        finite = data[column].dropna()
 
         if not np.isfinite(
-            values.to_numpy()
+            finite.to_numpy()
         ).all():
             raise ValueError(
                 f"{column} contains non-finite values."
@@ -347,9 +401,7 @@ def main():
     """Integrate and validate Strategic Autonomy data."""
 
     print("=" * 72)
-    print(
-        "JESI STRATEGIC AUTONOMY DATA VALIDATION"
-    )
+    print("JESI STRATEGIC AUTONOMY DATA VALIDATION")
     print("=" * 72)
 
     if not INPUT_FILE.exists():
@@ -373,18 +425,17 @@ def main():
             f"required columns: {missing_columns}"
         )
 
-    print()
-    print(
-        "Base Strategic Autonomy rows:",
-        len(data),
-    )
-
     data = validate_base_data(
         data
     )
 
+    print()
     print(
         "Base country-year validation: GREEN"
+    )
+
+    missing_high_tech = (
+        report_high_tech_coverage(data)
     )
 
     print()
@@ -398,18 +449,7 @@ def main():
     )
 
     print(
-        "UNCTAD concentration observations:",
-        len(concentration),
-    )
-
-    print(
-        "UNCTAD country-year validation: GREEN"
-    )
-
-    print()
-    print(
-        "Integrating UNCTAD concentration "
-        "into Strategic Autonomy dataset..."
+        "UNCTAD validation: GREEN"
     )
 
     completed = integrate_concentration(
@@ -423,45 +463,16 @@ def main():
 
     print()
     print(
-        "Integrated Strategic Autonomy dataset: GREEN"
+        "Strategic Autonomy integration: GREEN"
     )
 
     print(
-        "Rows:",
-        len(completed),
+        f"Rows: {len(completed)}"
     )
 
     print(
-        "Countries:",
-        completed[
-            "country_code"
-        ].nunique(),
-    )
-
-    print(
-        "Years:",
-        completed[
-            "year"
-        ].nunique(),
-    )
-
-    print(
-        "Period: 2015-2024"
-    )
-
-    print()
-    print(
-        "Missing observations:"
-    )
-
-    print(
-        completed[
-            [
-                "eci",
-                "high_tech_exports",
-                "import_product_concentration",
-            ]
-        ].isna().sum()
+        "High-tech missing:",
+        len(missing_high_tech),
     )
 
     OUTPUT_FILE.parent.mkdir(
@@ -476,7 +487,7 @@ def main():
 
     print()
     print(
-        "Saved completed dataset:",
+        "Saved:",
         OUTPUT_FILE,
     )
 
@@ -486,8 +497,8 @@ def main():
         "STATUS: GREEN"
     )
     print(
-        "Strategic Autonomy data integration "
-        "and validation completed successfully."
+        "Integration completed without "
+        "fabricating missing observations."
     )
     print("=" * 72)
 
