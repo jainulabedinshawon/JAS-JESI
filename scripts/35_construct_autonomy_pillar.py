@@ -2,18 +2,11 @@
 JESI Strategic Autonomy Pillar Construction
 Master Version 1.0
 
-Constructs the Strategic Autonomy (A) pillar from
-three normalized indicator scores:
+Constructs the Strategic Autonomy pillar from
+three normalized indicator scores.
 
-1. Economic Complexity Index (ECI)
-2. High-Tech Exports
-3. Import Product Concentration
-
-Baseline aggregation:
-    Arithmetic mean
-
-Robustness aggregation:
-    Geometric mean
+No missing score is allowed.
+No imputation is performed.
 """
 
 from pathlib import Path
@@ -47,7 +40,9 @@ def main():
             f"Missing input file: {INPUT_FILE}"
         )
 
-    df = pd.read_csv(INPUT_FILE)
+    df = pd.read_csv(
+        INPUT_FILE
+    )
 
     missing_columns = [
         column
@@ -57,19 +52,42 @@ def main():
 
     if missing_columns:
         raise ValueError(
-            f"Missing score columns: {missing_columns}"
+            f"Missing score columns: "
+            f"{missing_columns}"
         )
 
-    if df[SCORE_COLUMNS].isna().any().any():
+    missing_scores = (
+        df[SCORE_COLUMNS]
+        .isna()
+        .sum()
+    )
+
+    if missing_scores.any():
+        print()
+        print(
+            "PILLAR CONSTRUCTION BLOCKED:"
+        )
+        print(
+            missing_scores
+        )
+
         raise ValueError(
-            "Missing Strategic Autonomy scores detected."
+            "Strategic Autonomy pillar cannot be "
+            "constructed because indicator scores "
+            "contain missing values."
         )
-
-    # ------------------------------------------------------------
-    # Validate score range
-    # ------------------------------------------------------------
 
     for column in SCORE_COLUMNS:
+        df[column] = pd.to_numeric(
+            df[column],
+            errors="coerce",
+        )
+
+        if df[column].isna().any():
+            raise ValueError(
+                f"{column} contains invalid values."
+            )
+
         if (
             (df[column] < 0).any()
             or (df[column] > 1).any()
@@ -78,33 +96,33 @@ def main():
                 f"{column} contains values outside [0, 1]."
             )
 
-    # ------------------------------------------------------------
-    # Baseline: arithmetic mean
-    # ------------------------------------------------------------
-
-    df["strategic_autonomy_arithmetic"] = (
-        df[SCORE_COLUMNS].mean(axis=1)
+    df[
+        "strategic_autonomy_arithmetic"
+    ] = df[
+        SCORE_COLUMNS
+    ].mean(
+        axis=1
     )
 
-    # ------------------------------------------------------------
-    # Robustness: geometric mean
-    # ------------------------------------------------------------
-
-    # Scores are clipped very slightly away from zero
-    # to avoid numerical issues in the logarithm.
     geometric_values = np.clip(
-        df[SCORE_COLUMNS].to_numpy(dtype=float),
+        df[
+            SCORE_COLUMNS
+        ].to_numpy(
+            dtype=float
+        ),
         1e-12,
         1.0,
     )
 
-    df["strategic_autonomy_geometric"] = np.exp(
-        np.log(geometric_values).mean(axis=1)
+    df[
+        "strategic_autonomy_geometric"
+    ] = np.exp(
+        np.log(
+            geometric_values
+        ).mean(
+            axis=1
+        )
     )
-
-    # ------------------------------------------------------------
-    # Country-year output
-    # ------------------------------------------------------------
 
     output_columns = [
         "country_code",
@@ -117,17 +135,22 @@ def main():
         "strategic_autonomy_geometric",
     ]
 
-    df[output_columns].to_csv(
+    OUTPUT_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    df[
+        output_columns
+    ].to_csv(
         OUTPUT_FILE,
         index=False,
     )
 
-    # ------------------------------------------------------------
-    # Country-level summary
-    # ------------------------------------------------------------
-
-    country_summary = (
-        df.groupby("country")[
+    summary = (
+        df.groupby(
+            "country"
+        )[
             [
                 "strategic_autonomy_arithmetic",
                 "strategic_autonomy_geometric",
@@ -145,36 +168,32 @@ def main():
         "strategic_autonomy_country_summary_2015_2024.csv"
     )
 
-    country_summary.to_csv(summary_file)
-
-    # ------------------------------------------------------------
-    # Console output
-    # ------------------------------------------------------------
-
-    print()
-    print("Strategic Autonomy pillar — country averages:")
-    print(country_summary)
-
-    print()
-    print("Overall arithmetic mean:")
-    print(
-        df["strategic_autonomy_arithmetic"].mean()
+    summary.to_csv(
+        summary_file
     )
 
     print()
-    print("Overall geometric mean:")
     print(
-        df["strategic_autonomy_geometric"].mean()
+        "Strategic Autonomy pillar constructed."
     )
 
     print()
-    print(f"Output: {OUTPUT_FILE}")
-    print(f"Summary: {summary_file}")
+    print(
+        "Output:",
+        OUTPUT_FILE,
+    )
+
+    print(
+        "Summary:",
+        summary_file,
+    )
 
     print()
     print("=" * 70)
     print("STATUS: GREEN")
-    print("Strategic Autonomy pillar construction completed.")
+    print(
+        "Strategic Autonomy pillar construction completed."
+    )
     print("=" * 70)
 
 
