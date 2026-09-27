@@ -285,7 +285,6 @@ def extract_7z_data(
                 )
 
         except (
-            py7zr.Bad7zFile,
             py7zr.exceptions.Bad7zFile,
             py7zr.exceptions.UnsupportedCompressionMethodError,
         ) as exc:
@@ -1334,14 +1333,17 @@ def validate_output(
             f"{missing_count} missing observations."
         )
 
+    concentration_values = output[
+        "import_product_concentration"
+    ]
+
     if (
-        output[
-            "import_product_concentration"
-        ] < 0
+        (concentration_values < 0)
+        | (concentration_values > 1)
     ).any():
         raise ValueError(
             "Import product concentration contains "
-            "negative values."
+            "values outside [0, 1]."
         )
 
     print()
@@ -1414,11 +1416,32 @@ def prepare_output(
             df,
             economy_column,
         )
+
+        if (
+            target_rows.empty
+            and country_code_column is not None
+        ):
+            print(
+                "Economy-label matching found no "
+                "target countries."
+            )
+
+            print(
+                "Falling back to ISO-style "
+                "country-code matching."
+            )
+
+            target_rows = find_target_rows_by_code(
+                df,
+                country_code_column,
+            )
+
     elif country_code_column is not None:
         target_rows = find_target_rows_by_code(
             df,
             country_code_column,
         )
+
     else:
         raise ValueError(
             "Could not identify an economy or "
