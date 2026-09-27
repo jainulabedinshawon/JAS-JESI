@@ -54,3 +54,13 @@ jobs:
     - name: Analyze resilience distribution
       run: |
         python scripts/10_analyze_resilience_distribution.py
+    - name: Analyze Strategic Autonomy coverage
+      run: |
+        python scripts/43_analyze_autonomy_coverage.py
+
+    - name: Upload Strategic Autonomy coverage analysis
+      uses: actions/upload-artifact@v4
+      with:
+        name: strategic-autonomy-coverage-analysis
+        path: data/processed/strategic_autonomy_*_2015_2024.csv
+        if-no-files-found: error
