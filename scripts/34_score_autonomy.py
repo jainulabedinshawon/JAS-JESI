@@ -5,7 +5,8 @@ Master Version 1.0
 Scores Strategic Autonomy indicators using empirical
 P10-P90 reference bounds.
 
-No missing-value imputation is permitted.
+Missing official-source observations are preserved
+as exclusions. No imputation is performed.
 """
 
 from pathlib import Path
@@ -19,6 +20,11 @@ INPUT_FILE = Path(
 
 OUTPUT_FILE = Path(
     "data/processed/autonomy_indicator_scores_2015_2024.csv"
+)
+
+EXCLUDED_FILE = Path(
+    "data/processed/"
+    "strategic_autonomy_excluded_observations_2015_2024.csv"
 )
 
 INDICATORS = [
@@ -84,44 +90,98 @@ def main():
         INPUT_FILE
     )
 
+    required_columns = {
+        "country_code",
+        "country",
+        "year",
+        *INDICATORS,
+    }
+
+    missing_columns = (
+        required_columns
+        - set(df.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Input file is missing required columns: "
+            f"{sorted(missing_columns)}"
+        )
+
     for indicator in INDICATORS:
         df[indicator] = pd.to_numeric(
             df[indicator],
             errors="coerce",
         )
 
-    missing = (
+    # ---------------------------------------------------------------
+    # Identify official-source exclusions
+    # ---------------------------------------------------------------
+
+    complete_mask = (
         df[INDICATORS]
-        .isna()
-        .sum()
+        .notna()
+        .all(axis=1)
     )
 
-    if missing.any():
-        print()
-        print(
-            "SCORING BLOCKED:"
-        )
-        print(
-            "Missing source observations "
-            "remain in the dataset."
-        )
-        print()
-        print(missing)
+    excluded = df.loc[
+        ~complete_mask,
+        [
+            "country_code",
+            "country",
+            "year",
+            *INDICATORS,
+        ],
+    ].copy()
 
+    if not excluded.empty:
+        excluded["missing_indicators"] = (
+            excluded.apply(
+                lambda row: ",".join(
+                    indicator
+                    for indicator in INDICATORS
+                    if pd.isna(row[indicator])
+                ),
+                axis=1,
+            )
+        )
+
+        excluded = excluded[
+            [
+                "country_code",
+                "country",
+                "year",
+                "missing_indicators",
+            ]
+        ].sort_values(
+            [
+                "country_code",
+                "year",
+            ]
+        )
+
+    # ---------------------------------------------------------------
+    # Complete-case scoring dataset
+    # ---------------------------------------------------------------
+
+    scored = df.loc[
+        complete_mask
+    ].copy()
+
+    if scored.empty:
         raise ValueError(
-            "Strategic Autonomy scoring cannot proceed "
-            "until the official-source coverage issue "
-            "is resolved. No imputation is permitted."
+            "No complete Strategic Autonomy observations "
+            "are available for scoring."
         )
 
     bounds = {}
 
     for indicator in INDICATORS:
-        lower = df[
+        lower = scored[
             indicator
         ].quantile(0.10)
 
-        upper = df[
+        upper = scored[
             indicator
         ].quantile(0.90)
 
@@ -130,7 +190,11 @@ def main():
             "upper": upper,
         }
 
-    df["eci_score"] = df[
+    # ---------------------------------------------------------------
+    # Normalize indicators
+    # ---------------------------------------------------------------
+
+    scored["eci_score"] = scored[
         "eci"
     ].apply(
         lambda x: normalize_positive(
@@ -140,7 +204,7 @@ def main():
         )
     )
 
-    df["high_tech_exports_score"] = df[
+    scored["high_tech_exports_score"] = scored[
         "high_tech_exports"
     ].apply(
         lambda x: normalize_positive(
@@ -154,9 +218,9 @@ def main():
         )
     )
 
-    df[
+    scored[
         "import_product_concentration_score"
-    ] = df[
+    ] = scored[
         "import_product_concentration"
     ].apply(
         lambda x: normalize_negative(
@@ -170,15 +234,57 @@ def main():
         )
     )
 
+    # ---------------------------------------------------------------
+    # Save outputs
+    # ---------------------------------------------------------------
+
     OUTPUT_FILE.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    df.to_csv(
+    scored.to_csv(
         OUTPUT_FILE,
         index=False,
     )
+
+    excluded.to_csv(
+        EXCLUDED_FILE,
+        index=False,
+    )
+
+    # ---------------------------------------------------------------
+    # Console diagnostics
+    # ---------------------------------------------------------------
+
+    print()
+    print(
+        "Official-source coverage:"
+    )
+
+    print(
+        f"Total benchmark observations: {len(df)}"
+    )
+
+    print(
+        f"Complete observations scored: {len(scored)}"
+    )
+
+    print(
+        f"Excluded observations: {len(excluded)}"
+    )
+
+    if not excluded.empty:
+        print()
+        print(
+            "Excluded country-year observations:"
+        )
+
+        print(
+            excluded.to_string(
+                index=False
+            )
+        )
 
     print()
     print(
@@ -194,15 +300,24 @@ def main():
 
     print()
     print(
-        "Output:",
+        "Scored output:",
         OUTPUT_FILE,
+    )
+
+    print(
+        "Exclusion output:",
+        EXCLUDED_FILE,
     )
 
     print()
     print("=" * 70)
     print("STATUS: GREEN")
     print(
-        "Strategic Autonomy scoring completed."
+        "Strategic Autonomy scoring completed "
+        "using complete official-source observations."
+    )
+    print(
+        "No missing observation was imputed."
     )
     print("=" * 70)
 
