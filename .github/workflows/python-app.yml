@@ -55,6 +55,10 @@ jobs:
       run: |
         python scripts/10_analyze_resilience_distribution.py
 
+    - name: Download Strategic Autonomy data
+      run: |
+        python scripts/29_download_autonomy_data.py
+
     - name: Analyze Strategic Autonomy coverage
       run: |
         python scripts/43_analyze_autonomy_coverage.py
