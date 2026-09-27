@@ -2,99 +2,96 @@ name: Final JESI Pipeline
 
 on:
   workflow_dispatch:
+
   push:
     paths:
-      - "scripts/08_download_resilience_data.py"
-      - "scripts/09_validate_resilience_data.py"
-      - "scripts/10_analyze_resilience_distribution.py"
-      - "scripts/11_score_resilience_pillar.py"
-      - "scripts/12_download_productivity_data.py"
-      - "scripts/15_score_productivity_p1.py"
-      - "scripts/16_download_productivity_p2.py"
-      - "scripts/19_score_productivity_p2.py"
-      - "scripts/20_construct_productivity_pillar.py"
-      - "scripts/21_download_connectivity_data.py"
-      - "scripts/22_download_connectivity_data.py"
-      - "scripts/23_analyze_connectivity_distribution.py"
-      - "scripts/24_score_connectivity.py"
-      - "scripts/25_construct_connectivity_pillar.py"
-      - "scripts/27_score_growth.py"
-      - "scripts/28_construct_growth_pillar.py"
-      - "scripts/29_download_autonomy_data.py"
-      - "scripts/30_validate_autonomy_data.py"
-      - "scripts/31_download_import_concentration.py"
-      - "scripts/32_validate_autonomy_data.py"
-      - "scripts/33_analyze_autonomy_distribution.py"
-      - "scripts/34_score_autonomy.py"
-      - "scripts/35_construct_autonomy_pillar.py"
-      - "scripts/36_calculate_jesi.py"
-      - "scripts/37_robustness_tests.py"
-      - "scripts/38_generate_final_jesi_results.py"
-      - "scripts/39_validate_final_jesi.py"
-      - "scripts/40_generate_jesi_report.py"
-      - "scripts/41_update_readme_jesi.py"
-      - "scripts/42_final_repository_audit.py"
+      - "scripts/**"
       - "src/**"
-      - "data/raw/**"
-      - "data/processed/**"
       - ".github/workflows/final-jesi.yml"
+      - "requirements.txt"
 
 permissions:
   contents: write
 
+concurrency:
+  group: final-jesi-pipeline
+  cancel-in-progress: false
+
 jobs:
   final-jesi:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
 
-      # --------------------------------------------------------------
-      # Checkout
-      # --------------------------------------------------------------
+      # ==============================================================
+      # CHECKOUT
+      # ==============================================================
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # --------------------------------------------------------------
-      # Python
-      # --------------------------------------------------------------
+      # ==============================================================
+      # PYTHON
+      # ==============================================================
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+          cache: "pip"
 
-      # --------------------------------------------------------------
-      # Dependencies
-      # --------------------------------------------------------------
+      # ==============================================================
+      # DEPENDENCIES
+      # ==============================================================
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
+
           pip install pandas numpy scipy openpyxl
 
-      # --------------------------------------------------------------
-      # Python package path
-      # --------------------------------------------------------------
+      # ==============================================================
+      # PYTHON PATH
+      # ==============================================================
 
       - name: Configure Python path
         run: |
           echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
 
-      - name: Verify Python package
+      - name: Verify Python environment
         run: |
+          python --version
+          python -c "import pandas; print('pandas:', pandas.__version__)"
+          python -c "import numpy; print('numpy:', numpy.__version__)"
+          python -c "import scipy; print('scipy: OK')"
           python -c "import src; print('src package import: OK')"
+
+      # ==============================================================
+      # PYTHON SYNTAX VALIDATION
+      # ==============================================================
+
+      - name: Validate Python syntax
+        run: |
+          python -m compileall -q scripts src
+          echo "Python syntax validation: PASSED"
 
       # ==============================================================
       # GROWTH
       # ==============================================================
 
-      - name: Build Growth pillar
+      - name: Score Growth indicators
         run: |
           python scripts/27_score_growth.py
+
+      - name: Construct Growth pillar
+        run: |
           python scripts/28_construct_growth_pillar.py
 
       # ==============================================================
@@ -137,7 +134,7 @@ jobs:
         run: |
           python scripts/21_download_connectivity_data.py
 
-      - name: Download Connectivity data sources
+      - name: Download Connectivity source data
         run: |
           python scripts/22_download_connectivity_data.py
 
@@ -182,7 +179,8 @@ jobs:
           python scripts/29_download_autonomy_data.py
 
       # --------------------------------------------------------------
-      # Import concentration MUST be downloaded before validation
+      # Import concentration must be available before autonomy
+      # validation and construction.
       # --------------------------------------------------------------
 
       - name: Download Import Concentration data
@@ -210,18 +208,39 @@ jobs:
           python scripts/35_construct_autonomy_pillar.py
 
       # ==============================================================
-      # VERIFY PILLAR OUTPUTS
+      # VERIFY ALL PILLAR OUTPUTS
       # ==============================================================
 
-      - name: Verify pillar outputs
+      - name: Verify Growth pillar output
         run: |
           test -f data/processed/growth_pillar_scores_2015_2024.csv
-          test -f data/processed/productivity_pillar_scores_2016_2023.csv
-          test -f data/processed/connectivity_pillar_scores_2015_2024.csv
-          test -f data/processed/resilience_pillar_scores_2015_2024.csv
-          test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
+          echo "Growth pillar output: OK"
 
-          echo "All required pillar outputs exist."
+      - name: Verify Productivity pillar output
+        run: |
+          test -f data/processed/productivity_pillar_scores_2016_2023.csv
+          echo "Productivity pillar output: OK"
+
+      - name: Verify Connectivity pillar output
+        run: |
+          test -f data/processed/connectivity_pillar_scores_2015_2024.csv
+          echo "Connectivity pillar output: OK"
+
+      - name: Verify Resilience pillar output
+        run: |
+          test -f data/processed/resilience_pillar_scores_2015_2024.csv
+          echo "Resilience pillar output: OK"
+
+      - name: Verify Strategic Autonomy pillar output
+        run: |
+          test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
+          echo "Strategic Autonomy pillar output: OK"
+
+      - name: Verify all pillar outputs
+        run: |
+          echo "=============================================="
+          echo "ALL FIVE JESI PILLAR OUTPUTS ARE PRESENT"
+          echo "=============================================="
 
       # ==============================================================
       # FINAL JESI CALCULATION
@@ -232,7 +251,7 @@ jobs:
           python scripts/36_calculate_jesi.py
 
       # ==============================================================
-      # ROBUSTNESS
+      # ROBUSTNESS TESTS
       # ==============================================================
 
       - name: Run JESI robustness tests
@@ -248,7 +267,7 @@ jobs:
           python scripts/38_generate_final_jesi_results.py
 
       # ==============================================================
-      # VALIDATION
+      # FINAL VALIDATION
       # ==============================================================
 
       - name: Validate final JESI results
@@ -256,7 +275,7 @@ jobs:
           python scripts/39_validate_final_jesi.py
 
       # ==============================================================
-      # REPORT
+      # RESEARCH REPORT
       # ==============================================================
 
       - name: Generate JESI research report
@@ -280,13 +299,28 @@ jobs:
           python scripts/42_final_repository_audit.py
 
       # ==============================================================
-      # ARTIFACT
+      # FINAL OUTPUT VERIFICATION
+      # ==============================================================
+
+      - name: Verify final JESI outputs
+        run: |
+          test -d data/results
+          test -f docs/JESI_Final_Results_Report.md
+          test -f README.md
+
+          echo "=============================================="
+          echo "FINAL JESI OUTPUT VERIFICATION: PASSED"
+          echo "=============================================="
+
+      # ==============================================================
+      # UPLOAD FINAL ARTIFACT
       # ==============================================================
 
       - name: Upload final JESI outputs
         uses: actions/upload-artifact@v4
         with:
           name: JESI-final-results
+          if-no-files-found: error
           path: |
             data/results/
             docs/JESI_Final_Results_Report.md
@@ -301,7 +335,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add data/processed data/results docs/JESI_Final_Results_Report.md README.md
+          git add data/processed
+          git add data/results
+          git add docs/JESI_Final_Results_Report.md
+          git add README.md
 
           if git diff --cached --quiet; then
             echo "No generated changes to commit."
@@ -309,3 +346,24 @@ jobs:
             git commit -m "Update final JESI results"
             git push
           fi
+
+      # ==============================================================
+      # SUCCESS SUMMARY
+      # ==============================================================
+
+      - name: Final pipeline success
+        run: |
+          echo "=================================================="
+          echo "JAS-JESI FINAL PIPELINE COMPLETED SUCCESSFULLY"
+          echo "=================================================="
+          echo "Growth:              COMPLETE"
+          echo "Productivity P1/P2:  COMPLETE"
+          echo "Connectivity:        COMPLETE"
+          echo "Resilience:          COMPLETE"
+          echo "Strategic Autonomy: COMPLETE"
+          echo "JESI Calculation:    COMPLETE"
+          echo "Robustness Tests:    COMPLETE"
+          echo "Final Validation:    COMPLETE"
+          echo "Research Report:     COMPLETE"
+          echo "Repository Audit:    COMPLETE"
+          echo "=================================================="
