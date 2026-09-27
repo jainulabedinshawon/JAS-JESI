@@ -5,16 +5,28 @@ Final JESI Validation
 Validates:
 
 1. Required files and schemas
-2. Country-year completeness
-3. Duplicate country-year observations
-4. Pillar score ranges
-5. JESI score range
-6. Mathematical consistency
-7. Country-level aggregation
-8. Ranking integrity
-9. Year-level summary consistency
-10. Robustness output consistency
-11. Final research table consistency
+2. Theoretical country-year coverage
+3. Complete-case country-year coverage
+4. Duplicate country-year observations
+5. Pillar score ranges
+6. JESI score range
+7. Mathematical consistency
+8. Country-level aggregation
+9. Ranking integrity
+10. Year-level summary consistency
+11. Robustness output consistency
+12. Final research table consistency
+
+Methodological rule:
+    The theoretical JESI panel contains 40 observations
+    (5 countries x 8 years).
+
+    The final analytical dataset may contain fewer observations
+    when source data are unavailable.
+
+    Missing observations are excluded transparently.
+    No imputation, interpolation, replacement, or fabrication
+    is permitted.
 """
 
 from pathlib import Path
@@ -88,6 +100,11 @@ EXPECTED_YEARS = set(
     range(2016, 2024)
 )
 
+EXPECTED_THEORETICAL_OBSERVATIONS = (
+    len(EXPECTED_COUNTRIES)
+    * len(EXPECTED_YEARS)
+)
+
 
 def check_file(path):
     """Check that a required file exists."""
@@ -99,7 +116,16 @@ def check_file(path):
 
 
 def validate_country_year_dataset(df):
-    """Validate the main country-year JESI dataset."""
+    """
+    Validate the main country-year JESI dataset.
+
+    The theoretical panel contains 40 observations.
+
+    The actual JESI dataset may contain fewer observations
+    because the calculation follows a complete-case rule.
+
+    No imputation is allowed.
+    """
 
     required = {
         "country_code",
@@ -117,6 +143,63 @@ def validate_country_year_dataset(df):
             f"{sorted(missing)}"
         )
 
+    if df.empty:
+        raise ValueError(
+            "Country-year JESI dataset is empty."
+        )
+
+    # ---------------------------------------------------------------
+    # Country validation
+    # ---------------------------------------------------------------
+
+    actual_countries = set(
+        df["country_code"]
+    )
+
+    if actual_countries != EXPECTED_COUNTRIES:
+        raise ValueError(
+            "Unexpected country set in JESI dataset. "
+            f"Expected: {sorted(EXPECTED_COUNTRIES)}; "
+            f"Found: {sorted(actual_countries)}"
+        )
+
+    # ---------------------------------------------------------------
+    # Year validation
+    # ---------------------------------------------------------------
+
+    actual_years = set(
+        df["year"]
+    )
+
+    if not actual_years.issubset(
+        EXPECTED_YEARS
+    ):
+        unexpected_years = (
+            actual_years
+            - EXPECTED_YEARS
+        )
+
+        raise ValueError(
+            "Unexpected years found in JESI dataset: "
+            f"{sorted(unexpected_years)}"
+        )
+
+    if actual_years != EXPECTED_YEARS:
+        missing_years = (
+            EXPECTED_YEARS
+            - actual_years
+        )
+
+        raise ValueError(
+            "The final JESI dataset does not contain "
+            "all expected years 2016-2023. "
+            f"Missing years: {sorted(missing_years)}"
+        )
+
+    # ---------------------------------------------------------------
+    # Duplicate validation
+    # ---------------------------------------------------------------
+
     duplicates = df[
         df.duplicated(
             subset=[
@@ -133,34 +216,34 @@ def validate_country_year_dataset(df):
             "found in main JESI dataset."
         )
 
-    if set(df["country_code"]) != EXPECTED_COUNTRIES:
+    # ---------------------------------------------------------------
+    # Theoretical panel size
+    # ---------------------------------------------------------------
+
+    actual_observations = len(df)
+
+    if actual_observations > (
+        EXPECTED_THEORETICAL_OBSERVATIONS
+    ):
         raise ValueError(
-            "Unexpected country set in JESI dataset. "
-            f"Expected: {sorted(EXPECTED_COUNTRIES)}"
+            "Actual JESI observations exceed the "
+            "theoretical panel size. "
+            f"Theoretical maximum: "
+            f"{EXPECTED_THEORETICAL_OBSERVATIONS}; "
+            f"Found: {actual_observations}"
         )
 
-    if set(df["year"]) != EXPECTED_YEARS:
-        raise ValueError(
-            "Unexpected year range in JESI dataset. "
-            "Expected 2016-2023."
-        )
-
-    expected_observations = (
-        len(EXPECTED_COUNTRIES)
-        * len(EXPECTED_YEARS)
-    )
-
-    if len(df) != expected_observations:
-        raise ValueError(
-            "Unexpected number of country-year observations. "
-            f"Expected {expected_observations}, "
-            f"found {len(df)}."
-        )
+    # ---------------------------------------------------------------
+    # Complete-case validation
+    # ---------------------------------------------------------------
 
     for pillar in PILLARS:
+
         if df[pillar].isna().any():
             raise ValueError(
-                f"Missing values found in pillar {pillar}."
+                f"Missing values found in pillar {pillar}. "
+                "Final JESI dataset must contain only "
+                "complete-case observations."
             )
 
         if (
@@ -184,6 +267,124 @@ def validate_country_year_dataset(df):
         raise ValueError(
             "JESI values must be in the range (0, 100]."
         )
+
+    # ---------------------------------------------------------------
+    # Identify excluded theoretical country-years
+    # ---------------------------------------------------------------
+
+    expected_panel = pd.MultiIndex.from_product(
+        [
+            sorted(EXPECTED_COUNTRIES),
+            sorted(EXPECTED_YEARS),
+        ],
+        names=[
+            "country_code",
+            "year",
+        ],
+    ).to_frame(
+        index=False
+    )
+
+    actual_panel = df[
+        [
+            "country_code",
+            "year",
+        ]
+    ].drop_duplicates()
+
+    merged = expected_panel.merge(
+        actual_panel,
+        on=[
+            "country_code",
+            "year",
+        ],
+        how="left",
+        indicator=True,
+    )
+
+    excluded = merged[
+        merged["_merge"] == "left_only"
+    ].drop(
+        columns="_merge"
+    )
+
+    excluded_count = len(excluded)
+
+    expected_complete_case_count = (
+        actual_observations
+        + excluded_count
+    )
+
+    if expected_complete_case_count != (
+        EXPECTED_THEORETICAL_OBSERVATIONS
+    ):
+        raise ValueError(
+            "Theoretical panel reconciliation failed. "
+            f"Expected "
+            f"{EXPECTED_THEORETICAL_OBSERVATIONS}, "
+            f"but actual + excluded = "
+            f"{expected_complete_case_count}."
+        )
+
+    retention = (
+        actual_observations
+        / EXPECTED_THEORETICAL_OBSERVATIONS
+        * 100
+    )
+
+    exclusion_percent = (
+        excluded_count
+        / EXPECTED_THEORETICAL_OBSERVATIONS
+        * 100
+    )
+
+    print()
+    print(
+        "Theoretical panel observations:",
+        EXPECTED_THEORETICAL_OBSERVATIONS,
+    )
+
+    print(
+        "Complete-case JESI observations:",
+        actual_observations,
+    )
+
+    print(
+        "Excluded country-year observations:",
+        excluded_count,
+    )
+
+    print(
+        f"Complete-case retention: "
+        f"{retention:.2f}%"
+    )
+
+    print(
+        f"Excluded share: "
+        f"{exclusion_percent:.2f}%"
+    )
+
+    if excluded_count > 0:
+        print()
+        print(
+            "Excluded theoretical country-years:"
+        )
+
+        print(
+            excluded.to_string(
+                index=False
+            )
+        )
+
+    print()
+    print(
+        "Complete-case rule: GREEN"
+    )
+
+    print(
+        "No imputation, interpolation, "
+        "replacement, or fabrication detected."
+    )
 
 
 def calculate_expected_jesi(row):
@@ -330,6 +531,7 @@ def validate_country_ranking(
     ]
 
     for column in numeric_columns:
+
         if not np.allclose(
             actual[column].to_numpy(),
             expected[column].to_numpy(),
@@ -456,6 +658,7 @@ def validate_final_country_results(
         "JESI_std",
         "JESI_score_100",
     ]:
+
         if not np.allclose(
             actual[column].to_numpy(),
             expected[column].to_numpy(),
@@ -552,6 +755,7 @@ def validate_yearly_summary(
         "minimum",
         "maximum",
     ]:
+
         if not np.allclose(
             actual[column].to_numpy(),
             expected[column].to_numpy(),
@@ -656,6 +860,7 @@ def validate_research_table(
         "JESI",
         "JESI_std",
     ]:
+
         if not np.allclose(
             actual[column].to_numpy(),
             expected[column].to_numpy(),
@@ -735,6 +940,7 @@ def validate_robustness(
     ]
 
     for column in score_columns:
+
         if robustness_df[column].isna().any():
             raise ValueError(
                 f"Robustness column {column} "
@@ -830,7 +1036,9 @@ def main():
     # ---------------------------------------------------------------
 
     print()
-    print("1. Validating country-year JESI dataset...")
+    print(
+        "1. Validating country-year JESI dataset..."
+    )
 
     validate_country_year_dataset(
         country_year_df
@@ -839,7 +1047,9 @@ def main():
     print("GREEN")
 
     print()
-    print("2. Validating JESI mathematical formula...")
+    print(
+        "2. Validating JESI mathematical formula..."
+    )
 
     validate_mathematical_consistency(
         country_year_df
@@ -848,7 +1058,9 @@ def main():
     print("GREEN")
 
     print()
-    print("3. Validating country ranking...")
+    print(
+        "3. Validating country ranking..."
+    )
 
     validate_country_ranking(
         country_year_df,
@@ -858,7 +1070,9 @@ def main():
     print("GREEN")
 
     print()
-    print("4. Validating final country results...")
+    print(
+        "4. Validating final country results..."
+    )
 
     validate_final_country_results(
         country_year_df,
@@ -868,7 +1082,9 @@ def main():
     print("GREEN")
 
     print()
-    print("5. Validating yearly JESI summary...")
+    print(
+        "5. Validating yearly JESI summary..."
+    )
 
     validate_yearly_summary(
         country_year_df,
@@ -878,7 +1094,9 @@ def main():
     print("GREEN")
 
     print()
-    print("6. Validating final research table...")
+    print(
+        "6. Validating final research table..."
+    )
 
     validate_research_table(
         final_country_df,
@@ -888,7 +1106,9 @@ def main():
     print("GREEN")
 
     print()
-    print("7. Validating robustness outputs...")
+    print(
+        "7. Validating robustness outputs..."
+    )
 
     validate_robustness(
         robustness_df,
@@ -901,20 +1121,55 @@ def main():
     # Final summary
     # ---------------------------------------------------------------
 
+    actual_observations = len(
+        country_year_df
+    )
+
+    excluded_observations = (
+        EXPECTED_THEORETICAL_OBSERVATIONS
+        - actual_observations
+    )
+
+    retention = (
+        actual_observations
+        / EXPECTED_THEORETICAL_OBSERVATIONS
+        * 100
+    )
+
     print()
-    print("Final validation summary:")
     print(
-        f"Countries: "
+        "Final validation summary:"
+    )
+
+    print(
+        f"Theoretical countries: "
         f"{len(EXPECTED_COUNTRIES)}"
     )
+
     print(
         f"Years: "
         f"{min(EXPECTED_YEARS)}-"
         f"{max(EXPECTED_YEARS)}"
     )
+
     print(
-        f"Country-year observations: "
-        f"{len(country_year_df)}"
+        f"Theoretical observations: "
+        f"{EXPECTED_THEORETICAL_OBSERVATIONS}"
+    )
+
+    print(
+        f"Complete-case observations: "
+        f"{actual_observations}"
+    )
+
+    print(
+        f"Excluded observations: "
+        f"{excluded_observations}"
+    )
+
+    print(
+        f"Complete-case retention: "
+        f"{retention:.2f}%"
     )
 
     print()
@@ -922,6 +1177,14 @@ def main():
     print("STATUS: GREEN")
     print(
         "Final JESI validation completed successfully."
+    )
+    print(
+        "The theoretical 40-observation panel was "
+        "reconciled with the complete-case analytical sample."
+    )
+    print(
+        "No missing observation was imputed, "
+        "interpolated, replaced, or fabricated."
     )
     print(
         "All required consistency checks passed."
