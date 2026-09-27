@@ -54,6 +54,7 @@ jobs:
     - name: Analyze resilience distribution
       run: |
         python scripts/10_analyze_resilience_distribution.py
+
     - name: Analyze Strategic Autonomy coverage
       run: |
         python scripts/43_analyze_autonomy_coverage.py
