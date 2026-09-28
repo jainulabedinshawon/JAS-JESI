@@ -7,7 +7,7 @@ Research-validation layer only.
 Purpose
 -------
 This module evaluates within-pillar relationships among the current
-indicator-level values persisted in the JESI repository.
+indicator-level score representations persisted in the JESI repository.
 
 It does NOT:
 - modify JESI calculations
@@ -17,12 +17,23 @@ It does NOT:
 - impute missing observations
 - interpolate missing observations
 - fabricate or replace data
+- automatically remove or reweight indicators
 
-Primary analysis
----------------
-The primary redundancy analysis uses the currently persisted
-indicator-level score representations so that indicators from all
-five pillars are evaluated on a consistent analytical representation.
+Primary analytical representation
+---------------------------------
+The primary redundancy analysis uses the indicator-score
+representations persisted in the JESI repository.
+
+This provides a common analytical representation across all five
+pillars for methodological screening.
+
+Important methodological distinction
+------------------------------------
+This analysis evaluates redundancy using the indicator-score
+representations persisted in the JESI repository. It is intended as
+a methodological redundancy-screening layer and is not a substitute
+for correlation analysis performed on the underlying raw indicator
+variables.
 
 Statistics
 ----------
@@ -42,6 +53,7 @@ data/results/jesi_indicator_redundancy_pillar_summary.csv
 data/results/jesi_indicator_redundancy_report.md
 """
 
+from itertools import combinations
 from pathlib import Path
 
 import numpy as np
@@ -59,10 +71,10 @@ OUTPUT_DIR = ROOT / "data/results"
 
 
 # -------------------------------------------------------------------
-# CURRENT REPOSITORY INDICATOR DEFINITIONS
+# VERIFIED LIVE-REPOSITORY INDICATOR DEFINITIONS
 #
-# These mappings were aligned to the currently persisted repository
-# files and their actual column names.
+# These mappings were verified against the current main-branch
+# processed CSV files and their actual indicator-score columns.
 # -------------------------------------------------------------------
 
 PILLAR_SOURCES = {
@@ -195,10 +207,10 @@ def methodological_flag(
 
     values = [
         abs(float(x))
-        for x in [
+        for x in (
             pearson_value,
             spearman_value,
-        ]
+        )
         if pd.notna(x)
     ]
 
@@ -267,13 +279,19 @@ def load_and_validate_source(
         )
 
     # ---------------------------------------------------------------
-    # Validate country/year uniqueness.
+    # Country/year validation.
     # ---------------------------------------------------------------
 
     key_columns = [
         specification["country_column"],
         specification["year_column"],
     ]
+
+    if df[key_columns].isna().any().any():
+        raise ValueError(
+            f"Missing country/year key values found in pillar "
+            f"{pillar} source: {relative_file}"
+        )
 
     duplicates = df[
         df.duplicated(
@@ -289,7 +307,26 @@ def load_and_validate_source(
         )
 
     # ---------------------------------------------------------------
-    # Validate numeric indicator columns.
+    # Year validation.
+    # ---------------------------------------------------------------
+
+    numeric_year = pd.to_numeric(
+        df[specification["year_column"]],
+        errors="coerce",
+    )
+
+    if numeric_year.isna().any():
+        raise ValueError(
+            f"Non-numeric year values found in pillar "
+            f"{pillar} source."
+        )
+
+    df[specification["year_column"]] = (
+        numeric_year.astype(int)
+    )
+
+    # ---------------------------------------------------------------
+    # Numeric indicator validation.
     # ---------------------------------------------------------------
 
     for indicator_name, column in specification[
@@ -337,12 +374,11 @@ def build_pillar_dataset(
         specification,
     )
 
-    rename_map = {}
-
-    for indicator_name, column in specification[
-        "indicators"
-    ].items():
-        rename_map[column] = indicator_name
+    rename_map = {
+        column: indicator_name
+        for indicator_name, column
+        in specification["indicators"].items()
+    }
 
     standardized = df[
         [
@@ -394,13 +430,17 @@ def calculate_pairwise_statistics(
 
     n = len(pair)
 
+    base_result = {
+        "pillar": pillar,
+        "pillar_name": PILLAR_NAMES[pillar],
+        "indicator_a": indicator_a,
+        "indicator_b": indicator_b,
+        "pairwise_n": n,
+    }
+
     if n < 3:
         return {
-            "pillar": pillar,
-            "pillar_name": PILLAR_NAMES[pillar],
-            "indicator_a": indicator_a,
-            "indicator_b": indicator_b,
-            "pairwise_n": n,
+            **base_result,
             "pearson_r": np.nan,
             "pearson_p_value": np.nan,
             "spearman_rho": np.nan,
@@ -427,11 +467,7 @@ def calculate_pairwise_statistics(
         or np.isclose(np.nanstd(y), 0.0)
     ):
         return {
-            "pillar": pillar,
-            "pillar_name": PILLAR_NAMES[pillar],
-            "indicator_a": indicator_a,
-            "indicator_b": indicator_b,
-            "pairwise_n": n,
+            **base_result,
             "pearson_r": np.nan,
             "pearson_p_value": np.nan,
             "spearman_rho": np.nan,
@@ -470,11 +506,7 @@ def calculate_pairwise_statistics(
     )
 
     return {
-        "pillar": pillar,
-        "pillar_name": PILLAR_NAMES[pillar],
-        "indicator_a": indicator_a,
-        "indicator_b": indicator_b,
-        "pairwise_n": n,
+        **base_result,
         "pearson_r": pearson_r,
         "pearson_p_value": pearson_p,
         "spearman_rho": spearman_rho,
@@ -567,18 +599,26 @@ def build_pillar_summary(
             missingness_df["pillar"] == pillar
         ]
 
+        indicator_count = len(
+            PILLAR_SOURCES[pillar]["indicators"]
+        )
+
         if pair_subset.empty:
             rows.append(
                 {
                     "pillar": pillar,
                     "pillar_name": PILLAR_NAMES[pillar],
-                    "indicator_count": 0,
+                    "indicator_count": indicator_count,
                     "pair_count": 0,
                     "high_correlation_pair_count": 0,
                     "extremely_high_correlation_pair_count": 0,
                     "maximum_absolute_pearson": np.nan,
                     "maximum_absolute_spearman": np.nan,
-                    "maximum_missing_pct": np.nan,
+                    "maximum_missing_pct": (
+                        missing_subset["missing_pct"].max()
+                        if not missing_subset.empty
+                        else np.nan
+                    ),
                     "pillar_methodological_flag": (
                         "NO_PAIRWISE_COMPARISONS"
                     ),
@@ -598,7 +638,7 @@ def build_pillar_summary(
             .dropna()
         )
 
-        high_mask = (
+        combined_max = (
             pair_subset[
                 [
                     "pearson_r",
@@ -607,19 +647,14 @@ def build_pillar_summary(
             ]
             .abs()
             .max(axis=1)
-            >= 0.70
+        )
+
+        high_mask = (
+            combined_max >= 0.70
         )
 
         extreme_mask = (
-            pair_subset[
-                [
-                    "pearson_r",
-                    "spearman_rho",
-                ]
-            ]
-            .abs()
-            .max(axis=1)
-            >= 0.90
+            combined_max >= 0.90
         )
 
         maximum_missing = (
@@ -645,11 +680,7 @@ def build_pillar_summary(
             {
                 "pillar": pillar,
                 "pillar_name": PILLAR_NAMES[pillar],
-                "indicator_count": (
-                    pair_subset["indicator_a"]
-                    .nunique()
-                    + 1
-                ),
+                "indicator_count": indicator_count,
                 "pair_count": len(pair_subset),
                 "high_correlation_pair_count": int(
                     high_mask.sum()
@@ -694,20 +725,30 @@ def build_markdown_report(
         "# JESI Indicator Redundancy / Correlation Analysis"
     )
     lines.append("")
+
     lines.append(
-        "## Purpose"
+        "## Research-validation status"
     )
     lines.append("")
     lines.append(
-        "This report evaluates within-pillar relationships among "
-        "the indicator-level values currently persisted in the "
-        "JESI repository."
+        "This analysis is a research-validation layer only. "
+        "It does not modify the JESI calculation, pillar weights, "
+        "normalization procedure, aggregation method, or final "
+        "JESI scores."
+    )
+    lines.append("")
+
+    lines.append(
+        "## Analytical representation"
     )
     lines.append("")
     lines.append(
-        "The analysis is a research-validation layer only. "
-        "It does not modify JESI weights, normalization, "
-        "aggregation, or final scores."
+        "This analysis evaluates redundancy using the "
+        "indicator-score representations persisted in the JESI "
+        "repository. It is intended as a methodological "
+        "redundancy-screening layer and is not a substitute for "
+        "correlation analysis performed on the underlying raw "
+        "indicator variables."
     )
     lines.append("")
 
@@ -728,8 +769,9 @@ def build_markdown_report(
     )
     lines.append("")
     lines.append(
-        "The correlation bands are descriptive screening categories, "
-        "not proof of conceptual redundancy."
+        "Correlation bands are descriptive screening categories. "
+        "They do not establish conceptual redundancy and do not "
+        "constitute an automatic indicator-removal rule."
     )
     lines.append("")
     lines.append(
@@ -752,6 +794,20 @@ def build_markdown_report(
     )
     lines.append(
         "| ≥ 0.90 | Extremely high |"
+    )
+    lines.append("")
+
+    lines.append(
+        "## Methodological flag policy"
+    )
+    lines.append("")
+    lines.append(
+        "A high or extremely high correlation is treated as a "
+        "review signal only. It is not interpreted as proof of "
+        "indicator redundancy. Any future methodological decision "
+        "must consider conceptual validity, theoretical distinctness, "
+        "data quality, and sensitivity analysis together with the "
+        "correlation evidence."
     )
     lines.append("")
 
@@ -789,20 +845,21 @@ def build_markdown_report(
     lines.append("")
 
     lines.append(
-        "## Methodological interpretation"
+        "## Methodological conclusion"
     )
     lines.append("")
     lines.append(
-        "High or extremely high correlation is treated as a "
-        "review signal rather than an automatic instruction to "
-        "remove, reweight, or replace an indicator."
+        "The empirical correlation results should be interpreted "
+        "as evidence for or against further redundancy review, not "
+        "as an automatic basis for deleting, replacing, or "
+        "reweighting indicators."
     )
     lines.append("")
     lines.append(
-        "Any subsequent methodological decision must consider "
-        "conceptual validity, theoretical distinctness, data "
-        "quality, and sensitivity analysis together with the "
-        "correlation evidence."
+        "Subsequent JESI methodological validation should proceed "
+        "to normalization sensitivity, followed by weight "
+        "sensitivity, aggregation sensitivity, and historical "
+        "validation."
     )
     lines.append("")
 
@@ -848,9 +905,11 @@ def main():
         print(
             f"  Source: {specification['file']}"
         )
+
         print(
             f"  Rows: {len(df)}"
         )
+
         print(
             f"  Indicators: "
             f"{list(specification['indicators'].keys())}"
@@ -868,28 +927,21 @@ def main():
             PILLAR_SOURCES[pillar]["indicators"].keys()
         )
 
-        for index_a in range(
-            len(indicators)
+        for indicator_a, indicator_b in combinations(
+            indicators,
+            2,
         ):
 
-            for index_b in range(
-                index_a + 1,
-                len(indicators),
-            ):
+            result = calculate_pairwise_statistics(
+                df,
+                pillar,
+                indicator_a,
+                indicator_b,
+            )
 
-                indicator_a = indicators[index_a]
-                indicator_b = indicators[index_b]
-
-                result = calculate_pairwise_statistics(
-                    df,
-                    pillar,
-                    indicator_a,
-                    indicator_b,
-                )
-
-                pairwise_rows.append(
-                    result
-                )
+            pairwise_rows.append(
+                result
+            )
 
     pairwise_df = pd.DataFrame(
         pairwise_rows
@@ -929,7 +981,7 @@ def main():
     )
 
     # ---------------------------------------------------------------
-    # 5. Add source metadata.
+    # 5. Add analytical metadata.
     # ---------------------------------------------------------------
 
     pairwise_df["analysis_level"] = (
@@ -1040,21 +1092,10 @@ def main():
     print("OUTPUT FILES")
     print("=" * 78)
 
-    print(
-        pairwise_path
-    )
-
-    print(
-        missingness_path
-    )
-
-    print(
-        pillar_summary_path
-    )
-
-    print(
-        report_path
-    )
+    print(pairwise_path)
+    print(missingness_path)
+    print(pillar_summary_path)
+    print(report_path)
 
     print()
     print(
