@@ -410,6 +410,9 @@ def load_pillar_source(
 
     # ---------------------------------------------------------------
     # Validate country code.
+    #
+    # If a verified source already contains country_code, use it.
+    # If not, map the limited five-country benchmark explicitly.
     # ---------------------------------------------------------------
 
     if "country_code" not in df.columns:
@@ -442,6 +445,70 @@ def load_pillar_source(
                 f"Pillar {pillar}: unable to map country names "
                 f"to verified country codes: {unknown}"
             )
+
+    else:
+
+        if df["country_code"].isna().any():
+            fail(
+                f"Pillar {pillar}: missing country_code values "
+                "detected."
+            )
+
+        df["country_code"] = (
+            df["country_code"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+    # ---------------------------------------------------------------
+    # Validate country codes against the verified benchmark.
+    # ---------------------------------------------------------------
+
+    canonical_country_names = {
+        "BGD": "Bangladesh",
+        "IND": "India",
+        "IDN": "Indonesia",
+        "MYS": "Malaysia",
+        "VNM": "Vietnam",
+    }
+
+    unknown_codes = (
+        set(
+            df["country_code"]
+            .dropna()
+            .astype(str)
+            .str.upper()
+        )
+        - set(canonical_country_names)
+    )
+
+    if unknown_codes:
+        fail(
+            f"Pillar {pillar}: unexpected country codes detected: "
+            f"{sorted(unknown_codes)}"
+        )
+
+    # ---------------------------------------------------------------
+    # Canonical analytical country labels.
+    #
+    # Country identity is determined by verified ISO3 code.
+    # Source-specific labels such as "Vietnam" and "Viet Nam"
+    # are standardized to one canonical display label.
+    #
+    # No data values are changed and no observations are imputed.
+    # ---------------------------------------------------------------
+
+    df["country"] = (
+        df["country_code"]
+        .map(canonical_country_names)
+    )
+
+    if df["country"].isna().any():
+        fail(
+            f"Pillar {pillar}: country_code could not be mapped "
+            "to a canonical country label."
+        )
 
     # ---------------------------------------------------------------
     # Validate indicator-score columns.
@@ -587,6 +654,15 @@ def build_pillar_panel():
 
     # ---------------------------------------------------------------
     # Merge all pillars.
+    #
+    # Country-year identity is defined strictly by:
+    #
+    #     country_code + year
+    #
+    # Country names are display labels only.
+    #
+    # This prevents source-specific naming differences from creating
+    # false missing observations.
     # ---------------------------------------------------------------
 
     panel = pillar_panels[0].copy()
@@ -599,59 +675,79 @@ def build_pillar_panel():
         next_pillar = PILLARS[index]
 
         panel = pd.merge(
-    panel,
-    next_panel[
-        [
-            "country_code",
-            "country",
-            "year",
-            next_pillar,
-        ]
-    ],
-    on=[
-        "country_code",
-        "year",
-    ],
-    how="outer",
-    validate="one_to_one",
-    suffixes=("", "_next"),
-)
-
-conflicting_labels = (
-    panel["country_next"].notna()
-    & panel["country"].notna()
-    & (panel["country"] != panel["country_next"])
-)
-
-if conflicting_labels.any():
-    conflicts = (
-        panel.loc[
-            conflicting_labels,
-            [
+            panel,
+            next_panel[
+                [
+                    "country_code",
+                    "country",
+                    "year",
+                    next_pillar,
+                ]
+            ],
+            on=[
                 "country_code",
                 "year",
-                "country",
-                "country_next",
             ],
-        ]
-        .drop_duplicates()
-        .to_dict("records")
-    )
+            how="outer",
+            validate="one_to_one",
+            suffixes=(
+                "",
+                "_next",
+            ),
+        )
 
-    fail(
-        "Conflicting country labels detected after "
-        f"country_code/year join: {conflicts}"
-    )
+        # -----------------------------------------------------------
+        # Country labels should already be canonicalized from the
+        # verified ISO3 code.
+        #
+        # Any remaining discrepancy indicates a data-integrity
+        # problem rather than a normal source-label variation.
+        # -----------------------------------------------------------
 
-panel["country"] = (
-    panel["country"].fillna(
-        panel["country_next"]
-    )
-)
+        conflicting_labels = (
+            panel["country_next"].notna()
+            & panel["country"].notna()
+            & (
+                panel["country"]
+                != panel["country_next"]
+            )
+        )
 
-panel = panel.drop(
-    columns=["country_next"]
-)
+        if conflicting_labels.any():
+
+            conflicts = (
+                panel.loc[
+                    conflicting_labels,
+                    [
+                        "country_code",
+                        "year",
+                        "country",
+                        "country_next",
+                    ],
+                ]
+                .drop_duplicates()
+                .to_dict(
+                    "records"
+                )
+            )
+
+            fail(
+                "Conflicting canonical country labels detected "
+                "after country_code/year join: "
+                f"{conflicts}"
+            )
+
+        panel["country"] = (
+            panel["country"].fillna(
+                panel["country_next"]
+            )
+        )
+
+        panel = panel.drop(
+            columns=[
+                "country_next",
+            ]
+        )
 
     return panel
 
@@ -855,6 +951,44 @@ def validate_complete_case(
         .notna()
         .all(axis=1)
     )
+
+    # ---------------------------------------------------------------
+    # Audit incomplete country-year observations.
+    #
+    # This is diagnostic only. No observation is repaired, imputed,
+    # interpolated, silently removed, or reweighted.
+    # ---------------------------------------------------------------
+
+    incomplete = final.loc[
+        ~complete,
+        [
+            "country_code",
+            "country",
+            "year",
+            *PILLARS,
+        ],
+    ].copy()
+
+    if not incomplete.empty:
+
+        print()
+        print(
+            "Incomplete country-year observations:"
+        )
+
+        for _, row in incomplete.iterrows():
+
+            missing_pillars = [
+                pillar
+                for pillar in PILLARS
+                if pd.isna(row[pillar])
+            ]
+
+            print(
+                f"  {row['country_code']} "
+                f"{int(row['year'])}: "
+                f"missing {', '.join(missing_pillars)}"
+            )
 
     scored = final.loc[
         complete
