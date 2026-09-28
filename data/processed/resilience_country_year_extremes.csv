@@ -1,0 +1,7 @@
+indicator,indicator_name,extreme_type,country,year,value
+BN.CAB.XOKA.GD.ZS,Current Account Balance / GDP,minimum,Bangladesh,2022,-3.81010813041237
+BN.CAB.XOKA.GD.ZS,Current Account Balance / GDP,maximum,Viet Nam,2024,6.33496605552948
+FI.RES.TOTL.MO,FX Reserves / Import Cover,minimum,Viet Nam,2015,1.8503725793752
+FI.RES.TOTL.MO,FX Reserves / Import Cover,maximum,India,2020,12.9323281065786
+GGXWDG_NGDP,Government Gross Debt / GDP,minimum,Indonesia,2015,27.013
+GGXWDG_NGDP,Government Gross Debt / GDP,maximum,India,2020,90.562

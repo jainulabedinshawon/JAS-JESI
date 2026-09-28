@@ -1,0 +1,4 @@
+comparison,spearman_correlation
+JAS vs Equal,0.9999999999999999
+Arithmetic vs Geometric,0.9999999999999999
+JAS Arithmetic vs Equal Geometric,0.9999999999999999

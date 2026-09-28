@@ -1,0 +1,7 @@
+indicator,indicator_name,reference_zone,lower_bound,upper_bound,interpretation
+GGXWDG_NGDP,Government Gross Debt / GDP,P05-P95,28.06795,84.9074,Descriptive empirical candidate only; not a final scoring threshold.
+GGXWDG_NGDP,Government Gross Debt / GDP,P10-P90,29.287000000000003,77.45830000000002,Descriptive empirical candidate only; not a final scoring threshold.
+GGXWDG_NGDP,Government Gross Debt / GDP,P25-P75,34.6125,68.79475000000001,Descriptive empirical candidate only; not a final scoring threshold.
+BN.CAB.XOKA.GD.ZS,Current Account Balance / GDP,P05-P95,-2.8340379947515686,4.274983493162853,Descriptive empirical candidate only; not a final scoring threshold.
+BN.CAB.XOKA.GD.ZS,Current Account Balance / GDP,P10-P90,-2.4275161832515217,3.881555958319877,Descriptive empirical candidate only; not a final scoring threshold.
+BN.CAB.XOKA.GD.ZS,Current Account Balance / GDP,P25-P75,-1.3953268504163874,1.8501287394826025,Descriptive empirical candidate only; not a final scoring threshold.

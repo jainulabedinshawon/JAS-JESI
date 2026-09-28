@@ -1,0 +1,10 @@
+indicator,reference_zone,lower_bound,upper_bound,interpretation
+trade_openness,P05-P95,28.748081389610142,169.88490657398322,Descriptive empirical candidate only; not a final scoring threshold.
+trade_openness,P10-P90,31.299032262198743,164.6679646014445,Descriptive empirical candidate only; not a final scoring threshold.
+trade_openness,P25-P75,38.15745326457275,133.81578936103398,Descriptive empirical candidate only; not a final scoring threshold.
+fdi_inflows,P05-P95,0.3749149661828532,4.968414237903403,Descriptive empirical candidate only; not a final scoring threshold.
+fdi_inflows,P10-P90,0.48004703963605044,4.829056677862646,Descriptive empirical candidate only; not a final scoring threshold.
+fdi_inflows,P25-P75,1.2551087345208776,3.6910370838426774,Descriptive empirical candidate only; not a final scoring threshold.
+internet_use,P05-P95,16.6795947075,97.10739473,Descriptive empirical candidate only; not a final scoring threshold.
+internet_use,P10-P90,19.893170110144563,84.7239316990453,Descriptive empirical candidate only; not a final scoring threshold.
+internet_use,P25-P75,33.279129773016,73.8526887475,Descriptive empirical candidate only; not a final scoring threshold.

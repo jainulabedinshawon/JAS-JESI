@@ -1,0 +1,7 @@
+indicator,extreme,country,year,value
+eci,minimum,Bangladesh,2015,-0.99801475
+eci,maximum,Malaysia,2021,1.0916097
+high_tech_exports,minimum,Bangladesh,2016,0.242933626284075
+high_tech_exports,maximum,Malaysia,2023,59.4155074421789
+import_product_concentration,minimum,Indonesia,2020,0.051212
+import_product_concentration,maximum,Malaysia,2022,0.192798

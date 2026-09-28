@@ -1,0 +1,4 @@
+indicator,indicator_name,baseline_direction,proposed_treatment,reason
+GGXWDG_NGDP,Government Gross Debt / GDP,Nonlinear,Target/penalty or reference-zone model,"Lower debt is not automatically stronger. Debt sustainability depends on growth, interest rates, maturity, currency composition, and fiscal capacity."
+BN.CAB.XOKA.GD.ZS,Current Account Balance / GDP,Target-optimal,Reference-zone / distance-from-zone model,Both persistent large deficits and unusually large surpluses may indicate structural imbalance.
+FI.RES.TOTL.MO,FX Reserves / Import Cover,Higher is better,Positive normalization baseline,"Higher reserve coverage generally improves external shock-absorption capacity, subject to robustness testing."

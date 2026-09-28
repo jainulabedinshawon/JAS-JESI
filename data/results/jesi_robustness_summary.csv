@@ -1,0 +1,7 @@
+metric,value
+Spearman: JAS vs Equal,0.9999999999999999
+Spearman: Arithmetic vs Geometric,0.9999999999999999
+Maximum absolute rank difference: JAS vs Equal,0.0
+Maximum absolute rank difference: Arithmetic vs Geometric,0.0
+Maximum absolute score difference: JAS vs Equal,1.4592775988214868
+Maximum absolute score difference: Arithmetic vs Geometric,8.65628874383863
