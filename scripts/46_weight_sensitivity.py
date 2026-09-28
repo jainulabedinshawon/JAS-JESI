@@ -13,7 +13,7 @@ methodology.
 It does NOT:
 - modify production JESI weights
 - modify indicator normalization
-- modify pillar construction
+- modify production pillar construction
 - modify missing-data treatment
 - modify aggregation methodology
 - remove indicators
@@ -28,15 +28,6 @@ P = 0.25
 C = 0.20
 R = 0.20
 A = 0.15
-
-The analysis compares the production baseline with:
-
-1. Equal weights
-2. Controlled one-pillar +5 percentage-point perturbations
-3. Controlled one-pillar -5 percentage-point perturbations
-
-For every perturbation, the remaining pillar weights are
-proportionally rescaled so that the total weight remains exactly 1.
 
 Analytical benchmark
 --------------------
@@ -120,9 +111,6 @@ FINAL_YEARS = list(range(2016, 2024))
 
 # ---------------------------------------------------------------------
 # PRODUCTION JESI BASELINE WEIGHTS
-#
-# These are the current Master Version 1.0 production pillar weights.
-# This script never modifies them.
 # ---------------------------------------------------------------------
 
 BASELINE_WEIGHTS = {
@@ -154,9 +142,6 @@ PILLARS = [
 
 # ---------------------------------------------------------------------
 # INPUT FILES
-#
-# These are the persisted pillar-score representations used by the
-# current JESI calculation layer.
 # ---------------------------------------------------------------------
 
 PILLAR_FILES = {
@@ -185,14 +170,6 @@ PILLAR_FILES = {
 
 # ---------------------------------------------------------------------
 # PILLAR SCORE DEFINITIONS
-#
-# These are the current persisted pillar-level score representations.
-#
-# Where a pillar has multiple indicators, the pillar score is the
-# arithmetic mean of the current indicator score columns.
-#
-# This reproduces the current analytical pillar construction without
-# changing the production files.
 # ---------------------------------------------------------------------
 
 PILLAR_SCORE_COLUMNS = {
@@ -240,7 +217,7 @@ def validate_weights(weights, specification_name):
     - exactly five pillars
     - no negative weights
     - all weights finite
-    - weights sum to exactly 1 within numerical tolerance
+    - weights sum to 1 within numerical tolerance
     """
 
     if set(weights.keys()) != set(PILLARS):
@@ -277,6 +254,10 @@ def validate_weights(weights, specification_name):
         )
 
 
+# ---------------------------------------------------------------------
+# GEOMETRIC JESI
+# ---------------------------------------------------------------------
+
 def geometric_jesi(
     df,
     weights,
@@ -290,8 +271,7 @@ def geometric_jesi(
 
     Zero scores are allowed and produce JESI = 0.
 
-    No clipping is performed because silent clipping would alter
-    the empirical data.
+    No clipping is performed.
     """
 
     pillar_values = df[PILLARS].to_numpy(
@@ -331,11 +311,6 @@ def geometric_jesi(
 
         if weight == 0:
             continue
-
-        if (score < 0).any():
-            fail(
-                f"Negative {pillar} pillar score detected."
-            )
 
         positive = score > 0
 
@@ -393,8 +368,6 @@ def load_pillar_source(
         *PILLAR_SCORE_COLUMNS[pillar],
     }
 
-    # Most current pillar files include country_code.
-    # It is required whenever available as the analytical join key.
     if "country_code" in df.columns:
         required_columns.add(
             "country_code"
@@ -437,10 +410,6 @@ def load_pillar_source(
 
     # ---------------------------------------------------------------
     # Validate country code.
-    #
-    # If a pillar source does not contain country_code, derive the
-    # analytical code from the verified country names used in the
-    # JESI benchmark.
     # ---------------------------------------------------------------
 
     if "country_code" not in df.columns:
@@ -475,7 +444,7 @@ def load_pillar_source(
             )
 
     # ---------------------------------------------------------------
-    # Validate indicator/pillar-score columns.
+    # Validate indicator-score columns.
     # ---------------------------------------------------------------
 
     for column in PILLAR_SCORE_COLUMNS[pillar]:
@@ -543,9 +512,13 @@ def build_pillar_panel():
     Construct a country-year panel containing the five current JESI
     pillar scores.
 
-    The panel is analytical only.
-
     Missing observations remain missing.
+
+    IMPORTANT:
+    A pillar is constructed only when ALL required indicator scores
+    are present for that country-year.
+
+    No partial mean and no imputation are permitted.
     """
 
     pillar_panels = []
@@ -570,21 +543,34 @@ def build_pillar_panel():
         ].copy()
 
         # -----------------------------------------------------------
-        # Current pillar construction:
-        # arithmetic mean of the persisted indicator scores.
+        # Complete-case pillar construction.
         #
-        # min_count=len(score_columns) means that if any required
-        # indicator is missing, the pillar remains missing.
+        # pandas.DataFrame.mean() does not support min_count.
+        # Therefore the complete-case condition is enforced
+        # explicitly before calculating the arithmetic mean.
+        #
+        # If ANY required indicator is missing, the pillar score
+        # remains NaN.
         # -----------------------------------------------------------
+
+        complete_indicator_mask = (
+            source[score_columns]
+            .notna()
+            .all(axis=1)
+        )
 
         source[pillar] = (
             source[score_columns]
             .mean(
                 axis=1,
-                skipna=True,
-                min_count=len(score_columns),
+                skipna=False,
             )
         )
+
+        source.loc[
+            ~complete_indicator_mask,
+            pillar,
+        ] = np.nan
 
         source = source[
             [
@@ -605,7 +591,12 @@ def build_pillar_panel():
 
     panel = pillar_panels[0].copy()
 
-    for next_panel in pillar_panels[1:]:
+    for index, next_panel in enumerate(
+        pillar_panels[1:],
+        start=1,
+    ):
+
+        next_pillar = PILLARS[index]
 
         panel = pd.merge(
             panel,
@@ -614,15 +605,7 @@ def build_pillar_panel():
                     "country_code",
                     "country",
                     "year",
-                    PILLARS[
-                        len(
-                            [
-                                p
-                                for p in PILLARS
-                                if p in panel.columns
-                            ]
-                        )
-                    ],
+                    next_pillar,
                 ]
             ],
             on=[
@@ -655,11 +638,11 @@ def build_weight_specifications():
 
     For each pillar:
         +5pp
-            Increase the selected pillar by 0.05 and proportionally
+            Increase selected pillar by 0.05 and proportionally
             rescale all other pillars downward.
 
         -5pp
-            Decrease the selected pillar by 0.05 and proportionally
+            Decrease selected pillar by 0.05 and proportionally
             rescale all other pillars upward.
 
     The proportional-rescaling rule preserves:
@@ -944,8 +927,7 @@ def build_country_summary(
     Calculate country-level mean JESI and ranking for every
     specification.
 
-    Ranking is descriptive only and is not interpreted as a
-    methodological preference.
+    Ranking is descriptive only.
     """
 
     summary = (
@@ -1082,12 +1064,8 @@ def calculate_rank_correlations(
                 "specification": specification,
                 "analysis_level": "country_year",
                 "pairwise_n": len(merged),
-                "spearman_rho": (
-                    country_year_rho
-                ),
-                "spearman_p_value": (
-                    country_year_p
-                ),
+                "spearman_rho": country_year_rho,
+                "spearman_p_value": country_year_p,
             }
         )
 
@@ -1128,12 +1106,8 @@ def calculate_rank_correlations(
 
             country_mean_rho, country_mean_p = (
                 spearmanr(
-                    country_joined[
-                        "baseline"
-                    ],
-                    country_joined[
-                        "alternative"
-                    ],
+                    country_joined["baseline"],
+                    country_joined["alternative"],
                 )
             )
 
@@ -1146,15 +1120,9 @@ def calculate_rank_correlations(
             {
                 "specification": specification,
                 "analysis_level": "country_mean",
-                "pairwise_n": len(
-                    country_joined
-                ),
-                "spearman_rho": (
-                    country_mean_rho
-                ),
-                "spearman_p_value": (
-                    country_mean_p
-                ),
+                "pairwise_n": len(country_joined),
+                "spearman_rho": country_mean_rho,
+                "spearman_p_value": country_mean_p,
             }
         )
 
@@ -1271,9 +1239,7 @@ def build_sensitivity_summary(
         ).dropna()
 
         baseline_rank = (
-            country_joined[
-                "baseline"
-            ]
+            country_joined["baseline"]
             .rank(
                 method="min",
                 ascending=False,
@@ -1281,9 +1247,7 @@ def build_sensitivity_summary(
         )
 
         alternative_rank = (
-            country_joined[
-                "alternative"
-            ]
+            country_joined["alternative"]
             .rank(
                 method="min",
                 ascending=False,
@@ -1299,18 +1263,12 @@ def build_sensitivity_summary(
         # Spearman country-mean rank correlation
         # -----------------------------------------------------------
 
-        if len(
-            country_joined
-        ) >= 2:
+        if len(country_joined) >= 2:
 
             country_rank_rho = (
                 spearmanr(
-                    country_joined[
-                        "baseline"
-                    ],
-                    country_joined[
-                        "alternative"
-                    ],
+                    country_joined["baseline"],
+                    country_joined["alternative"],
                 ).statistic
             )
 
@@ -1321,9 +1279,7 @@ def build_sensitivity_summary(
         rows.append(
             {
                 "specification": specification,
-                "country_year_n": len(
-                    merged
-                ),
+                "country_year_n": len(merged),
                 "mean_absolute_jesi_difference": (
                     absolute_difference.mean()
                 ),
@@ -1332,12 +1288,8 @@ def build_sensitivity_summary(
                 ),
                 "mean_country_jesi_difference": (
                     (
-                        country_joined[
-                            "alternative"
-                        ]
-                        - country_joined[
-                            "baseline"
-                        ]
+                        country_joined["alternative"]
+                        - country_joined["baseline"]
                     )
                     .abs()
                     .mean()
@@ -1348,9 +1300,7 @@ def build_sensitivity_summary(
                     else np.nan
                 ),
                 "countries_with_rank_change": int(
-                    (
-                        rank_change > 0
-                    ).sum()
+                    (rank_change > 0).sum()
                 ),
                 "country_rank_spearman": (
                     country_rank_rho
@@ -1377,20 +1327,18 @@ def build_weight_table(
 
     for name, weights in specifications.items():
 
-        row = {
-            "specification": name,
-            "G_weight": weights["G"],
-            "P_weight": weights["P"],
-            "C_weight": weights["C"],
-            "R_weight": weights["R"],
-            "A_weight": weights["A"],
-            "weight_sum": sum(
-                weights.values()
-            ),
-        }
-
         rows.append(
-            row
+            {
+                "specification": name,
+                "G_weight": weights["G"],
+                "P_weight": weights["P"],
+                "C_weight": weights["C"],
+                "R_weight": weights["R"],
+                "A_weight": weights["A"],
+                "weight_sum": sum(
+                    weights.values()
+                ),
+            }
         )
 
     return pd.DataFrame(rows)
@@ -1444,24 +1392,16 @@ def validate_results(
                 f"{max_difference}"
             )
 
-        # -----------------------------------------------------------
-        # Validate stored weights.
-        # -----------------------------------------------------------
-
         for pillar in PILLARS:
 
             stored_column = (
                 f"weight_{pillar}"
             )
 
-            expected = (
-                weights[pillar]
-            )
+            expected = weights[pillar]
 
             if not np.allclose(
-                subset[
-                    stored_column
-                ],
+                subset[stored_column],
                 expected,
                 atol=1e-12,
             ):
@@ -1513,22 +1453,16 @@ def build_report(
     )
     lines.append("")
 
-    lines.append(
-        "- Growth (G): 0.20"
+    lines.extend(
+        [
+            "- Growth (G): 0.20",
+            "- Productivity (P): 0.25",
+            "- Connectivity (C): 0.20",
+            "- Resilience (R): 0.20",
+            "- Strategic Autonomy (A): 0.15",
+            "",
+        ]
     )
-    lines.append(
-        "- Productivity (P): 0.25"
-    )
-    lines.append(
-        "- Connectivity (C): 0.20"
-    )
-    lines.append(
-        "- Resilience (R): 0.20"
-    )
-    lines.append(
-        "- Strategic Autonomy (A): 0.15"
-    )
-    lines.append("")
 
     lines.append(
         "The baseline is the current production JESI weighting "
@@ -1541,22 +1475,16 @@ def build_report(
     )
     lines.append("")
 
-    lines.append(
-        "- Countries: Bangladesh, India, Indonesia, Malaysia, Vietnam"
+    lines.extend(
+        [
+            "- Countries: Bangladesh, India, Indonesia, Malaysia, Vietnam",
+            "- Final comparison period: 2016-2023",
+            "- Theoretical country-year observations: 40",
+            "- Complete-case observations: 34",
+            "- Missing-data treatment: no imputation",
+            "",
+        ]
     )
-    lines.append(
-        "- Final comparison period: 2016-2023"
-    )
-    lines.append(
-        "- Theoretical country-year observations: 40"
-    )
-    lines.append(
-        "- Complete-case observations: 34"
-    )
-    lines.append(
-        "- Missing-data treatment: no imputation"
-    )
-    lines.append("")
 
     lines.append(
         "## Weight sensitivity design"
@@ -1699,6 +1627,7 @@ def build_report(
 # ---------------------------------------------------------------------
 
 def main():
+
     print("=" * 78)
     print("JESI WEIGHT SENSITIVITY ANALYSIS")
     print("=" * 78)
