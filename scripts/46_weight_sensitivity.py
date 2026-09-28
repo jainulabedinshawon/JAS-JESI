@@ -599,23 +599,59 @@ def build_pillar_panel():
         next_pillar = PILLARS[index]
 
         panel = pd.merge(
-            panel,
-            next_panel[
-                [
-                    "country_code",
-                    "country",
-                    "year",
-                    next_pillar,
-                ]
-            ],
-            on=[
+    panel,
+    next_panel[
+        [
+            "country_code",
+            "country",
+            "year",
+            next_pillar,
+        ]
+    ],
+    on=[
+        "country_code",
+        "year",
+    ],
+    how="outer",
+    validate="one_to_one",
+    suffixes=("", "_next"),
+)
+
+conflicting_labels = (
+    panel["country_next"].notna()
+    & panel["country"].notna()
+    & (panel["country"] != panel["country_next"])
+)
+
+if conflicting_labels.any():
+    conflicts = (
+        panel.loc[
+            conflicting_labels,
+            [
                 "country_code",
-                "country",
                 "year",
+                "country",
+                "country_next",
             ],
-            how="outer",
-            validate="one_to_one",
-        )
+        ]
+        .drop_duplicates()
+        .to_dict("records")
+    )
+
+    fail(
+        "Conflicting country labels detected after "
+        f"country_code/year join: {conflicts}"
+    )
+
+panel["country"] = (
+    panel["country"].fillna(
+        panel["country_next"]
+    )
+)
+
+panel = panel.drop(
+    columns=["country_next"]
+)
 
     return panel
 
