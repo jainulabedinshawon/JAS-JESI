@@ -163,6 +163,20 @@ JESI_WEIGHTS = {
 
 
 # ---------------------------------------------------------------------
+# Valid sensitivity specifications
+# ---------------------------------------------------------------------
+
+VALID_SPECIFICATIONS = {
+    "baseline",
+    "minmax",
+    "winsorized_minmax",
+    "percentile",
+    "reference_p5_p95",
+    "reference_p20_p80",
+}
+
+
+# ---------------------------------------------------------------------
 # Utility functions
 # ---------------------------------------------------------------------
 
@@ -360,6 +374,12 @@ def winsorized_minmax_positive(
     lower = numeric.quantile(0.05)
     upper = numeric.quantile(0.95)
 
+    if pd.isna(lower) or pd.isna(upper):
+        return pd.Series(
+            np.nan,
+            index=series.index,
+        )
+
     if upper == lower:
         return pd.Series(
             1.0,
@@ -391,6 +411,12 @@ def winsorized_minmax_negative(
 
     lower = numeric.quantile(0.05)
     upper = numeric.quantile(0.95)
+
+    if pd.isna(lower) or pd.isna(upper):
+        return pd.Series(
+            np.nan,
+            index=series.index,
+        )
 
     if upper == lower:
         return pd.Series(
@@ -1203,7 +1229,7 @@ def build_indicator_scores():
     # ---------------------------------------------------------------
     # Strategic Autonomy
     #
-    # Production baseline = P10-P90 min-max reference bounds.
+    # Production baseline = P10-P90 reference-bound min-max.
     # ECI and high-tech exports are positive direction.
     # Import concentration is negative direction.
     # ---------------------------------------------------------------
@@ -1223,8 +1249,6 @@ def build_indicator_scores():
         ]
     ].notna().all(axis=1)
 
-    # Baseline P10-P90 reference bounds are calculated only from
-    # complete official-source observations, matching production.
     eci_complete = autonomy.loc[
         complete_autonomy,
         "eci",
@@ -1460,17 +1484,35 @@ def build_specification(
     """
     Construct one normalization specification.
 
-    Monotonic indicator specifications:
-        baseline
+    Baseline:
+        Production normalization for every pillar.
+
+    Monotonic sensitivity specifications:
         minmax
         winsorized_minmax
         percentile
 
-    Nonlinear Resilience specifications:
-        baseline
+    For these three specifications, alternative normalization
+    is applied to the monotonic indicators in Growth,
+    Productivity, Connectivity, Strategic Autonomy, and
+    Resilience R1. Resilience R2/R3 retain their baseline
+    nonlinear reference-zone formulation.
+
+    Resilience reference-zone specifications:
         reference_p5_p95
         reference_p20_p80
+
+    These specifications change ONLY the Resilience R2/R3
+    reference-zone bounds. All other pillars retain their
+    baseline normalization. This prevents the reference-zone
+    sensitivity labels from being incorrectly interpreted as
+    full-panel normalization methods.
     """
+
+    if name not in VALID_SPECIFICATIONS:
+        fail(
+            f"Unknown normalization specification: {name}"
+        )
 
     df = scores[
         [
@@ -1480,21 +1522,41 @@ def build_specification(
         ]
     ].copy()
 
+    reference_zone_specifications = {
+        "reference_p5_p95",
+        "reference_p20_p80",
+    }
+
+    monotonic_specifications = {
+        "minmax",
+        "winsorized_minmax",
+        "percentile",
+    }
+
     # ---------------------------------------------------------------
-    # Select Growth
+    # Growth
+    #
+    # Reference-zone specifications do NOT apply to Growth.
+    # They retain the production baseline.
     # ---------------------------------------------------------------
 
-    if name == "baseline":
+    if (
+        name == "baseline"
+        or name in reference_zone_specifications
+    ):
         g_cols = [
             "G_real_gdp_baseline",
             "G_gni_baseline",
         ]
-
-    else:
+    elif name in monotonic_specifications:
         g_cols = [
             f"G_real_gdp_{name}",
             f"G_gni_{name}",
         ]
+    else:
+        fail(
+            f"Invalid Growth normalization specification: {name}"
+        )
 
     df["G"] = arithmetic_mean(
         scores,
@@ -1503,18 +1565,28 @@ def build_specification(
 
     # ---------------------------------------------------------------
     # Productivity
+    #
+    # Reference-zone specifications do NOT apply to Productivity.
+    # They retain the production baseline.
     # ---------------------------------------------------------------
 
-    if name == "baseline":
+    if (
+        name == "baseline"
+        or name in reference_zone_specifications
+    ):
         p_cols = [
             "P_p1_baseline",
             "P_p2_baseline",
         ]
-    else:
+    elif name in monotonic_specifications:
         p_cols = [
             f"P_p1_{name}",
             f"P_p2_{name}",
         ]
+    else:
+        fail(
+            f"Invalid Productivity normalization specification: {name}"
+        )
 
     df["P"] = arithmetic_mean(
         scores,
@@ -1523,6 +1595,9 @@ def build_specification(
 
     # ---------------------------------------------------------------
     # Connectivity
+    #
+    # Reference-zone specifications do NOT apply to Connectivity.
+    # They retain the production baseline.
     # ---------------------------------------------------------------
 
     connectivity_names = [
@@ -1531,16 +1606,23 @@ def build_specification(
         "internet_use",
     ]
 
-    if name == "baseline":
+    if (
+        name == "baseline"
+        or name in reference_zone_specifications
+    ):
         c_cols = [
             f"C_{item}_baseline"
             for item in connectivity_names
         ]
-    else:
+    elif name in monotonic_specifications:
         c_cols = [
             f"C_{item}_{name}"
             for item in connectivity_names
         ]
+    else:
+        fail(
+            f"Invalid Connectivity normalization specification: {name}"
+        )
 
     df["C"] = arithmetic_mean(
         scores,
@@ -1549,6 +1631,14 @@ def build_specification(
 
     # ---------------------------------------------------------------
     # Resilience
+    #
+    # Monotonic sensitivity:
+    #   R1 changes.
+    #   R2/R3 retain P10-P90 baseline.
+    #
+    # Reference-zone sensitivity:
+    #   R1 retains baseline.
+    #   R2/R3 change to P5-P95 or P20-P80.
     # ---------------------------------------------------------------
 
     if name in {
@@ -1557,9 +1647,6 @@ def build_specification(
         "winsorized_minmax",
         "percentile",
     }:
-        # Monotonic sensitivity applies only to R1.
-        # R2/R3 retain their theoretically justified
-        # nonlinear baseline reference-zone treatment.
         r_cols = [
             f"R_fx_{name}",
             "R_debt_baseline",
@@ -1582,7 +1669,7 @@ def build_specification(
 
     else:
         fail(
-            f"Unknown normalization specification: {name}"
+            f"Invalid Resilience normalization specification: {name}"
         )
 
     df["R"] = arithmetic_mean(
@@ -1592,20 +1679,30 @@ def build_specification(
 
     # ---------------------------------------------------------------
     # Strategic Autonomy
+    #
+    # Reference-zone specifications do NOT apply to Autonomy.
+    # Strategic Autonomy retains its production baseline.
     # ---------------------------------------------------------------
 
-    if name == "baseline":
+    if (
+        name == "baseline"
+        or name in reference_zone_specifications
+    ):
         a_cols = [
             "A_eci_baseline",
             "A_hightech_baseline",
             "A_concentration_baseline",
         ]
-    else:
+    elif name in monotonic_specifications:
         a_cols = [
             f"A_eci_{name}",
             f"A_hightech_{name}",
             f"A_concentration_{name}",
         ]
+    else:
+        fail(
+            f"Invalid Strategic Autonomy normalization specification: {name}"
+        )
 
     df["A"] = arithmetic_mean(
         scores,
@@ -1786,7 +1883,7 @@ def rank_correlation(
 
         n = len(merged)
 
-    else:
+    elif level == "country_mean":
         x_country = (
             merged.groupby(
                 "country_code"
@@ -1818,6 +1915,11 @@ def rank_correlation(
         y = joined["alternative"]
 
         n = len(joined)
+
+    else:
+        fail(
+            f"Unknown rank-analysis level: {level}"
+        )
 
     if n < 2:
         rho = np.nan
@@ -1967,6 +2069,14 @@ def build_sensitivity_summary(
             - country_rank_base
         ).abs()
 
+        if len(country_base) >= 2:
+            country_rank_spearman = spearmanr(
+                country_base,
+                country_alt,
+            ).statistic
+        else:
+            country_rank_spearman = np.nan
+
         rows.append(
             {
                 "specification": specification,
@@ -1994,10 +2104,7 @@ def build_sensitivity_summary(
                     ).sum()
                 ),
                 "country_rank_spearman": (
-                    spearmanr(
-                        country_base,
-                        country_alt,
-                    ).statistic
+                    country_rank_spearman
                 ),
             }
         )
@@ -2108,6 +2215,13 @@ def build_report(
     )
     lines.append(
         "- Resilience reference-zone sensitivity using P20-P80"
+    )
+    lines.append("")
+    lines.append(
+        "For the P5-P95 and P20-P80 specifications, only "
+        "Resilience R2/R3 reference-zone bounds are changed. "
+        "Growth, Productivity, Connectivity, R1 and Strategic "
+        "Autonomy retain their baseline normalization."
     )
     lines.append("")
     lines.append(
