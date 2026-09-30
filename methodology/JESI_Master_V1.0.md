@@ -632,13 +632,42 @@ All transformations and calculations should be implemented through reproducible 
 
 ---
 
-24. Research Status
+24. Final Methodological Judgment
 
-Status: Proposed Framework — Master Version 1.0
+The empirical validation program defined for JESI Master Version 1.0 has now been completed for the documented production specification, sample, data coverage, and validation design.
 
-JESI is currently a research framework under empirical development.
+The completed methodological sequence was:
 
-The framework should not be presented as an established international economic index until its methodology has been empirically tested, validated, peer reviewed, and independently reproduced.
+JESI Concept → Pillar validity → Indicator validity → Redundancy/Correlation → Normalization sensitivity → Weight sensitivity → Aggregation sensitivity → Historical validation → Final methodological judgment
+
+The empirical validation program included:
+
+1. Indicator redundancy and correlation analysis.
+2. Normalization sensitivity analysis.
+3. Pillar-weight sensitivity analysis.
+4. Aggregation sensitivity analysis.
+5. Historical validation using the documented production sample.
+6. Historical event-window analysis.
+7. Pillar-level contribution decomposition.
+8. Comparison with independent external economic outcomes.
+
+The validation program preserved the production JESI specification and did not automatically modify the production indicators, pillar weights, normalization procedure, aggregation method, or missing-data treatment.
+
+The empirical evidence provides support for the internal coherence, robustness assessment, and historical empirical relevance of the framework within the tested research design. However, the evidence is conditional on the documented sample, period, data availability, and methodological specifications.
+
+The historical-validation evidence should not be interpreted as establishing causality. The external validation evidence is also not sufficient to establish universal validity, predictive superiority, or superiority over alternative economic indices.
+
+The historical validation was conducted on a limited five-country sample over the documented 2016–2023 period. Complete-case requirements and available external outcome data further constrain generalization. Country-level and specification-level findings should therefore be interpreted within these limitations.
+
+Accordingly, the final methodological status of JESI Master Version 1.0 is:
+
+«JESI is an empirically supported but not universally validated multidimensional framework for assessing structural economic strength.»
+
+This statement represents the final methodological judgment for the current Master Version 1.0 empirical validation phase.
+
+It does not imply that JESI is an established international statistical index. Future research may extend the framework through broader country coverage, longer historical periods, additional external validation outcomes, predictive testing, independent replication, and further methodological research.
+
+The completion of the empirical validation phase therefore represents a methodological milestone, not the end of scientific testing.
 
 ---
 
