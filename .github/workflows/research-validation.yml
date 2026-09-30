@@ -1,0 +1,201 @@
+name: JESI Research Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jesi-research-validation
+  cancel-in-progress: false
+
+jobs:
+  research-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+          pip install -r requirements.txt
+
+          pip install pandas numpy scipy openpyxl tabulate
+
+      - name: Configure Python path
+        run: |
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
+
+      - name: Verify Python environment
+        run: |
+          python --version
+          python -c "import pandas; print('pandas:', pandas.__version__)"
+          python -c "import numpy; print('numpy:', numpy.__version__)"
+          python -c "import scipy; print('scipy:', scipy.__version__)"
+          python -c "import openpyxl; print('openpyxl:', openpyxl.__version__)"
+          python -c "import tabulate; print('tabulate: OK')"
+          python -c "import src; print('src package import: OK')"
+
+      - name: Verify research validation input files
+        run: |
+          set -e
+
+          test -f data/processed/growth_pillar_scores_2015_2024.csv
+          test -f data/processed/productivity_p1_scores_2016_2023.csv
+          test -f data/processed/productivity_p2_scores_2016_2023.csv
+          test -f data/processed/productivity_pillar_scores_2016_2023.csv
+          test -f data/processed/connectivity_indicator_scores_2015_2024.csv
+          test -f data/processed/resilience_pillar_scores_2015_2024.csv
+          test -f data/processed/autonomy_indicator_scores_2015_2024.csv
+
+          echo "ALL REQUIRED RESEARCH INPUT FILES ARE PRESENT"
+
+      - name: Validate research validation syntax
+        run: |
+          python -m py_compile \
+            scripts/44_analyze_indicator_redundancy.py \
+            scripts/45_normalization_sensitivity.py \
+            scripts/46_weight_sensitivity.py \
+            scripts/47_aggregation_sensitivity.py \
+            scripts/48_historical_validation.py
+
+          echo "Research validation syntax: PASSED"
+
+      - name: "44 - Indicator redundancy analysis"
+        run: |
+          python scripts/44_analyze_indicator_redundancy.py
+
+      - name: "45 - Normalization sensitivity analysis"
+        run: |
+          python scripts/45_normalization_sensitivity.py
+
+      - name: "46 - Weight sensitivity analysis"
+        run: |
+          python scripts/46_weight_sensitivity.py
+
+      - name: "47 - Aggregation sensitivity analysis"
+        run: |
+          python scripts/47_aggregation_sensitivity.py
+
+      - name: "48 - Historical validation"
+        run: |
+          python scripts/48_historical_validation.py
+
+      - name: Verify research validation outputs
+        run: |
+          set -e
+
+          echo "Checking Script 44 outputs..."
+
+          test -f data/results/jesi_indicator_redundancy_pairwise.csv
+          test -f data/results/jesi_indicator_redundancy_missingness.csv
+          test -f data/results/jesi_indicator_redundancy_pillar_summary.csv
+          test -f data/results/jesi_indicator_redundancy_report.md
+
+          echo "Checking Script 45 outputs..."
+
+          test -f data/results/jesi_normalization_sensitivity_country_year.csv
+          test -f data/results/jesi_normalization_sensitivity_country_summary.csv
+          test -f data/results/jesi_normalization_sensitivity_rank_correlations.csv
+          test -f data/results/jesi_normalization_sensitivity_summary.csv
+          test -f data/results/jesi_normalization_sensitivity_report.md
+
+          echo "Checking Script 46 outputs..."
+
+          test -f data/results/jesi_weight_sensitivity_country_year.csv
+          test -f data/results/jesi_weight_sensitivity_country_summary.csv
+          test -f data/results/jesi_weight_sensitivity_rank_correlations.csv
+          test -f data/results/jesi_weight_sensitivity_summary.csv
+          test -f data/results/jesi_weight_sensitivity_report.md
+
+          echo "Checking Script 47 outputs..."
+
+          test -f data/results/jesi_aggregation_sensitivity_country_year.csv
+          test -f data/results/jesi_aggregation_sensitivity_country_summary.csv
+          test -f data/results/jesi_aggregation_sensitivity_rank_correlations.csv
+          test -f data/results/jesi_aggregation_sensitivity_summary.csv
+          test -f data/results/jesi_aggregation_sensitivity_report.md
+
+          echo "Checking Script 48 outputs..."
+
+          test -f data/results/jesi_historical_validation_country_year.csv
+          test -f data/results/jesi_historical_validation_event_windows.csv
+          test -f data/results/jesi_historical_validation_pillar_contributions.csv
+          test -f data/results/jesi_historical_validation_correlations.csv
+          test -f data/results/jesi_historical_validation_summary.csv
+          test -f data/results/jesi_historical_validation_report.md
+
+          echo "=================================================="
+          echo "ALL RESEARCH VALIDATION OUTPUTS ARE PRESENT"
+          echo "=================================================="
+
+      - name: Verify no tracked files were modified
+        run: |
+          git status --short
+          git diff --exit-code
+
+      - name: Upload research validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JESI-research-validation-evidence
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            data/results/jesi_indicator_redundancy_pairwise.csv
+            data/results/jesi_indicator_redundancy_missingness.csv
+            data/results/jesi_indicator_redundancy_pillar_summary.csv
+            data/results/jesi_indicator_redundancy_report.md
+
+            data/results/jesi_normalization_sensitivity_country_year.csv
+            data/results/jesi_normalization_sensitivity_country_summary.csv
+            data/results/jesi_normalization_sensitivity_rank_correlations.csv
+            data/results/jesi_normalization_sensitivity_summary.csv
+            data/results/jesi_normalization_sensitivity_report.md
+
+            data/results/jesi_weight_sensitivity_country_year.csv
+            data/results/jesi_weight_sensitivity_country_summary.csv
+            data/results/jesi_weight_sensitivity_rank_correlations.csv
+            data/results/jesi_weight_sensitivity_summary.csv
+            data/results/jesi_weight_sensitivity_report.md
+
+            data/results/jesi_aggregation_sensitivity_country_year.csv
+            data/results/jesi_aggregation_sensitivity_country_summary.csv
+            data/results/jesi_aggregation_sensitivity_rank_correlations.csv
+            data/results/jesi_aggregation_sensitivity_summary.csv
+            data/results/jesi_aggregation_sensitivity_report.md
+
+            data/results/jesi_historical_validation_country_year.csv
+            data/results/jesi_historical_validation_event_windows.csv
+            data/results/jesi_historical_validation_pillar_contributions.csv
+            data/results/jesi_historical_validation_correlations.csv
+            data/results/jesi_historical_validation_summary.csv
+            data/results/jesi_historical_validation_report.md
+
+      - name: Research validation success
+        run: |
+          echo "=================================================="
+          echo "JESI RESEARCH VALIDATION PIPELINE COMPLETED"
+          echo "=================================================="
+          echo "44 - Indicator Redundancy:      COMPLETE"
+          echo "45 - Normalization Sensitivity: COMPLETE"
+          echo "46 - Weight Sensitivity:        COMPLETE"
+          echo "47 - Aggregation Sensitivity:   COMPLETE"
+          echo "48 - Historical Validation:     COMPLETE"
+          echo "Evidence artifact:              UPLOADED"
+          echo "Production JESI modification:  NONE"
+          echo "Git commit/push:                NONE"
+          echo "=================================================="
