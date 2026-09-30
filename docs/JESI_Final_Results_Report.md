@@ -156,14 +156,49 @@ table consistency, and robustness-output integrity.
 
 ---
 
-## 8. Research Status
+## 8. Historical Validation
 
-**Pipeline status: Empirical results generated and validated.**
+Historical validation was completed as part of the empirical validation program for JESI Master Version 1.0 through Script 48 ("48_historical_validation.py").
 
-The reported results are specific to the documented JESI Master Version
-1.0 methodology, benchmark sample, data sources, normalization rules,
-weights, and aggregation choices.
+The purpose of this analysis was to examine whether changes in the JESI index and its five component pillars were empirically associated with selected external economic indicators over the available historical sample. The analysis therefore provides an additional empirical validation layer for the current JESI specification.
 
-Further research should examine historical back-testing, alternative
-normalization methods, alternative indicator sets, statistical weighting
-approaches, broader country coverage, and external validation.
+The completed historical validation is based on the available country-year observations and the documented data-availability and complete-case requirements of the Master Version 1.0 research design. No missing observations were fabricated, interpolated, or otherwise artificially generated for the purpose of historical validation.
+
+The analysis evaluates historical associations between:
+
+- Overall JESI changes and selected external economic outcomes;
+- Changes in the Growth (G) pillar and relevant external indicators;
+- Changes in the Productivity (P) pillar and relevant external indicators;
+- Changes in the Connectivity (C) pillar and relevant external indicators;
+- Changes in the Resilience (R) pillar and relevant external indicators;
+- Changes in the Strategic Autonomy (A) pillar and relevant external indicators.
+
+The historical validation results are interpreted as empirical associations rather than causal effects. A statistical association between JESI changes and an external economic indicator does not, by itself, establish that changes in JESI caused changes in that indicator. The results should therefore be interpreted within the limits of the available sample, measurement choices, country coverage, historical period, and external validation variables.
+
+Completion of Script 48 does not imply that JESI has been universally validated or that it has demonstrated predictive superiority over alternative economic-strength indices. Rather, it constitutes the historical-validation component of the completed empirical validation program for the Master Version 1.0 specification.
+
+Accordingly, the historical validation stage of Master Version 1.0 is considered completed. Future research may extend this evidence base through broader historical periods, additional countries, alternative datasets, additional external outcomes, out-of-sample testing, predictive evaluation, independent replication, and other forms of longitudinal or cross-country validation.
+
+---
+
+## 9. Research Status
+
+Pipeline status: Empirical construction and validation completed for Master Version 1.0.
+
+The reported results are specific to the documented JESI Master Version 1.0 methodology, benchmark sample, data sources, normalization rules, weights, aggregation choices, and available observations.
+
+The completed empirical validation program consists of:
+
+44 — Indicator Redundancy / Correlation →
+45 — Normalization Sensitivity →
+46 — Weight Sensitivity →
+47 — Aggregation Sensitivity →
+48 — Historical Validation
+
+This completed validation program supports the methodological judgment documented in the main README and methodology documentation:
+
+«JESI is an empirically supported but not universally validated multidimensional framework for assessing structural economic strength.»
+
+This conclusion is specific to the documented Master Version 1.0 specification, sample, data availability, and validation procedures. It does not establish universal validity, causal relationships, predictive superiority, or superiority over alternative economic-strength indices.
+
+Future research may extend the evidence base through broader country coverage, longer historical periods, additional external outcomes, alternative datasets, predictive and out-of-sample testing, independent replication, and further methodological research.
