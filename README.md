@@ -783,19 +783,36 @@ The ultimate research contribution depends on the outcome of empirical validatio
 
 «JESI is a proposed JAS analytical framework, not an established international statistical index.»
 
-The current repository contains a production empirical implementation and an expanding research-validation layer.
+The current repository contains a production empirical implementation and a completed empirical validation program for Master Version 1.0.
 
-The existence of production scores does not by itself establish:
+The documented validation sequence — Indicator Redundancy/Correlation, Normalization Sensitivity, Weight Sensitivity, Aggregation Sensitivity, and Historical Validation — has been completed for the current production specification, sample, data coverage, and validation design.
+
+The completion of this validation program provides empirical evidence relevant to the framework's internal coherence, methodological robustness, and historical empirical relevance within the tested research design. However, the evidence remains conditional on the documented five-country, 2016–2023 sample, available data, complete-case requirements, and external validation measures.
+
+The current evidence does not establish:
 
 - universal validity,
 - causal relationships,
 - predictive superiority,
-- or methodological superiority over existing indices.
+- or methodological superiority over existing economic indices.
 
-Those questions require appropriate empirical evidence.
+The final methodological judgment for the current Master Version 1.0 empirical validation phase is:
 
-The final methodological judgment will be made only after the complete validation sequence has been evaluated.
+«JESI is an empirically supported but not universally validated multidimensional framework for assessing structural economic strength.»
 
+This judgment applies to the current documented empirical specification and should not be interpreted as a claim that JESI is an established international statistical standard.
+
+Future research remains open and may extend the evidence base through:
+
+- broader country coverage,
+- longer historical periods,
+- additional independent external outcomes,
+- predictive testing,
+- independent replication,
+- alternative datasets,
+- and further methodological research.
+
+Accordingly, completion of the Master Version 1.0 empirical validation program represents a methodological milestone, not the end of scientific testing.
 ---
 
 28. Guiding Principle
