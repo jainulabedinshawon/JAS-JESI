@@ -646,13 +646,15 @@ Workflow:
 
 JESI Historical Validation
 
-The intended research order remains:
+The completed research-validation sequence is:
 
 44 → 45 → 46 → 47 → 48
 
-followed by:
+This sequence constitutes the completed empirical validation program for Master Version 1.0.
 
-Final Methodological Judgment
+The final methodological judgment is documented in Section 18 and Section 27.
+
+Future research may extend the evidence base through broader samples, longer historical periods, additional external outcomes, predictive testing, independent replication, and further methodological research.
 
 ---
 
@@ -775,8 +777,7 @@ Potential contributions include:
 6. Evaluating methodological robustness.
 7. Maintaining an open computational implementation.
 
-The ultimate research contribution depends on the outcome of empirical validation.
-
+The research contribution of Master Version 1.0 is therefore evaluated in light of the completed empirical validation program, while broader scientific contribution remains subject to future research and independent testing.
 ---
 
 27. Research Status and Interpretation
