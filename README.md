@@ -677,6 +677,9 @@ JAS-JESI/
 │   ├── processed/
 │   └── results/
 │
+├── docs/
+│   └── JESI_Final_Results_Report.md
+│
 ├── src/
 │   ├── __init__.py
 │   ├── data_download.py
