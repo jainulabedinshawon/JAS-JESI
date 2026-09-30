@@ -1,91 +1,61 @@
 """
 JAS Unified Economic Strength Index (JESI)
-Historical Validation — Master Version 1.0
-
-Research-validation layer only.
+Script 48 — Historical Validation
 
 Purpose
 -------
-Evaluate whether the historical behavior of the production JESI
-is consistent with:
+Research-validation layer for historical validation of JESI.
 
-1. observed year-to-year changes in the five JESI pillars;
-2. pre-specified historical event windows;
-3. independent external macroeconomic outcomes.
+This script:
+1. Reconstructs the production JESI series from the existing pillar scores.
+2. Uses the production weights and weighted geometric aggregation.
+3. Restricts the historical validation sample to the complete-case panel.
+4. Tests historical event windows.
+5. Decomposes JESI changes into pillar contributions.
+6. Compares JESI with independent World Bank outcomes:
+   - Unemployment, total (% of total labor force)
+   - Inflation, consumer prices (annual %)
+7. Calculates both level and first-difference Spearman correlations.
+8. Produces reproducible research-validation outputs.
 
-This script does NOT:
-- modify production JESI results;
-- modify production pillar weights;
-- modify indicator normalization;
-- modify pillar construction;
-- impute missing observations;
-- interpolate missing observations;
-- fabricate observations;
-- remove observations selectively;
-- reweight pillars;
-- automatically select a validation result;
-- replace the production aggregation method.
+Methodological safeguards
+-------------------------
+- No imputation.
+- No interpolation.
+- No fabricated observations.
+- No automatic removal of indicators.
+- No reweighting.
+- No production-methodology change.
+- No production JESI overwrite.
+- Complete-case observations only.
+- Historical validation is diagnostic/research-validation only.
 
 Production aggregation
-----------------------
+-----------------------
 JESI = 100 × G^0.20 × P^0.25 × C^0.20 × R^0.20 × A^0.15
 
-Analytical sample
+Historical period
 -----------------
-Countries:
-- Bangladesh
-- India
-- Indonesia
-- Malaysia
-- Vietnam
+2016–2023
 
-Historical analytical period:
-- 2016-2023
+Countries
+---------
+Bangladesh (BGD)
+India (IND)
+Indonesia (IDN)
+Malaysia (MYS)
+Vietnam (VNM)
 
-The productivity pillar currently defines the common
-historical intersection for this validation layer.
-
-Historical event windows
-------------------------
-The event windows are pre-specified analytical windows.
-They are descriptive validation windows, not causal identification.
-
-- 2019 -> 2020
-- 2020 -> 2021
-- 2021 -> 2022
-- 2022 -> 2023
-
-Independent external outcomes
------------------------------
-World Bank World Development Indicators:
-
-- Unemployment, total (% of total labor force)
-  Indicator: SL.UEM.TOTL.ZS
-
-- Inflation, consumer prices (annual %)
-  Indicator: FP.CPI.TOTL.ZG
-
-These external outcomes are NOT used in JESI construction.
-
-Validation principle
---------------------
-External outcome correlations are reported as evidence,
-not as proof of causality.
-
-No preferred direction, threshold, or automatic pass/fail rule
-is imposed by this script.
-
-Outputs
--------
-data/results/jesi_historical_validation_country_year.csv
-data/results/jesi_historical_validation_event_windows.csv
-data/results/jesi_historical_validation_pillar_contributions.csv
-data/results/jesi_historical_validation_correlations.csv
-data/results/jesi_historical_validation_summary.csv
-data/results/jesi_historical_validation_report.md
+Event windows
+------------
+2019 → 2020
+2020 → 2021
+2021 → 2022
+2022 → 2023
 """
 
 from pathlib import Path
+import time
 
 import numpy as np
 import pandas as pd
@@ -93,61 +63,28 @@ import requests
 from scipy.stats import spearmanr
 
 
-# ---------------------------------------------------------------------
-# PATHS
-# ---------------------------------------------------------------------
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
-ROOT = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-OUTPUT_DIR = ROOT / "data/results"
+RESULTS_DIR = BASE_DIR / "data" / "results"
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-COUNTRY_YEAR_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_historical_validation_country_year.csv"
-)
+START_YEAR = 2016
+END_YEAR = 2023
 
-EVENT_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_historical_validation_event_windows.csv"
-)
+COUNTRY_MAP = {
+    "Bangladesh": "BGD",
+    "India": "IND",
+    "Indonesia": "IDN",
+    "Malaysia": "MYS",
+    "Vietnam": "VNM",
+    "Viet Nam": "VNM",
+}
 
-PILLAR_CONTRIBUTION_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_historical_validation_pillar_contributions.csv"
-)
-
-CORRELATION_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_historical_validation_correlations.csv"
-)
-
-SUMMARY_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_historical_validation_summary.csv"
-)
-
-REPORT_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_historical_validation_report.md"
-)
-
-
-# ---------------------------------------------------------------------
-# ANALYTICAL BENCHMARK
-# ---------------------------------------------------------------------
-
-COUNTRIES = [
-    "BGD",
-    "IND",
-    "IDN",
-    "MYS",
-    "VNM",
-]
-
-FINAL_YEARS = list(range(2016, 2024))
-
-
-COUNTRY_NAMES = {
+COUNTRIES = {
     "BGD": "Bangladesh",
     "IND": "India",
     "IDN": "Indonesia",
@@ -155,12 +92,10 @@ COUNTRY_NAMES = {
     "VNM": "Vietnam",
 }
 
+COUNTRY_CODES = list(COUNTRIES.keys())
 
-# ---------------------------------------------------------------------
-# PRODUCTION JESI WEIGHTS
-# ---------------------------------------------------------------------
-
-WEIGHTS = {
+# Production JESI weights — DO NOT CHANGE
+JESI_WEIGHTS = {
     "G": 0.20,
     "P": 0.25,
     "C": 0.20,
@@ -168,54 +103,13 @@ WEIGHTS = {
     "A": 0.15,
 }
 
-PILLARS = [
-    "G",
-    "P",
-    "C",
-    "R",
-    "A",
-]
-
-PILLAR_NAMES = {
-    "G": "Growth",
-    "P": "Productivity",
-    "C": "Connectivity",
-    "R": "Resilience",
-    "A": "Strategic Autonomy",
-}
-
-
-# ---------------------------------------------------------------------
-# PILLAR SOURCE FILES
-# ---------------------------------------------------------------------
-
 PILLAR_FILES = {
-    "G": (
-        "data/processed/"
-        "growth_pillar_scores_2015_2024.csv"
-    ),
-    "P": (
-        "data/processed/"
-        "productivity_pillar_scores_2016_2023.csv"
-    ),
-    "C": (
-        "data/processed/"
-        "connectivity_indicator_scores_2015_2024.csv"
-    ),
-    "R": (
-        "data/processed/"
-        "resilience_pillar_scores_2015_2024.csv"
-    ),
-    "A": (
-        "data/processed/"
-        "autonomy_indicator_scores_2015_2024.csv"
-    ),
+    "G": BASE_DIR / "data" / "processed" / "growth_pillar_scores_2015_2024.csv",
+    "P": BASE_DIR / "data" / "processed" / "productivity_pillar_scores_2016_2023.csv",
+    "C": BASE_DIR / "data" / "processed" / "connectivity_indicator_scores_2015_2024.csv",
+    "R": BASE_DIR / "data" / "processed" / "resilience_pillar_scores_2015_2024.csv",
+    "A": BASE_DIR / "data" / "processed" / "autonomy_indicator_scores_2015_2024.csv",
 }
-
-
-# ---------------------------------------------------------------------
-# PILLAR SCORE COLUMNS
-# ---------------------------------------------------------------------
 
 PILLAR_SCORE_COLUMNS = {
     "G": [
@@ -243,1331 +137,1153 @@ PILLAR_SCORE_COLUMNS = {
     ],
 }
 
-
-# ---------------------------------------------------------------------
-# INDEPENDENT EXTERNAL OUTCOMES
-# ---------------------------------------------------------------------
-
 EXTERNAL_INDICATORS = {
-    "unemployment_rate": {
+    "unemployment": {
         "code": "SL.UEM.TOTL.ZS",
-        "name": "Unemployment rate",
-        "unit": "% of total labor force",
+        "label": "Unemployment, total (% of total labor force)",
     },
-    "inflation_rate": {
+    "inflation": {
         "code": "FP.CPI.TOTL.ZG",
-        "name": "Inflation, consumer prices",
-        "unit": "annual %",
+        "label": "Inflation, consumer prices (annual %)",
     },
 }
 
-
-# ---------------------------------------------------------------------
-# PRE-SPECIFIED HISTORICAL WINDOWS
-# ---------------------------------------------------------------------
-
 EVENT_WINDOWS = [
-    {
-        "window": "2019_to_2020",
-        "from_year": 2019,
-        "to_year": 2020,
-        "description": "Pre-shock to 2020 historical shock window",
-    },
-    {
-        "window": "2020_to_2021",
-        "from_year": 2020,
-        "to_year": 2021,
-        "description": "2020 shock to subsequent adjustment window",
-    },
-    {
-        "window": "2021_to_2022",
-        "from_year": 2021,
-        "to_year": 2022,
-        "description": "2021 to 2022 historical adjustment window",
-    },
-    {
-        "window": "2022_to_2023",
-        "from_year": 2022,
-        "to_year": 2023,
-        "description": "2022 to 2023 subsequent adjustment window",
-    },
+    (2019, 2020),
+    (2020, 2021),
+    (2021, 2022),
+    (2022, 2023),
 ]
 
+EXPECTED_THEORETICAL_ROWS = 5 * 8
+EXPECTED_COMPLETE_CASE_ROWS = 34
 
-# ---------------------------------------------------------------------
-# VALIDATION HELPERS
-# ---------------------------------------------------------------------
+# Numerical validation tolerance
+CALC_TOLERANCE = 1e-10
 
-def fail(message):
-    """Raise a clear methodological validation error."""
+# World Bank request settings
+WORLD_BANK_BASE_URL = "https://api.worldbank.org/v2"
 
-    raise ValueError(message)
+WORLD_BANK_MAX_RETRIES = 4
+WORLD_BANK_CONNECT_TIMEOUT = 20
+WORLD_BANK_READ_TIMEOUT = 90
+WORLD_BANK_BACKOFF_SECONDS = 5
+WORLD_BANK_COUNTRY_PAUSE_SECONDS = 1
+
+WORLD_BANK_HEADERS = {
+    "User-Agent": (
+        "JAS-JESI-Historical-Validation/1.0 "
+        "(research-validation; reproducible-analysis)"
+    )
+}
+
+
+# ============================================================
+# OUTPUT PATHS
+# ============================================================
+
+OUTPUT_COUNTRY_YEAR = (
+    RESULTS_DIR / "jesi_historical_validation_country_year.csv"
+)
+
+OUTPUT_EVENT_WINDOWS = (
+    RESULTS_DIR / "jesi_historical_validation_event_windows.csv"
+)
+
+OUTPUT_PILLAR_CONTRIBUTIONS = (
+    RESULTS_DIR / "jesi_historical_validation_pillar_contributions.csv"
+)
+
+OUTPUT_CORRELATIONS = (
+    RESULTS_DIR / "jesi_historical_validation_correlations.csv"
+)
+
+OUTPUT_SUMMARY = (
+    RESULTS_DIR / "jesi_historical_validation_summary.csv"
+)
+
+OUTPUT_REPORT = (
+    RESULTS_DIR / "jesi_historical_validation_report.md"
+)
+
+
+# ============================================================
+# UTILITY FUNCTIONS
+# ============================================================
+
+def standardize_country(value):
+    """Convert country names/codes to ISO-like three-letter codes."""
+    if pd.isna(value):
+        return np.nan
+
+    text = str(value).strip()
+
+    if text in COUNTRY_CODES:
+        return text
+
+    if text in COUNTRY_MAP:
+        return COUNTRY_MAP[text]
+
+    normalized = text.lower()
+
+    for name, code in COUNTRY_MAP.items():
+        if normalized == name.lower():
+            return code
+
+    return np.nan
 
 
 def validate_weights():
-    """Validate the fixed production JESI weights."""
+    """Validate that production JESI weights sum to one."""
+    total = sum(JESI_WEIGHTS.values())
 
-    if set(WEIGHTS) != set(PILLARS):
-        fail(
-            "JESI weights must contain exactly "
-            f"{PILLARS}."
+    if not np.isclose(total, 1.0, atol=CALC_TOLERANCE):
+        raise ValueError(
+            f"JESI weights must sum to 1.0; received {total:.15f}"
         )
 
-    values = np.array(
-        [WEIGHTS[pillar] for pillar in PILLARS],
-        dtype=float,
+    print("Production weights validated.")
+
+
+def identify_country_column(df):
+    """Find country identifier column."""
+    candidates = [
+        "country_code",
+        "country",
+        "Country",
+        "COUNTRY",
+        "economy",
+        "Economy",
+    ]
+
+    for column in candidates:
+        if column in df.columns:
+            return column
+
+    raise ValueError(
+        "No supported country identifier column found. "
+        f"Available columns: {list(df.columns)}"
     )
 
-    if not np.isfinite(values).all():
-        fail("Non-finite JESI weight detected.")
 
-    if (values < 0).any():
-        fail("Negative JESI weight detected.")
+def identify_year_column(df):
+    """Find year column."""
+    candidates = [
+        "year",
+        "Year",
+        "YEAR",
+        "date",
+    ]
 
-    if not np.isclose(
-        values.sum(),
-        1.0,
-        atol=1e-12,
-    ):
-        fail(
-            "JESI production weights do not sum to 1.0."
-        )
+    for column in candidates:
+        if column in df.columns:
+            return column
 
-
-# ---------------------------------------------------------------------
-# COUNTRY STANDARDIZATION
-# ---------------------------------------------------------------------
-
-def standardize_country_code(df):
-    """
-    Standardize country identity without altering observations.
-    """
-
-    country_to_code = {
-        "Bangladesh": "BGD",
-        "India": "IND",
-        "Indonesia": "IDN",
-        "Malaysia": "MYS",
-        "Vietnam": "VNM",
-        "Viet Nam": "VNM",
-    }
-
-    if "country_code" not in df.columns:
-
-        if "country" not in df.columns:
-            fail(
-                "Source does not contain country or country_code."
-            )
-
-        df["country_code"] = (
-            df["country"].map(country_to_code)
-        )
-
-    else:
-
-        df["country_code"] = (
-            df["country_code"]
-            .astype(str)
-            .str.strip()
-            .str.upper()
-        )
-
-        if "country" in df.columns:
-            mapped = df["country"].map(
-                country_to_code
-            )
-
-            unresolved = (
-                mapped.notna()
-                & (
-                    df["country_code"]
-                    != mapped
-                )
-            )
-
-            if unresolved.any():
-                fail(
-                    "Country code and country name "
-                    "identity conflict detected."
-                )
-
-    if df["country_code"].isna().any():
-        unknown = (
-            df.loc[
-                df["country_code"].isna(),
-                "country",
-            ]
-            .drop_duplicates()
-            .tolist()
-        )
-
-        fail(
-            f"Unable to map country identity: {unknown}"
-        )
-
-    unknown_codes = (
-        set(df["country_code"].dropna())
-        - set(COUNTRIES)
+    raise ValueError(
+        "No supported year column found. "
+        f"Available columns: {list(df.columns)}"
     )
 
-    if unknown_codes:
-        fail(
-            "Unexpected country codes detected: "
-            f"{sorted(unknown_codes)}"
-        )
 
-    df["country"] = (
-        df["country_code"]
-        .map(COUNTRY_NAMES)
-    )
-
-    return df
-
-
-# ---------------------------------------------------------------------
-# LOAD PILLAR SOURCE
-# ---------------------------------------------------------------------
-
-def load_pillar_source(pillar):
-    """
-    Load persisted pillar scores.
-
-    No missing-value repair is performed.
-    """
-
-    relative_path = PILLAR_FILES[pillar]
-
-    path = ROOT / relative_path
-
+def load_pillar(pillar_name, path, score_columns):
+    """Load and construct pillar-level scores."""
     if not path.exists():
-        fail(
-            f"Missing pillar source for {pillar}: "
-            f"{relative_path}"
+        raise FileNotFoundError(
+            f"Required pillar file not found: {path}"
         )
 
     df = pd.read_csv(path)
 
-    if df.empty:
-        fail(
-            f"Pillar source is empty: {relative_path}"
+    country_column = identify_country_column(df)
+    year_column = identify_year_column(df)
+
+    missing_columns = [
+        column
+        for column in score_columns
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            f"{pillar_name} pillar missing required score columns: "
+            f"{missing_columns}"
         )
 
-    required = {
-        "year",
-        *PILLAR_SCORE_COLUMNS[pillar],
-    }
+    result = pd.DataFrame()
 
-    if "country" not in df.columns:
-        required.add("country")
+    result["country_code"] = df[country_column].map(
+        standardize_country
+    )
 
-    missing = required - set(df.columns)
-
-    if missing:
-        fail(
-            f"Pillar {pillar} missing columns: "
-            f"{sorted(missing)}"
-        )
-
-    df = standardize_country_code(df)
-
-    df["year"] = pd.to_numeric(
-        df["year"],
+    result["year"] = pd.to_numeric(
+        df[year_column],
         errors="coerce",
     )
 
-    if df["year"].isna().any():
-        fail(
-            f"Pillar {pillar}: invalid year detected."
-        )
+    # Indicator-level mean without skipna:
+    # if any required indicator is missing, the pillar score is missing.
+    result[f"{pillar_name}_score"] = df[score_columns].mean(
+        axis=1,
+        skipna=False,
+    )
 
-    df["year"] = df["year"].astype(int)
+    result = result[
+        result["country_code"].isin(COUNTRY_CODES)
+    ].copy()
 
-    for column in PILLAR_SCORE_COLUMNS[pillar]:
+    result = result[
+        result["year"].between(START_YEAR, END_YEAR)
+    ].copy()
 
-        numeric = pd.to_numeric(
-            df[column],
-            errors="coerce",
-        )
+    result["year"] = result["year"].astype(int)
 
-        invalid = (
-            df[column].notna()
-            & numeric.isna()
-        )
+    result = result[
+        ["country_code", "year", f"{pillar_name}_score"]
+    ]
 
-        if invalid.any():
-            fail(
-                f"Pillar {pillar}: non-numeric values "
-                f"in {column}."
-            )
-
-        df[column] = numeric
-
-    duplicate_mask = df.duplicated(
-        subset=[
-            "country_code",
-            "year",
-        ],
+    # Prevent accidental duplicate country-year records.
+    duplicates = result.duplicated(
+        subset=["country_code", "year"],
         keep=False,
     )
 
-    if duplicate_mask.any():
-        duplicates = (
-            df.loc[
-                duplicate_mask,
-                [
-                    "country_code",
-                    "year",
-                ],
-            ]
-            .drop_duplicates()
-            .to_dict("records")
+    if duplicates.any():
+        duplicate_rows = result.loc[duplicates].sort_values(
+            ["country_code", "year"]
         )
 
-        fail(
-            f"Pillar {pillar}: duplicate country-year "
-            f"observations: {duplicates}"
+        raise ValueError(
+            f"{pillar_name} pillar contains duplicate "
+            "country-year observations:\n"
+            f"{duplicate_rows.to_string(index=False)}"
         )
-
-    return df
-
-
-# ---------------------------------------------------------------------
-# BUILD PILLAR PANEL
-# ---------------------------------------------------------------------
-
-def build_pillar_panel():
-    """
-    Construct a common country-year panel from the five
-    persisted pillar-score representations.
-
-    A pillar score is present only when all of its component
-    indicator scores are present.
-
-    Missing observations remain missing.
-    """
-
-    panels = []
-
-    for pillar in PILLARS:
-
-        df = load_pillar_source(pillar)
-
-        columns = PILLAR_SCORE_COLUMNS[pillar]
-
-        df = df[
-            [
-                "country_code",
-                "country",
-                "year",
-                *columns,
-            ]
-        ].copy()
-
-        df = df[
-            df["country_code"].isin(COUNTRIES)
-        ]
-
-        complete = (
-            df[columns]
-            .notna()
-            .all(axis=1)
-        )
-
-        df[pillar] = (
-            df[columns]
-            .mean(
-                axis=1,
-                skipna=False,
-            )
-        )
-
-        df.loc[
-            ~complete,
-            pillar,
-        ] = np.nan
-
-        panels.append(
-            df[
-                [
-                    "country_code",
-                    "country",
-                    "year",
-                    pillar,
-                ]
-            ]
-        )
-
-    panel = panels[0].copy()
-
-    for next_panel in panels[1:]:
-
-        panel = pd.merge(
-            panel,
-            next_panel,
-            on=[
-                "country_code",
-                "country",
-                "year",
-            ],
-            how="outer",
-            validate="one_to_one",
-        )
-
-    panel = panel[
-        panel["country_code"].isin(COUNTRIES)
-    ]
-
-    panel = panel[
-        panel["year"].isin(FINAL_YEARS)
-    ]
-
-    return panel.sort_values(
-        [
-            "country_code",
-            "year",
-        ]
-    ).reset_index(drop=True)
-
-
-# ---------------------------------------------------------------------
-# COMPLETE-CASE VALIDATION
-# ---------------------------------------------------------------------
-
-def build_complete_case_panel(panel):
-    """
-    Preserve only naturally complete country-year observations.
-
-    No imputation, interpolation, or fabricated observations.
-    """
-
-    theoretical_expected = (
-        len(COUNTRIES)
-        * len(FINAL_YEARS)
-    )
-
-    theoretical_identity = (
-        panel[
-            [
-                "country_code",
-                "year",
-            ]
-        ]
-        .drop_duplicates()
-    )
-
-    if len(theoretical_identity) != theoretical_expected:
-        fail(
-            "Expected theoretical panel of "
-            f"{theoretical_expected} country-year identities, "
-            f"found {len(theoretical_identity)}."
-        )
-
-    complete_mask = (
-        panel[PILLARS]
-        .notna()
-        .all(axis=1)
-    )
-
-    complete = panel.loc[
-        complete_mask
-    ].copy()
-
-    if complete.empty:
-        fail(
-            "No complete country-year observations "
-            "available for historical validation."
-        )
-
-    if complete[PILLARS].isna().any().any():
-        fail(
-            "Missing pillar scores remain in complete-case panel."
-        )
-
-    return complete.sort_values(
-        [
-            "country_code",
-            "year",
-        ]
-    ).reset_index(drop=True)
-
-
-# ---------------------------------------------------------------------
-# PRODUCTION JESI
-# ---------------------------------------------------------------------
-
-def calculate_jesi(df):
-    """
-    Reproduce the production weighted-geometric JESI formula.
-    """
-
-    values = df[PILLARS].to_numpy(
-        dtype=float
-    )
-
-    if not np.isfinite(values).all():
-        fail(
-            "Non-finite pillar score detected."
-        )
-
-    if (
-        values < 0
-    ).any() or (
-        values > 1
-    ).any():
-        fail(
-            "Pillar score outside [0, 1] detected."
-        )
-
-    if (
-        values <= 0
-    ).any():
-        fail(
-            "Zero pillar score detected. "
-            "Log-based historical decomposition requires "
-            "strictly positive pillar scores."
-        )
-
-    log_jesi = np.zeros(
-        len(df),
-        dtype=float,
-    )
-
-    for pillar in PILLARS:
-
-        log_jesi += (
-            WEIGHTS[pillar]
-            * np.log(
-                df[pillar].to_numpy(
-                    dtype=float
-                )
-            )
-        )
-
-    return 100.0 * np.exp(log_jesi)
-
-
-# ---------------------------------------------------------------------
-# BUILD JESI HISTORICAL SERIES
-# ---------------------------------------------------------------------
-
-def build_jesi_series(panel):
-    """
-    Calculate production JESI for every naturally complete
-    country-year observation.
-    """
-
-    result = panel[
-        [
-            "country_code",
-            "country",
-            "year",
-            *PILLARS,
-        ]
-    ].copy()
-
-    result["JESI"] = calculate_jesi(
-        result
-    )
-
-    result = result.sort_values(
-        [
-            "country_code",
-            "year",
-        ]
-    ).reset_index(drop=True)
-
-    result["JESI_change"] = (
-        result
-        .groupby("country_code")["JESI"]
-        .diff()
-    )
-
-    result["JESI_pct_change"] = (
-        result
-        .groupby("country_code")["JESI"]
-        .pct_change()
-        * 100.0
-    )
 
     return result
 
 
-# ---------------------------------------------------------------------
-# PILLAR CONTRIBUTION DECOMPOSITION
-# ---------------------------------------------------------------------
+# ============================================================
+# BUILD HISTORICAL PILLAR PANEL
+# ============================================================
 
-def build_pillar_contributions(jesi_series):
+def build_historical_panel():
+    """Merge all pillar scores into the historical validation panel."""
+
+    panel = None
+
+    for pillar_name in ["G", "P", "C", "R", "A"]:
+        pillar_df = load_pillar(
+            pillar_name,
+            PILLAR_FILES[pillar_name],
+            PILLAR_SCORE_COLUMNS[pillar_name],
+        )
+
+        if panel is None:
+            panel = pillar_df
+        else:
+            panel = panel.merge(
+                pillar_df,
+                on=["country_code", "year"],
+                how="outer",
+                validate="one_to_one",
+            )
+
+    theoretical_rows = len(panel)
+
+    print(
+        "Historical theoretical panel rows: "
+        f"{theoretical_rows}"
+    )
+
+    if theoretical_rows != EXPECTED_THEORETICAL_ROWS:
+        raise ValueError(
+            "Unexpected theoretical historical panel size: "
+            f"{theoretical_rows}. "
+            f"Expected {EXPECTED_THEORETICAL_ROWS}."
+        )
+
+    panel = panel.sort_values(
+        ["country_code", "year"]
+    ).reset_index(drop=True)
+
+    pillar_columns = [
+        "G_score",
+        "P_score",
+        "C_score",
+        "R_score",
+        "A_score",
+    ]
+
+    # Complete-case rule:
+    # no imputation, interpolation, or fabricated observations.
+    complete_case = panel[pillar_columns].notna().all(axis=1)
+
+    complete_panel = panel.loc[complete_case].copy()
+
+    complete_rows = len(complete_panel)
+
+    print(
+        "Historical complete-case rows: "
+        f"{complete_rows}"
+    )
+
+    if complete_rows != EXPECTED_COMPLETE_CASE_ROWS:
+        raise ValueError(
+            "Unexpected historical complete-case size: "
+            f"{complete_rows}. "
+            f"Expected {EXPECTED_COMPLETE_CASE_ROWS}."
+        )
+
+    return panel, complete_panel
+
+
+# ============================================================
+# JESI CONSTRUCTION
+# ============================================================
+
+def calculate_jesi(row):
     """
-    Decompose annual log-JESI changes into weighted pillar
-    log-change contributions.
+    Calculate production JESI using weighted geometric aggregation.
 
-    Mathematical identity:
+    JESI = 100 × G^0.20 × P^0.25 × C^0.20 × R^0.20 × A^0.15
+    """
 
-        Δln(JESI)
-        =
-        Σ weight_i × Δln(Pillar_i)
+    pillar_values = {
+        "G": row["G_score"],
+        "P": row["P_score"],
+        "C": row["C_score"],
+        "R": row["R_score"],
+        "A": row["A_score"],
+    }
 
-    The decomposition is descriptive and does not establish
-    causality.
+    for pillar, value in pillar_values.items():
+        if pd.isna(value):
+            return np.nan
+
+        if value <= 0:
+            raise ValueError(
+                f"{pillar} score must be > 0 for geometric aggregation. "
+                f"Received {value}."
+            )
+
+        if value > 1:
+            raise ValueError(
+                f"{pillar} score must be <= 1. "
+                f"Received {value}."
+            )
+
+    log_index = 0.0
+
+    for pillar, weight in JESI_WEIGHTS.items():
+        log_index += weight * np.log(
+            pillar_values[pillar]
+        )
+
+    return 100.0 * np.exp(log_index)
+
+
+def construct_jesi(panel):
+    """Construct historical JESI series."""
+    result = panel.copy()
+
+    result["JESI"] = result.apply(
+        calculate_jesi,
+        axis=1,
+    )
+
+    if result["JESI"].isna().any():
+        raise ValueError(
+            "Historical JESI contains unexpected missing values."
+        )
+
+    if not np.isfinite(result["JESI"]).all():
+        raise ValueError(
+            "Historical JESI contains non-finite values."
+        )
+
+    print("Historical JESI series constructed.")
+
+    return result
+
+
+# ============================================================
+# PILLAR CONTRIBUTION DECOMPOSITION
+# ============================================================
+
+def construct_pillar_contributions(panel):
+    """
+    Decompose change in log(JESI) into weighted pillar contributions.
+
+    Δln(JESI) = Σ weight_i × Δln(Pillar_i)
     """
 
     rows = []
 
-    for country_code, group in (
-        jesi_series
-        .groupby("country_code")
+    for country_code, group in panel.groupby(
+        "country_code",
+        sort=True,
     ):
+        group = group.sort_values("year").reset_index(drop=True)
 
-        group = group.sort_values("year")
+        for i in range(1, len(group)):
+            previous = group.iloc[i - 1]
+            current = group.iloc[i]
 
-        for index in range(1, len(group)):
+            previous_jesi = previous["JESI"]
+            current_jesi = current["JESI"]
 
-            previous = group.iloc[index - 1]
-            current = group.iloc[index]
+            delta_log_jesi = np.log(
+                current_jesi / previous_jesi
+            )
 
-            if previous["year"] + 1 != current["year"]:
+            contribution_values = {}
+
+            contribution_sum = 0.0
+
+            for pillar, weight in JESI_WEIGHTS.items():
+                previous_value = previous[
+                    f"{pillar}_score"
+                ]
+
+                current_value = current[
+                    f"{pillar}_score"
+                ]
+
+                delta_log_pillar = np.log(
+                    current_value / previous_value
+                )
+
+                contribution = (
+                    weight * delta_log_pillar
+                )
+
+                contribution_values[
+                    f"{pillar}_contribution"
+                ] = contribution
+
+                contribution_sum += contribution
+
+            residual = (
+                delta_log_jesi - contribution_sum
+            )
+
+            if abs(residual) > CALC_TOLERANCE:
+                raise ValueError(
+                    "Pillar contribution decomposition failed "
+                    f"for {country_code}, "
+                    f"{int(previous['year'])}->{int(current['year'])}. "
+                    f"Residual={residual:.15e}"
+                )
+
+            rows.append(
+                {
+                    "country_code": country_code,
+                    "country": COUNTRIES[country_code],
+                    "from_year": int(previous["year"]),
+                    "to_year": int(current["year"]),
+                    "JESI_previous": previous_jesi,
+                    "JESI_current": current_jesi,
+                    "delta_log_JESI": delta_log_jesi,
+                    **contribution_values,
+                    "contribution_sum": contribution_sum,
+                    "decomposition_residual": residual,
+                }
+            )
+
+    result = pd.DataFrame(rows)
+
+    print("Pillar contribution decomposition: PASSED")
+
+    return result
+
+
+# ============================================================
+# EVENT-WINDOW ANALYSIS
+# ============================================================
+
+def construct_event_windows(panel):
+    """Construct specified historical event-window comparisons."""
+
+    rows = []
+
+    for from_year, to_year in EVENT_WINDOWS:
+        for country_code in COUNTRY_CODES:
+            previous = panel[
+                (
+                    panel["country_code"]
+                    == country_code
+                )
+                & (
+                    panel["year"]
+                    == from_year
+                )
+            ]
+
+            current = panel[
+                (
+                    panel["country_code"]
+                    == country_code
+                )
+                & (
+                    panel["year"]
+                    == to_year
+                )
+            ]
+
+            if previous.empty or current.empty:
+                continue
+
+            previous = previous.iloc[0]
+            current = current.iloc[0]
+
+            if (
+                previous[
+                    [
+                        "G_score",
+                        "P_score",
+                        "C_score",
+                        "R_score",
+                        "A_score",
+                    ]
+                ].isna().any()
+                or
+                current[
+                    [
+                        "G_score",
+                        "P_score",
+                        "C_score",
+                        "R_score",
+                        "A_score",
+                    ]
+                ].isna().any()
+            ):
                 continue
 
             row = {
                 "country_code": country_code,
-                "country": current["country"],
-                "from_year": int(previous["year"]),
-                "to_year": int(current["year"]),
+                "country": COUNTRIES[country_code],
+                "from_year": from_year,
+                "to_year": to_year,
                 "JESI_previous": previous["JESI"],
                 "JESI_current": current["JESI"],
                 "JESI_change": (
                     current["JESI"]
                     - previous["JESI"]
                 ),
-                "log_JESI_change": (
-                    np.log(current["JESI"])
-                    - np.log(previous["JESI"])
-                ),
-            }
-
-            contribution_sum = 0.0
-
-            for pillar in PILLARS:
-
-                previous_score = previous[pillar]
-                current_score = current[pillar]
-
-                contribution = (
-                    WEIGHTS[pillar]
-                    * (
-                        np.log(current_score)
-                        - np.log(previous_score)
-                    )
-                )
-
-                row[
-                    f"{pillar}_log_contribution"
-                ] = contribution
-
-                contribution_sum += contribution
-
-            row[
-                "decomposition_error"
-            ] = (
-                contribution_sum
-                - row["log_JESI_change"]
-            )
-
-            rows.append(row)
-
-    result = pd.DataFrame(rows)
-
-    if result.empty:
-        fail(
-            "No annual pillar contribution observations "
-            "could be constructed."
-        )
-
-    max_error = (
-        result["decomposition_error"]
-        .abs()
-        .max()
-    )
-
-    if max_error > 1e-10:
-        fail(
-            "Pillar contribution decomposition failed. "
-            f"Maximum error = {max_error}"
-        )
-
-    return result
-
-
-# ---------------------------------------------------------------------
-# HISTORICAL EVENT WINDOWS
-# ---------------------------------------------------------------------
-
-def build_event_windows(jesi_series):
-    """
-    Evaluate pre-specified year-to-year historical windows.
-
-    These are descriptive historical comparisons only.
-    No causal interpretation is imposed.
-    """
-
-    rows = []
-
-    for event in EVENT_WINDOWS:
-
-        from_year = event["from_year"]
-        to_year = event["to_year"]
-
-        for country_code in COUNTRIES:
-
-            country_data = jesi_series[
-                jesi_series["country_code"]
-                == country_code
-            ]
-
-            previous = country_data[
-                country_data["year"]
-                == from_year
-            ]
-
-            current = country_data[
-                country_data["year"]
-                == to_year
-            ]
-
-            if previous.empty or current.empty:
-                continue
-
-            previous_row = previous.iloc[0]
-            current_row = current.iloc[0]
-
-            row = {
-                "window": event["window"],
-                "description": event["description"],
-                "country_code": country_code,
-                "country": COUNTRY_NAMES[country_code],
-                "from_year": from_year,
-                "to_year": to_year,
-                "JESI_from": previous_row["JESI"],
-                "JESI_to": current_row["JESI"],
-                "JESI_change": (
-                    current_row["JESI"]
-                    - previous_row["JESI"]
-                ),
-                "JESI_pct_change": (
+                "JESI_percent_change": (
                     (
-                        current_row["JESI"]
-                        / previous_row["JESI"]
+                        current["JESI"]
+                        / previous["JESI"]
                     )
                     - 1.0
                 )
                 * 100.0,
             }
 
-            for pillar in PILLARS:
+            for pillar in ["G", "P", "C", "R", "A"]:
+                previous_value = previous[
+                    f"{pillar}_score"
+                ]
 
-                row[
-                    f"{pillar}_change"
-                ] = (
-                    current_row[pillar]
-                    - previous_row[pillar]
+                current_value = current[
+                    f"{pillar}_score"
+                ]
+
+                row[f"{pillar}_change"] = (
+                    current_value
+                    - previous_value
                 )
+
+                row[f"{pillar}_percent_change"] = (
+                    (
+                        current_value
+                        / previous_value
+                    )
+                    - 1.0
+                ) * 100.0
 
             rows.append(row)
 
     result = pd.DataFrame(rows)
 
-    if result.empty:
-        fail(
-            "Historical event-window analysis produced no rows."
-        )
+    print(
+        "Historical event-window analysis constructed."
+    )
 
     return result
 
 
-# ---------------------------------------------------------------------
-# WORLD BANK API
-# ---------------------------------------------------------------------
+# ============================================================
+# ROBUST WORLD BANK API FETCH
+# ============================================================
+
+def fetch_world_bank_json(url, params):
+    """
+    Fetch World Bank JSON with retry handling.
+
+    This function handles:
+    - connection timeouts
+    - read timeouts
+    - connection errors
+    - transient HTTP errors
+    - malformed/invalid JSON responses
+    """
+
+    last_error = None
+
+    for attempt in range(
+        1,
+        WORLD_BANK_MAX_RETRIES + 1,
+    ):
+        try:
+            print(
+                f"World Bank request attempt "
+                f"{attempt}/{WORLD_BANK_MAX_RETRIES}: "
+                f"{url}"
+            )
+
+            response = requests.get(
+                url,
+                params=params,
+                headers=WORLD_BANK_HEADERS,
+                timeout=(
+                    WORLD_BANK_CONNECT_TIMEOUT,
+                    WORLD_BANK_READ_TIMEOUT,
+                ),
+            )
+
+            response.raise_for_status()
+
+            payload = response.json()
+
+            if not isinstance(payload, list):
+                raise ValueError(
+                    "World Bank response is not a JSON list."
+                )
+
+            return payload
+
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.HTTPError,
+            ValueError,
+        ) as exc:
+
+            last_error = exc
+
+            print(
+                "World Bank request failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+            if attempt < WORLD_BANK_MAX_RETRIES:
+                delay = min(
+                    WORLD_BANK_BACKOFF_SECONDS
+                    * (2 ** (attempt - 1)),
+                    30,
+                )
+
+                print(
+                    f"Retrying after {delay} seconds..."
+                )
+
+                time.sleep(delay)
+
+    raise RuntimeError(
+        "World Bank API request failed after "
+        f"{WORLD_BANK_MAX_RETRIES} attempts. "
+        f"Last error: {last_error}"
+    )
+
 
 def fetch_world_bank_indicator(
     indicator_code,
-    indicator_name,
+    indicator_label,
 ):
     """
-    Download one independent external outcome indicator
-    from the World Bank WDI API.
+    Fetch one World Bank indicator country-by-country.
 
-    Only naturally returned observations are retained.
-    No interpolation or imputation is performed.
+    Country-by-country requests are deliberately used instead
+    of one large multi-country request to reduce API timeout risk.
     """
-
-    countries = ";".join(COUNTRIES)
-
-    url = (
-        "https://api.worldbank.org/v2/country/"
-        f"{countries}/indicator/{indicator_code}"
-    )
-
-    params = {
-        "format": "json",
-        "per_page": 1000,
-        "date": "2015:2024",
-    }
-
-    response = requests.get(
-        url,
-        params=params,
-        timeout=60,
-    )
-
-    response.raise_for_status()
-
-    payload = response.json()
-
-    if not isinstance(payload, list) or len(payload) < 2:
-        fail(
-            f"World Bank API returned an unexpected "
-            f"response for {indicator_code}."
-        )
-
-    records = payload[1]
 
     rows = []
 
-    for record in records:
+    for country_code in COUNTRY_CODES:
 
-        country_code = record.get(
-            "countryiso3code"
+        print(
+            f"Fetching World Bank indicator "
+            f"{indicator_code} for "
+            f"{country_code} "
+            f"({indicator_label})..."
         )
 
-        year_raw = record.get("date")
-        value = record.get("value")
-
-        if country_code not in COUNTRIES:
-            continue
-
-        if year_raw is None:
-            continue
-
-        year = int(year_raw)
-
-        if year not in FINAL_YEARS:
-            continue
-
-        numeric_value = pd.to_numeric(
-            value,
-            errors="coerce",
+        url = (
+            f"{WORLD_BANK_BASE_URL}/country/"
+            f"{country_code}/indicator/"
+            f"{indicator_code}"
         )
 
-        if pd.isna(numeric_value):
-            continue
+        params = {
+            "format": "json",
+            "date": f"{START_YEAR}:{END_YEAR}",
+            "per_page": 100,
+        }
 
-        rows.append(
-            {
-                "country_code": country_code,
-                "country": COUNTRY_NAMES[
-                    country_code
-                ],
-                "year": year,
-                "indicator_code": indicator_code,
-                "indicator": indicator_name,
-                "value": float(numeric_value),
-            }
+        payload = fetch_world_bank_json(
+            url,
+            params,
+        )
+
+        if len(payload) < 2:
+            raise RuntimeError(
+                "World Bank response does not contain "
+                f"data for {country_code}, "
+                f"indicator {indicator_code}."
+            )
+
+        records = payload[1]
+
+        if records is None:
+            raise RuntimeError(
+                "World Bank returned no records for "
+                f"{country_code}, "
+                f"indicator {indicator_code}."
+            )
+
+        for record in records:
+            year = pd.to_numeric(
+                record.get("date"),
+                errors="coerce",
+            )
+
+            value = record.get("value")
+
+            if pd.isna(year):
+                continue
+
+            year = int(year)
+
+            if (
+                year < START_YEAR
+                or year > END_YEAR
+            ):
+                continue
+
+            rows.append(
+                {
+                    "country_code": country_code,
+                    "year": year,
+                    "value": (
+                        pd.to_numeric(
+                            value,
+                            errors="coerce",
+                        )
+                    ),
+                }
+            )
+
+        # Small pause between countries to reduce
+        # rate-limit / transient connection risk.
+        time.sleep(
+            WORLD_BANK_COUNTRY_PAUSE_SECONDS
         )
 
     result = pd.DataFrame(rows)
 
     if result.empty:
-        fail(
-            f"No World Bank observations returned for "
-            f"{indicator_code}."
+        raise RuntimeError(
+            "World Bank returned no usable observations "
+            f"for indicator {indicator_code}."
         )
 
-    duplicate_mask = result.duplicated(
-        subset=[
-            "country_code",
-            "year",
-        ],
-        keep=False,
+    result = result.drop_duplicates(
+        subset=["country_code", "year"],
+        keep="first",
     )
-
-    if duplicate_mask.any():
-        fail(
-            f"Duplicate World Bank observations detected "
-            f"for {indicator_code}."
-        )
 
     return result
 
 
 def fetch_external_outcomes():
-    """
-    Retrieve the independent external validation outcomes.
-    """
+    """Fetch all independent World Bank validation outcomes."""
 
-    frames = []
-
-    for key, specification in EXTERNAL_INDICATORS.items():
-
-        frame = fetch_world_bank_indicator(
-            specification["code"],
-            specification["name"],
-        )
-
-        frame["outcome_key"] = key
-        frame["unit"] = specification["unit"]
-
-        frames.append(frame)
-
-    external = pd.concat(
-        frames,
-        ignore_index=True,
+    print(
+        "Fetching independent World Bank "
+        "external outcomes..."
     )
 
-    return external
+    result = None
 
+    for outcome_name, metadata in EXTERNAL_INDICATORS.items():
 
-# ---------------------------------------------------------------------
-# MERGE EXTERNAL OUTCOMES
-# ---------------------------------------------------------------------
-
-def merge_external_outcomes(
-    jesi_series,
-    external,
-):
-    """
-    Merge external outcomes with JESI historical observations.
-
-    Missing external observations remain missing.
-    """
-
-    wide = external.pivot(
-        index=[
-            "country_code",
-            "country",
-            "year",
-        ],
-        columns="outcome_key",
-        values="value",
-    ).reset_index()
-
-    result = pd.merge(
-        jesi_series,
-        wide,
-        on=[
-            "country_code",
-            "country",
-            "year",
-        ],
-        how="left",
-        validate="one_to_one",
-    )
-
-    result = result.sort_values(
-        [
-            "country_code",
-            "year",
-        ]
-    ).reset_index(drop=True)
-
-    for column in EXTERNAL_INDICATORS:
-
-        result[
-            f"{column}_change"
-        ] = (
-            result
-            .groupby("country_code")[column]
-            .diff()
+        indicator_df = fetch_world_bank_indicator(
+            metadata["code"],
+            metadata["label"],
         )
+
+        indicator_df = indicator_df.rename(
+            columns={
+                "value": outcome_name,
+            }
+        )
+
+        if result is None:
+            result = indicator_df
+        else:
+            result = result.merge(
+                indicator_df,
+                on=["country_code", "year"],
+                how="outer",
+                validate="one_to_one",
+            )
 
     return result
 
 
-# ---------------------------------------------------------------------
-# SPEARMAN CORRELATION
-# ---------------------------------------------------------------------
+# ============================================================
+# CORRELATION ANALYSIS
+# ============================================================
 
-def safe_spearman(
-    x,
-    y,
-):
-    """
-    Calculate Spearman correlation using naturally
-    observed complete pairs only.
-    """
+def safe_spearman(x, y):
+    """Calculate Spearman correlation safely."""
 
-    frame = pd.DataFrame(
+    data = pd.DataFrame(
         {
             "x": x,
             "y": y,
         }
     ).dropna()
 
-    n = len(frame)
+    n = len(data)
 
     if n < 3:
-        return {
-            "pairwise_n": n,
-            "spearman_rho": np.nan,
-            "spearman_p_value": np.nan,
-        }
+        return np.nan, n
 
-    if frame["x"].nunique() < 2:
-        return {
-            "pairwise_n": n,
-            "spearman_rho": np.nan,
-            "spearman_p_value": np.nan,
-        }
-
-    if frame["y"].nunique() < 2:
-        return {
-            "pairwise_n": n,
-            "spearman_rho": np.nan,
-            "spearman_p_value": np.nan,
-        }
-
-    rho, p_value = spearmanr(
-        frame["x"],
-        frame["y"],
+    rho, _ = spearmanr(
+        data["x"],
+        data["y"],
     )
 
-    return {
-        "pairwise_n": n,
-        "spearman_rho": rho,
-        "spearman_p_value": p_value,
-    }
+    return float(rho), n
 
 
-# ---------------------------------------------------------------------
-# CORRELATION ANALYSIS
-# ---------------------------------------------------------------------
-
-def build_correlations(validation_panel):
+def construct_correlations(
+    historical_panel,
+    external_outcomes,
+):
     """
-    Compare JESI with independent external outcomes.
-
-    Both levels and first differences are reported.
-
-    The correlations are descriptive validation evidence,
-    not causal estimates.
+    Calculate:
+    - country-year level Spearman correlations
+    - country-year first-difference Spearman correlations
+    - country-mean level Spearman correlations
     """
+
+    merged = historical_panel.merge(
+        external_outcomes,
+        on=["country_code", "year"],
+        how="left",
+        validate="one_to_one",
+    )
 
     rows = []
 
-    for outcome_key, specification in (
-        EXTERNAL_INDICATORS.items()
-    ):
+    outcomes = [
+        "unemployment",
+        "inflation",
+    ]
 
-        outcome_column = outcome_key
-        outcome_change_column = (
-            f"{outcome_key}_change"
-        )
+    # --------------------------------------------------------
+    # Country-year level correlations
+    # --------------------------------------------------------
 
-        # -------------------------------------------------------------
-        # Level correlation
-        # -------------------------------------------------------------
+    for outcome in outcomes:
 
-        level = safe_spearman(
-            validation_panel["JESI"],
-            validation_panel[outcome_column],
-        )
-
-        rows.append(
-            {
-                "outcome": specification["name"],
-                "indicator_code": specification["code"],
-                "analysis_type": "level",
-                "jesi_variable": "JESI",
-                "outcome_variable": outcome_column,
-                **level,
-            }
-        )
-
-        # -------------------------------------------------------------
-        # First-difference correlation
-        # -------------------------------------------------------------
-
-        change = safe_spearman(
-            validation_panel["JESI_change"],
-            validation_panel[
-                outcome_change_column
-            ],
+        rho, n = safe_spearman(
+            merged["JESI"],
+            merged[outcome],
         )
 
         rows.append(
             {
-                "outcome": specification["name"],
-                "indicator_code": specification["code"],
-                "analysis_type": "first_difference",
-                "jesi_variable": "JESI_change",
-                "outcome_variable": outcome_change_column,
-                **change,
+                "analysis_type": "country_year_level",
+                "outcome": outcome,
+                "correlation": rho,
+                "n": n,
             }
         )
 
-    # -------------------------------------------------------------
-    # Country-mean external outcome levels
-    # -------------------------------------------------------------
+    # --------------------------------------------------------
+    # First-difference correlations
+    # --------------------------------------------------------
+
+    diff = merged.sort_values(
+        ["country_code", "year"]
+    ).copy()
+
+    diff["JESI_diff"] = diff.groupby(
+        "country_code"
+    )["JESI"].diff()
+
+    for outcome in outcomes:
+        diff[f"{outcome}_diff"] = diff.groupby(
+            "country_code"
+        )[outcome].diff()
+
+        rho, n = safe_spearman(
+            diff["JESI_diff"],
+            diff[f"{outcome}_diff"],
+        )
+
+        rows.append(
+            {
+                "analysis_type": "country_year_first_difference",
+                "outcome": outcome,
+                "correlation": rho,
+                "n": n,
+            }
+        )
+
+    # --------------------------------------------------------
+    # Country-mean level correlations
+    # --------------------------------------------------------
 
     country_means = (
-        validation_panel
-        .groupby(
-            [
-                "country_code",
-                "country",
-            ],
+        merged.groupby(
+            "country_code",
             as_index=False,
-        )
-        .agg(
-            JESI_mean=("JESI", "mean"),
-            unemployment_mean=(
-                "unemployment_rate",
-                "mean",
-            ),
-            inflation_mean=(
-                "inflation_rate",
-                "mean",
-            ),
+        )[
+            [
+                "JESI",
+                "unemployment",
+                "inflation",
+            ]
+        ]
+        .mean(
+            numeric_only=True
         )
     )
 
-    for outcome_key, specification in (
-        EXTERNAL_INDICATORS.items()
-    ):
+    for outcome in outcomes:
 
-        column = (
-            "unemployment_mean"
-            if outcome_key
-            == "unemployment_rate"
-            else "inflation_mean"
-        )
-
-        level = safe_spearman(
-            country_means["JESI_mean"],
-            country_means[column],
+        rho, n = safe_spearman(
+            country_means["JESI"],
+            country_means[outcome],
         )
 
         rows.append(
             {
-                "outcome": specification["name"],
-                "indicator_code": specification["code"],
                 "analysis_type": "country_mean_level",
-                "jesi_variable": "JESI_mean",
-                "outcome_variable": column,
-                **level,
+                "outcome": outcome,
+                "correlation": rho,
+                "n": n,
             }
         )
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), merged
 
 
-# ---------------------------------------------------------------------
+# ============================================================
 # SUMMARY
-# ---------------------------------------------------------------------
+# ============================================================
 
-def build_summary(
-    jesi_series,
+def construct_summary(
+    theoretical_panel,
+    complete_panel,
     event_windows,
-    contribution_panel,
     correlations,
-    validation_panel,
 ):
-    """
-    Produce an audit-oriented historical-validation summary.
-    """
+    """Construct concise research-validation summary."""
 
-    total_theoretical = (
-        len(COUNTRIES)
-        * len(FINAL_YEARS)
-    )
+    summary_rows = [
+        {
+            "metric": "theoretical_panel_rows",
+            "value": len(theoretical_panel),
+        },
+        {
+            "metric": "complete_case_rows",
+            "value": len(complete_panel),
+        },
+        {
+            "metric": "countries",
+            "value": len(COUNTRY_CODES),
+        },
+        {
+            "metric": "historical_start_year",
+            "value": START_YEAR,
+        },
+        {
+            "metric": "historical_end_year",
+            "value": END_YEAR,
+        },
+        {
+            "metric": "event_window_count",
+            "value": len(event_windows),
+        },
+        {
+            "metric": "jesi_aggregation",
+            "value": "weighted_geometric",
+        },
+        {
+            "metric": "missing_data_treatment",
+            "value": "complete_case_only",
+        },
+        {
+            "metric": "imputation_used",
+            "value": False,
+        },
+        {
+            "metric": "interpolation_used",
+            "value": False,
+        },
+        {
+            "metric": "fabricated_observations",
+            "value": False,
+        },
+        {
+            "metric": "production_jesi_modified",
+            "value": False,
+        },
+    ]
 
-    complete_observations = len(
-        jesi_series
-    )
+    # Add selected correlations to summary.
+    for _, row in correlations.iterrows():
+        key = (
+            f"{row['analysis_type']}_"
+            f"{row['outcome']}_spearman"
+        )
 
-    annual_change_observations = (
-        jesi_series["JESI_change"]
-        .notna()
-        .sum()
-    )
-
-    max_decomposition_error = (
-        contribution_panel[
-            "decomposition_error"
-        ]
-        .abs()
-        .max()
-    )
-
-    external_pairs = (
-        correlations[
-            correlations["analysis_type"]
-            == "first_difference"
-        ]
-    )
-
-    return pd.DataFrame(
-        [
+        summary_rows.append(
             {
-                "theoretical_country_year_observations": (
-                    total_theoretical
-                ),
-                "complete_case_country_year_observations": (
-                    complete_observations
-                ),
-                "annual_JESI_change_observations": (
-                    annual_change_observations
-                ),
-                "historical_event_windows": (
-                    len(EVENT_WINDOWS)
-                ),
-                "countries": len(COUNTRIES),
-                "years_start": min(FINAL_YEARS),
-                "years_end": max(FINAL_YEARS),
-                "external_outcomes": len(
-                    EXTERNAL_INDICATORS
-                ),
-                "external_first_difference_tests": len(
-                    external_pairs
-                ),
-                "external_observed_pairs_total": int(
-                    external_pairs[
-                        "pairwise_n"
-                    ].sum()
-                ),
-                "max_pillar_decomposition_error": (
-                    max_decomposition_error
-                ),
-                "validation_scope": (
-                    "historical descriptive validation"
-                ),
-                "causal_inference": False,
-                "imputation_used": False,
-                "interpolation_used": False,
-                "fabrication_used": False,
-                "production_method_modified": False,
+                "metric": key,
+                "value": row["correlation"],
             }
-        ]
-    )
+        )
+
+        summary_rows.append(
+            {
+                "metric": (
+                    f"{row['analysis_type']}_"
+                    f"{row['outcome']}_n"
+                ),
+                "value": row["n"],
+            }
+        )
+
+    return pd.DataFrame(summary_rows)
 
 
-# ---------------------------------------------------------------------
-# RESEARCH REPORT
-# ---------------------------------------------------------------------
+# ============================================================
+# REPORT
+# ============================================================
 
-def build_report(
-    jesi_series,
+def write_report(
+    theoretical_panel,
+    complete_panel,
     event_windows,
-    contribution_panel,
+    pillar_contributions,
     correlations,
-    summary,
 ):
-    """
-    Create an audit-ready methodological report.
-    """
+    """Write the historical validation methodology report."""
 
     lines = []
 
     lines.append(
-        "# JESI Historical Validation"
+        "# JESI Historical Validation Report"
     )
     lines.append("")
 
     lines.append(
-        "## Validation status"
+        "## 1. Purpose"
     )
     lines.append("")
 
     lines.append(
-        "This analysis is a research-validation layer for "
-        "JAS Unified Economic Strength Index (JESI) Master Version 1.0."
+        "This report documents the historical validation layer "
+        "for the JAS Unified Economic Strength Index (JESI). "
+        "The analysis evaluates the behavior of the existing "
+        "production JESI over 2016–2023 and compares the index "
+        "with independent World Bank economic outcomes."
     )
     lines.append("")
 
     lines.append(
-        "It evaluates historical JESI behavior without modifying "
-        "the production methodology."
+        "## 2. Production methodology preserved"
     )
     lines.append("")
 
     lines.append(
-        "No imputation, interpolation, fabricated observations, "
-        "indicator removal, reweighting, or production-method "
-        "replacement is performed."
+        "The production JESI aggregation was not modified."
     )
     lines.append("")
 
     lines.append(
-        "## Production specification"
+        "Production aggregation:"
+    )
+    lines.append("")
+    lines.append(
+        "JESI = 100 × G^0.20 × P^0.25 × C^0.20 × "
+        "R^0.20 × A^0.15"
     )
     lines.append("")
 
     lines.append(
-        "The historical series uses the production weighted "
-        "geometric aggregation:"
+        "The historical validation script is a "
+        "research-validation layer only."
     )
     lines.append("")
 
     lines.append(
-        "JESI = 100 × G^0.20 × P^0.25 × C^0.20 × R^0.20 × A^0.15"
+        "## 3. Sample"
     )
     lines.append("")
 
     lines.append(
-        "The production weights remain unchanged throughout "
-        "the validation exercise."
+        f"- Countries: {', '.join(COUNTRIES.values())}"
+    )
+    lines.append(
+        f"- Period: {START_YEAR}–{END_YEAR}"
+    )
+    lines.append(
+        f"- Theoretical panel rows: "
+        f"{len(theoretical_panel)}"
+    )
+    lines.append(
+        f"- Complete-case rows: "
+        f"{len(complete_panel)}"
     )
     lines.append("")
 
     lines.append(
-        "## Analytical sample"
-    )
-    lines.append("")
-
-    lines.extend(
-        [
-            "- Countries: Bangladesh, India, Indonesia, Malaysia, Vietnam",
-            "- Historical period: 2016-2023",
-            "- Theoretical country-year observations: "
-            f"{summary.iloc[0]['theoretical_country_year_observations']}",
-            "- Complete-case observations: "
-            f"{summary.iloc[0]['complete_case_country_year_observations']}",
-            "- Missing-data treatment: complete-case only",
-            "",
-        ]
-    )
-
-    lines.append(
-        "The common historical period is constrained by the "
-        "available Productivity pillar series."
+        "Missing observations were not imputed, "
+        "interpolated, fabricated, or mechanically replaced."
     )
     lines.append("")
 
     lines.append(
-        "## Historical trajectory validation"
+        "## 4. Event-window validation"
     )
     lines.append("")
 
     lines.append(
-        "Historical JESI values and year-to-year changes are "
-        "reported by country and year."
+        "The following historical transitions were evaluated:"
+    )
+    lines.append("")
+
+    for from_year, to_year in EVENT_WINDOWS:
+        lines.append(
+            f"- {from_year} → {to_year}"
+        )
+
+    lines.append("")
+
+    lines.append(
+        "## 5. Pillar contribution decomposition"
     )
     lines.append("")
 
     lines.append(
-        "The annual change analysis is descriptive. "
-        "A change in JESI is not interpreted as proof that any "
-        "single pillar caused the change."
-    )
-    lines.append("")
-
-    lines.append(
-        "## Pillar contribution decomposition"
-    )
-    lines.append("")
-
-    lines.append(
-        "For each consecutive complete year, the change in "
-        "log(JESI) is decomposed according to:"
+        "JESI changes were decomposed using the log form:"
     )
     lines.append("")
 
@@ -1577,403 +1293,375 @@ def build_report(
     lines.append("")
 
     lines.append(
-        "This is an exact mathematical decomposition of the "
-        "production geometric index, subject to numerical tolerance. "
-        "It is not a causal attribution."
+        "The decomposition was independently checked "
+        f"with tolerance {CALC_TOLERANCE:.0e}."
     )
     lines.append("")
 
     lines.append(
-        "## Pre-specified historical windows"
+        "## 6. Independent external outcomes"
     )
     lines.append("")
 
-    lines.append(
-        event_windows.to_markdown(
-            index=False,
-            floatfmt=".6f",
+    for metadata in EXTERNAL_INDICATORS.values():
+        lines.append(
+            f"- {metadata['label']} "
+            f"({metadata['code']})"
         )
+
+    lines.append("")
+
+    lines.append(
+        "## 7. Correlation framework"
     )
     lines.append("")
 
     lines.append(
-        "The historical windows are pre-specified descriptive "
-        "comparisons. They are not treated as causal event-study "
-        "estimates."
+        "Spearman correlations were calculated for:"
     )
     lines.append("")
 
     lines.append(
-        "## Independent external outcomes"
+        "1. Country-year levels"
+    )
+    lines.append(
+        "2. Country-year first differences"
+    )
+    lines.append(
+        "3. Country-mean levels"
     )
     lines.append("")
 
     lines.append(
-        "Two World Bank World Development Indicators are used "
-        "as external validation outcomes:"
-    )
-    lines.append("")
-
-    lines.extend(
-        [
-            "- Unemployment rate: SL.UEM.TOTL.ZS",
-            "- Inflation, consumer prices: FP.CPI.TOTL.ZG",
-            "",
-        ]
-    )
-
-    lines.append(
-        "Neither external outcome is used to construct JESI."
+        "These correlations are descriptive validation "
+        "evidence and should not be interpreted as proof "
+        "of causality."
     )
     lines.append("")
 
     lines.append(
-        "## External-outcome correlations"
+        "## 8. Methodological safeguards"
+    )
+    lines.append("")
+
+    safeguards = [
+        "No imputation.",
+        "No interpolation.",
+        "No fabricated observations.",
+        "No automatic indicator removal.",
+        "No reweighting.",
+        "No production JESI overwrite.",
+        "No automatic aggregation-method selection.",
+        "Complete-case historical validation only.",
+    ]
+
+    for safeguard in safeguards:
+        lines.append(f"- {safeguard}")
+
+    lines.append("")
+
+    lines.append(
+        "## 9. Important interpretation limits"
     )
     lines.append("")
 
     lines.append(
-        correlations.to_markdown(
-            index=False,
-            floatfmt=".6f",
+        "Historical validation provides empirical evidence "
+        "about whether JESI behavior is associated with "
+        "selected external economic outcomes over the "
+        "observed sample. It does not establish causal "
+        "relationships."
+    )
+    lines.append("")
+
+    lines.append(
+        "The sample contains five countries and a limited "
+        "historical period. Therefore, correlation estimates "
+        "should be interpreted as validation evidence within "
+        "this sample rather than universal estimates."
+    )
+    lines.append("")
+
+    lines.append(
+        "Country-mean correlations have an especially small "
+        "cross-sectional sample size."
+    )
+    lines.append("")
+
+    lines.append(
+        "## 10. Research status"
+    )
+    lines.append("")
+
+    lines.append(
+        "This analysis is part of the empirical validation "
+        "sequence of JESI. It does not by itself constitute "
+        "the final methodological judgment."
+    )
+    lines.append("")
+
+    lines.append(
+        "The broader methodological sequence remains:"
+    )
+    lines.append("")
+
+    lines.append(
+        "JESI Concept → Pillar validity → Indicator validity → "
+        "Redundancy/Correlation → Normalization sensitivity → "
+        "Weight sensitivity → Aggregation sensitivity → "
+        "Historical validation → Final methodological judgment"
+    )
+    lines.append("")
+
+    lines.append(
+        "## 11. Correlation results"
+    )
+    lines.append("")
+
+    if correlations.empty:
+        lines.append(
+            "No correlation results were available."
         )
+    else:
+        lines.append(
+            correlations.to_markdown(index=False)
+        )
+
+    lines.append("")
+
+    lines.append(
+        "## 12. Event-window count"
     )
     lines.append("")
 
     lines.append(
-        "The reported Spearman correlations describe statistical "
-        "association in the available observations. They do not "
-        "establish causality, predictive validity, or a universal "
-        "direction of effect."
+        f"Constructed event-window observations: "
+        f"{len(event_windows)}"
     )
     lines.append("")
 
     lines.append(
-        "First-difference correlations are especially useful as a "
-        "supplement because they examine co-movement rather than "
-        "only cross-country level differences."
+        "## 13. Pillar contribution observations"
     )
     lines.append("")
 
     lines.append(
-        "## Methodological limitations"
+        f"Constructed contribution observations: "
+        f"{len(pillar_contributions)}"
     )
     lines.append("")
 
-    lines.extend(
-        [
-            "1. The historical sample contains five countries.",
-            "2. The common historical period is limited by the available "
-            "Productivity pillar series.",
-            "3. External outcome availability may differ across "
-            "country-years.",
-            "4. Spearman correlations are descriptive and do not "
-            "establish causality.",
-            "5. Historical event windows are not causal event-study "
-            "estimates.",
-            "6. External outcomes can themselves be affected by many "
-            "factors unrelated to JESI.",
-            "7. Historical validation is one component of the broader "
-            "JESI methodological validation sequence.",
-            "",
-        ]
+    OUTPUT_REPORT.write_text(
+        "\n".join(lines),
+        encoding="utf-8",
     )
 
-    lines.append(
-        "## Validation sequence position"
-    )
-    lines.append("")
 
-    lines.append(
-        "This historical validation follows the earlier "
-        "conceptual, pillar, indicator, redundancy/correlation, "
-        "normalization-sensitivity, weight-sensitivity, and "
-        "aggregation-sensitivity stages."
-    )
-    lines.append("")
-
-    lines.append(
-        "The final methodological judgment should only be made "
-        "after the complete empirical evidence from these stages "
-        "has been reviewed together."
-    )
-    lines.append("")
-
-    lines.append(
-        "## Numerical integrity"
-    )
-    lines.append("")
-
-    lines.append(
-        "The pillar contribution decomposition was independently "
-        "checked against the production JESI log-change identity "
-        "using a numerical tolerance of 1e-10."
-    )
-    lines.append("")
-
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------
+# ============================================================
 # MAIN
-# ---------------------------------------------------------------------
+# ============================================================
 
 def main():
-
-    print("=" * 78)
+    print("=" * 70)
     print("JESI HISTORICAL VALIDATION")
-    print("=" * 78)
-
-    # ---------------------------------------------------------------
-    # Validate production weights.
-    # ---------------------------------------------------------------
+    print("=" * 70)
 
     validate_weights()
 
-    print()
-    print("Production weights validated.")
+    # --------------------------------------------------------
+    # 1. Build historical pillar panel
+    # --------------------------------------------------------
 
-    # ---------------------------------------------------------------
-    # Build historical pillar panel.
-    # ---------------------------------------------------------------
-
-    print()
-    print(
-        "Loading persisted pillar-score sources..."
+    theoretical_panel, complete_panel = (
+        build_historical_panel()
     )
 
-    panel = build_pillar_panel()
+    # --------------------------------------------------------
+    # 2. Construct production JESI
+    # --------------------------------------------------------
 
-    print(
-        f"Historical theoretical panel rows: {len(panel)}"
+    complete_panel = construct_jesi(
+        complete_panel
     )
 
-    # ---------------------------------------------------------------
-    # Complete-case panel.
-    # ---------------------------------------------------------------
+    # --------------------------------------------------------
+    # 3. Pillar contribution decomposition
+    # --------------------------------------------------------
 
-    complete_panel = (
-        build_complete_case_panel(
-            panel
-        )
-    )
-
-    print(
-        "Historical complete-case rows: "
-        f"{len(complete_panel)}"
-    )
-
-    # ---------------------------------------------------------------
-    # Calculate production JESI.
-    # ---------------------------------------------------------------
-
-    jesi_series = (
-        build_jesi_series(
+    pillar_contributions = (
+        construct_pillar_contributions(
             complete_panel
         )
     )
 
-    print(
-        "Historical JESI series constructed."
+    # --------------------------------------------------------
+    # 4. Historical event windows
+    # --------------------------------------------------------
+
+    event_windows = construct_event_windows(
+        complete_panel
     )
 
-    # ---------------------------------------------------------------
-    # Pillar contribution decomposition.
-    # ---------------------------------------------------------------
+    # --------------------------------------------------------
+    # 5. Independent World Bank outcomes
+    # --------------------------------------------------------
 
-    contribution_panel = (
-        build_pillar_contributions(
-            jesi_series
+    external_outcomes = fetch_external_outcomes()
+
+    # --------------------------------------------------------
+    # 6. Correlations
+    # --------------------------------------------------------
+
+    correlations, merged_panel = (
+        construct_correlations(
+            complete_panel,
+            external_outcomes,
         )
     )
 
-    print(
-        "Pillar contribution decomposition: PASSED"
+    # --------------------------------------------------------
+    # 7. Summary
+    # --------------------------------------------------------
+
+    summary = construct_summary(
+        theoretical_panel,
+        complete_panel,
+        event_windows,
+        correlations,
     )
 
-    # ---------------------------------------------------------------
-    # Historical event windows.
-    # ---------------------------------------------------------------
+    # --------------------------------------------------------
+    # 8. Write country-year output
+    # --------------------------------------------------------
 
-    event_windows = (
-        build_event_windows(
-            jesi_series
-        )
+    country_year_output = merged_panel.copy()
+
+    country_year_output["country"] = (
+        country_year_output["country_code"]
+        .map(COUNTRIES)
     )
 
-    print(
-        "Historical event-window analysis constructed."
+    country_year_output = country_year_output[
+        [
+            "country_code",
+            "country",
+            "year",
+            "G_score",
+            "P_score",
+            "C_score",
+            "R_score",
+            "A_score",
+            "JESI",
+            "unemployment",
+            "inflation",
+        ]
+    ].sort_values(
+        ["country_code", "year"]
     )
 
-    # ---------------------------------------------------------------
-    # External outcomes.
-    # ---------------------------------------------------------------
-
-    print()
-    print(
-        "Fetching independent World Bank external outcomes..."
-    )
-
-    external = fetch_external_outcomes()
-
-    print(
-        f"External observations retrieved: {len(external)}"
-    )
-
-    # ---------------------------------------------------------------
-    # Merge.
-    # ---------------------------------------------------------------
-
-    validation_panel = (
-        merge_external_outcomes(
-            jesi_series,
-            external,
-        )
-    )
-
-    # ---------------------------------------------------------------
-    # Correlations.
-    # ---------------------------------------------------------------
-
-    correlations = (
-        build_correlations(
-            validation_panel
-        )
-    )
-
-    print(
-        "External-outcome correlation analysis constructed."
-    )
-
-    # ---------------------------------------------------------------
-    # Summary.
-    # ---------------------------------------------------------------
-
-    summary = (
-        build_summary(
-            jesi_series,
-            event_windows,
-            contribution_panel,
-            correlations,
-            validation_panel,
-        )
-    )
-
-    # ---------------------------------------------------------------
-    # Output directory.
-    # ---------------------------------------------------------------
-
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    # ---------------------------------------------------------------
-    # Persist outputs.
-    # ---------------------------------------------------------------
-
-    validation_panel.to_csv(
-        COUNTRY_YEAR_OUTPUT,
+    country_year_output.to_csv(
+        OUTPUT_COUNTRY_YEAR,
         index=False,
     )
+
+    # --------------------------------------------------------
+    # 9. Write event-window output
+    # --------------------------------------------------------
 
     event_windows.to_csv(
-        EVENT_OUTPUT,
+        OUTPUT_EVENT_WINDOWS,
         index=False,
     )
 
-    contribution_panel.to_csv(
-        PILLAR_CONTRIBUTION_OUTPUT,
+    # --------------------------------------------------------
+    # 10. Write pillar contribution output
+    # --------------------------------------------------------
+
+    pillar_contributions.to_csv(
+        OUTPUT_PILLAR_CONTRIBUTIONS,
         index=False,
     )
+
+    # --------------------------------------------------------
+    # 11. Write correlation output
+    # --------------------------------------------------------
 
     correlations.to_csv(
-        CORRELATION_OUTPUT,
+        OUTPUT_CORRELATIONS,
         index=False,
     )
+
+    # --------------------------------------------------------
+    # 12. Write summary output
+    # --------------------------------------------------------
 
     summary.to_csv(
-        SUMMARY_OUTPUT,
+        OUTPUT_SUMMARY,
         index=False,
     )
 
-    report = build_report(
-        jesi_series,
+    # --------------------------------------------------------
+    # 13. Write report
+    # --------------------------------------------------------
+
+    write_report(
+        theoretical_panel,
+        complete_panel,
         event_windows,
-        contribution_panel,
+        pillar_contributions,
         correlations,
-        summary,
     )
 
-    REPORT_OUTPUT.write_text(
-        report,
-        encoding="utf-8",
-    )
+    # --------------------------------------------------------
+    # 14. Final checks
+    # --------------------------------------------------------
 
-    # ---------------------------------------------------------------
-    # Numerical integrity.
-    # ---------------------------------------------------------------
+    required_outputs = [
+        OUTPUT_COUNTRY_YEAR,
+        OUTPUT_EVENT_WINDOWS,
+        OUTPUT_PILLAR_CONTRIBUTIONS,
+        OUTPUT_CORRELATIONS,
+        OUTPUT_SUMMARY,
+        OUTPUT_REPORT,
+    ]
 
-    max_error = (
-        contribution_panel[
-            "decomposition_error"
-        ]
-        .abs()
-        .max()
-    )
+    for output in required_outputs:
+        if not output.exists():
+            raise FileNotFoundError(
+                f"Expected output was not created: {output}"
+            )
 
-    if max_error > 1e-10:
-        fail(
-            "Final numerical integrity validation failed."
-        )
-
-    print()
-    print("=" * 78)
-    print("HISTORICAL VALIDATION SUMMARY")
-    print("=" * 78)
+    print("")
+    print("=" * 70)
+    print("JESI HISTORICAL VALIDATION COMPLETED")
+    print("=" * 70)
 
     print(
-        summary.to_string(
-            index=False
-        )
+        f"Country-year observations: "
+        f"{len(country_year_output)}"
     )
-
-    print()
-    print("External correlations:")
 
     print(
-        correlations.to_string(
-            index=False
-        )
+        f"Event-window observations: "
+        f"{len(event_windows)}"
     )
 
-    print()
+    print(
+        f"Pillar contribution observations: "
+        f"{len(pillar_contributions)}"
+    )
+
+    print("")
+    print("Correlation summary:")
+    print(
+        correlations.to_string(index=False)
+    )
+
+    print("")
     print("Output files:")
 
-    print(
-        f"  - {COUNTRY_YEAR_OUTPUT}"
-    )
-    print(
-        f"  - {EVENT_OUTPUT}"
-    )
-    print(
-        f"  - {PILLAR_CONTRIBUTION_OUTPUT}"
-    )
-    print(
-        f"  - {CORRELATION_OUTPUT}"
-    )
-    print(
-        f"  - {SUMMARY_OUTPUT}"
-    )
-    print(
-        f"  - {REPORT_OUTPUT}"
-    )
-
-    print()
-    print(
-        "Historical validation: PASSED"
-    )
-    print("=" * 78)
+    for output in required_outputs:
+        print(f"- {output.relative_to(BASE_DIR)}")
 
 
 if __name__ == "__main__":
