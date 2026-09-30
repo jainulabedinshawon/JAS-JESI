@@ -174,51 +174,121 @@ Strategic autonomy is therefore understood as:
 
 9. Indicator Normalization
 
-Because the underlying indicators have different units and scales, each indicator must be normalized before pillar construction.
+Because the underlying indicators have different units, scales, distributions, and directional meanings, each indicator is transformed to a comparable 0–1 score before pillar construction.
 
-Positive-direction indicators
+The Master Version 1.0 production specification uses pillar-specific normalization procedures, fixed according to the documented production implementation. The production normalization method is not a generic min-max procedure applied uniformly across all pillars.
 
-For indicators where a higher value represents better structural performance:
+9.1 Growth (G) — Pooled Percentile Normalization
 
-[
-X_{norm} =
-\frac{X-X_{min}}
-{X_{max}-X_{min}}
-]
+Growth indicators are normalized using pooled percentile normalization across the documented production country-year sample.
 
-Negative-direction indicators
+For each Growth indicator, the percentile rank of an observation within the pooled reference distribution is used as its normalized score.
 
-For indicators where a lower value represents better structural performance:
+This approach places country-year observations on a common relative scale while reducing direct dependence on the absolute units of the underlying indicator.
 
-[
-X_{norm} =
-\frac{X_{max}-X}
-{X_{max}-X_{min}}
-]
+9.2 Productivity (P) — Pooled Percentile Normalization
 
-The benchmark period and reference population used to determine minimum and maximum values must be explicitly documented.
+Productivity indicators are normalized using pooled percentile normalization across the documented production country-year sample.
+
+Each valid observation is converted to its percentile position within the pooled reference distribution before pillar aggregation.
+
+The procedure is applied consistently to the Productivity indicators used in the production specification.
+
+9.3 Connectivity (C) — Pooled Percentile Normalization
+
+Connectivity indicators are normalized using pooled percentile normalization across the documented production country-year sample.
+
+Higher values are treated according to the documented economic direction of each indicator, with the resulting percentile scores transformed to the common 0–1 scale.
+
+9.4 Resilience (R) — Min-Max Normalization with P10–P90 Reference Zone
+
+Resilience indicators use a min-max normalization framework combined with a P10–P90 reference-zone specification.
+
+The P10 and P90 observations define the principal reference zone for interpreting the indicator distribution. Values are transformed to the common 0–1 scale according to the documented direction of the indicator and the production implementation.
+
+This specification is particularly relevant for Resilience because neither uniformly higher nor uniformly lower values are necessarily economically optimal for all resilience indicators. The reference-zone approach therefore avoids interpreting extreme observations as automatically representing proportionally better structural resilience.
+
+9.5 Strategic Autonomy (A) — P10–P90 Min-Max Normalization
+
+Strategic Autonomy indicators use P10–P90 min-max normalization.
+
+The 10th and 90th percentile observations define the reference bounds used for scaling. Observations are transformed to the 0–1 scale according to the documented economic direction of each indicator.
+
+This approach reduces the influence of extreme observations while preserving the relative position of observations within the economically relevant reference range.
+
+9.6 Directionality
+
+Normalization preserves the intended economic direction of each indicator.
+
+For positive-direction indicators, higher underlying values correspond to higher normalized scores.
+
+For negative-direction indicators, higher underlying values correspond to lower normalized scores.
+
+For indicators whose interpretation requires a reference-zone rather than a simple monotonic assumption, the production transformation follows the documented pillar-specific normalization procedure.
+
+9.7 Production Normalization Specification
+
+The complete production normalization specification for Master Version 1.0 is therefore:
+
+Pillar| Production normalization
+Growth (G)| Pooled percentile
+Productivity (P)| Pooled percentile
+Connectivity (C)| Pooled percentile
+Resilience (R)| Min-max with P10–P90 reference-zone
+Strategic Autonomy (A)| P10–P90 min-max
+
+These procedures constitute the baseline production normalization specification for JESI Master Version 1.0.
+
+No undocumented normalization, interpolation, winsorization, or alternative transformation is introduced into the baseline production calculation.
+
+Alternative normalization methods are evaluated separately through robustness and sensitivity analysis and do not automatically replace the production specification.
 
 ---
 
 10. Benchmark Protocol
 
-The normalization benchmark must be fixed before final index construction.
+The JESI Master Version 1.0 benchmark is defined by the documented production country-year sample and the corresponding normalization procedures specified in Section 9.
 
-Possible approaches include:
+The production specification does not use a single universal minimum-maximum benchmark for all pillars.
 
-- Historical global benchmark
-- Fixed reference-period benchmark
-- Rolling benchmark
-- Percentile-based normalization
-- Rank-based normalization
+Instead, benchmark construction is pillar-specific:
 
-The baseline implementation should use a clearly documented fixed benchmark.
+- Growth uses the pooled country-year reference distribution for percentile normalization.
+- Productivity uses the pooled country-year reference distribution for percentile normalization.
+- Connectivity uses the pooled country-year reference distribution for percentile normalization.
+- Resilience uses the documented P10–P90 reference zone within its min-max normalization procedure.
+- Strategic Autonomy uses P10–P90 bounds within its min-max normalization procedure.
 
-Sensitivity analysis should compare alternative normalization approaches.
+The benchmark population and period must therefore be interpreted together with the documented production sample and data-coverage rules.
 
-Extreme observations should be examined for their effect on the final index.
+The baseline benchmark is fixed for the production calculation once the production dataset and normalization procedure have been established. Subsequent changes to the benchmark definition constitute alternative specifications and must be evaluated through sensitivity analysis rather than silently incorporated into the baseline index.
 
-Winsorization or percentile-based methods may be evaluated where appropriate.
+10.1 Benchmark Stability
+
+The effect of benchmark selection is evaluated separately from the baseline JESI calculation.
+
+Sensitivity analysis may compare:
+
+- Alternative normalization methods
+- Alternative benchmark periods
+- Alternative reference populations
+- Alternative treatment of extreme observations
+- Alternative defensible indicator specifications
+
+The purpose of this analysis is to determine whether substantive empirical findings are materially dependent on the benchmark construction.
+
+10.2 Production versus Sensitivity Specifications
+
+The production JESI calculation must preserve the documented baseline normalization procedures.
+
+Sensitivity specifications are analytical tests of methodological dependence. They must not automatically modify the baseline production index.
+
+Any alternative normalization or benchmark specification used in robustness analysis must be explicitly identified, reproducibly calculated, and reported separately from the production result.
+
+The benchmark protocol therefore establishes a clear distinction between:
+
+1. Production specification — the fixed normalization procedures used to calculate the Master Version 1.0 baseline JESI; and
+2. Sensitivity specifications — alternative normalization or benchmark procedures used to test methodological robustness.
 
 ---
 
