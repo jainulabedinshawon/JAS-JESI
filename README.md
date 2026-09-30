@@ -832,3 +832,31 @@ License
 The source code in this repository is released under the MIT License.
 
 Methodological text, documentation, and future research outputs may be subject to separate attribution and publication terms where applicable.
+
+<!-- JESI_FINAL_RESULTS_START -->
+
+## JESI Final Empirical Results
+
+The following table is generated automatically from the validated
+JESI Master Version 1.0 empirical results.
+
+**Study period:** 2016-2023  
+**Benchmark countries:** 5  
+**Aggregation:** Weighted geometric mean  
+**Baseline weights:** G 0.20, P 0.25, C 0.20, R 0.20, A 0.15
+
+|   Rank | Code   | Country    |   Growth |   Productivity |   Connectivity |   Resilience |   Strategic Autonomy |   JESI |
+|-------:|:-------|:-----------|---------:|---------------:|---------------:|-------------:|---------------------:|-------:|
+|      1 | MYS    | Malaysia   |    0.323 |          0.713 |          0.762 |        0.767 |                0.687 | 59.231 |
+|      2 | VNM    | Vietnam    |    0.602 |          0.469 |          0.823 |        0.69  |                0.482 | 57.161 |
+|      3 | IND    | India      |    0.618 |          0.562 |          0.372 |        0.852 |                0.271 | 48.644 |
+|      4 | IDN    | Indonesia  |    0.353 |          0.562 |          0.406 |        0.804 |                0.361 | 46.865 |
+|      5 | BGD    | Bangladesh |    0.701 |          0.237 |          0.157 |        0.796 |                0.274 | 34.464 |
+
+> **Research note:** JESI is a proposed composite economic-strength
+> framework. These results are specific to the documented methodology,
+> benchmark sample, data sources, normalization rules, weighting scheme,
+> and study period. They should not be interpreted as an established
+> international standard or as a causal measure of economic performance.
+
+<!-- JESI_FINAL_RESULTS_END -->
