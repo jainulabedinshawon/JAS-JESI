@@ -2,43 +2,15 @@ JAS Unified Economic Strength Index (JESI)
 
 A Data-Driven Framework for Measuring Structural Economic Strength
 
-JAS-JESI (JAS Unified Economic Strength Index) is a proposed multidimensional analytical framework designed to assess the structural strength of an economy beyond conventional measures of economic size such as Gross Domestic Product (GDP).
+JAS-JESI (JAS Unified Economic Strength Index) is a proposed multidimensional analytical framework designed to assess structural economic strength beyond conventional measures of economic size such as Gross Domestic Product (GDP).
 
-The framework conceptualizes economic strength as the interaction of five structural dimensions:
+The framework conceptualizes economic strength through five structural dimensions:
 
 «Growth × Productivity × Connectivity × Resilience × Strategic Autonomy»
 
-The project aims to translate this conceptual framework into a reproducible empirical index using internationally comparable economic data and transparent statistical methodology.
+The project is being developed as a reproducible empirical research framework using internationally comparable economic data and transparent statistical methodology.
 
----
-
-Abstract
-
-Conventional measures such as GDP primarily describe the size of an economy. However, economic size alone does not fully capture an economy's productive efficiency, global integration, capacity to absorb shocks, or ability to preserve strategic economic choice.
-
-The JAS Unified Economic Strength Index (JESI) proposes a multidimensional framework based on five pillars: Growth (G), Productivity (P), Connectivity (C), Resilience (R), and Strategic Autonomy (A).
-
-The Master Version 1.0 specifies a weighted multiplicative index:
-
-[
-JESI =
-100 \times
-G^{0.20}
-\times
-P^{0.25}
-\times
-C^{0.20}
-\times
-R^{0.20}
-\times
-A^{0.15}
-]
-
-Each pillar is constructed from normalized economic indicators.
-
-This repository develops the empirical implementation of the framework using real-world international economic data. The research program includes data acquisition, indicator construction, normalization, index calculation, cross-country comparison, historical back-testing, sensitivity analysis, alternative weighting schemes, and robustness testing.
-
-The framework is explicitly treated as a proposed analytical framework, rather than an established international statistical index. Its empirical validity, predictive usefulness, and robustness remain subjects of investigation.
+JESI is explicitly treated as a proposed analytical framework, not as an established international statistical index. Its empirical validity, robustness, explanatory usefulness, and methodological stability remain subjects of investigation.
 
 ---
 
@@ -52,19 +24,19 @@ An economy may have:
 - rapid growth but low resilience,
 - strong global connectivity but excessive external dependency,
 - substantial resources but limited economic complexity,
-- or high income but significant strategic vulnerabilities.
+- or high income but significant structural vulnerabilities.
 
 JESI therefore asks a broader question:
 
 «How strong is the underlying economic system, rather than simply how large is it?»
 
-The framework seeks to evaluate an economy's capacity to:
+The framework evaluates five dimensions:
 
-1. Grow,
-2. Produce efficiently,
-3. Connect to global markets and networks,
-4. Absorb economic shocks,
-5. Preserve strategic economic choice.
+1. Growth
+2. Productivity
+3. Connectivity
+4. Resilience
+5. Strategic Autonomy
 
 ---
 
@@ -74,14 +46,16 @@ The central research question is:
 
 «Can a multidimensional index combining Growth, Productivity, Connectivity, Resilience, and Strategic Autonomy provide a meaningful empirical measure of structural economic strength across countries and over time?»
 
-Secondary questions include:
+The empirical research program examines:
 
-- Does JESI provide information that GDP size alone does not capture?
-- Are countries with higher JESI scores more resilient during major economic shocks?
-- How sensitive are country rankings to indicator selection and weighting?
-- Does the proposed multiplicative structure outperform simpler aggregation methods?
-- Are the five pillars empirically distinguishable?
-- How stable is JESI across different periods and normalization methods?
+- whether the five pillars are empirically distinguishable,
+- whether indicators contain substantial redundancy,
+- how sensitive results are to normalization choices,
+- how sensitive results are to pillar weights,
+- how sensitive results are to aggregation methods,
+- and how the resulting index behaves in historical validation exercises.
+
+These are empirical questions and are not treated as established conclusions in advance.
 
 ---
 
@@ -91,35 +65,35 @@ JESI consists of five structural pillars.
 
 G — Growth
 
-Measures the economy's capacity to expand and improve economic welfare.
+Measures the economy's capacity to expand.
 
 Proposed indicators:
 
 - Real GDP Growth Rate
 - GNI per Capita Growth
 
-Weight: 20%
+Strategic weight: 20%
 
 ---
 
 P — Productivity
 
-Measures the efficiency with which labor and other productive factors generate economic output.
+Measures the efficiency with which productive resources generate economic output.
 
 Proposed indicators:
 
 - GDP per Person Employed
 - Total Factor Productivity (TFP) Growth
 
-Weight: 25%
+Strategic weight: 25%
 
-Productivity receives the highest initial strategic weight because sustained improvements in living standards and productive capacity ultimately depend heavily on efficiency and technological capability.
+Productivity receives the highest initial strategic weight in Master Version 1.0. This is a theoretical specification and is subject to empirical weight-sensitivity testing.
 
 ---
 
 C — Connectivity
 
-Measures integration with international trade, investment, technology and information networks.
+Measures integration with international trade, investment, technology, and information networks.
 
 Proposed indicators:
 
@@ -127,17 +101,17 @@ Proposed indicators:
 - FDI Inflows
 - ICT & Global Integration
 
-Weight: 20%
+Strategic weight: 20%
 
-Connectivity represents access to markets, capital, technology, knowledge and international economic networks.
+Connectivity represents access to markets, capital, technology, knowledge, and international economic networks.
 
-However, high connectivity does not automatically imply high resilience. Excessive concentration or dependency may increase vulnerability. This relationship will therefore be examined empirically.
+High connectivity is not automatically interpreted as high resilience. Concentration and external dependency are examined separately.
 
 ---
 
 R — Resilience
 
-Measures the ability of an economy to absorb and withstand economic and external shocks.
+Measures the capacity of an economy to absorb and withstand economic and external shocks.
 
 Proposed indicators:
 
@@ -145,40 +119,35 @@ Proposed indicators:
 - Public Debt / GDP
 - Current Account Position
 
-Weight: 20%
+Strategic weight: 20%
 
-The empirical implementation will avoid assuming that every resilience indicator has a simple linear "higher is always better" relationship.
-
-For example, debt sustainability depends on factors including economic growth, interest rates, maturity structure, currency composition and fiscal capacity.
-
-Similarly, both persistent current-account deficits and unusually large surpluses may reflect structural distortions. Alternative specifications will therefore be evaluated.
+The empirical implementation does not assume that every resilience indicator has a simple linear "higher is always better" relationship.
 
 ---
 
 A — Strategic Autonomy
 
-Measures an economy's capacity to preserve strategic economic choice while remaining globally connected.
+Measures the capacity to preserve strategic economic choice while remaining globally connected.
 
 Proposed indicators:
 
 - Economic Complexity Index (ECI)
-- High-Tech Exports as % of Manufactured Exports
-- Critical Import Concentration
+- High-Tech Exports
+- Import Product Concentration
 
-Weight: 15%
+Strategic weight: 15%
 
 Strategic autonomy does not mean economic isolation or autarky.
 
-It refers to the ability to maintain productive capability, technological capacity and economic choice while reducing excessive dependence on concentrated critical external sources.
+It refers to productive capability, technological capacity, diversification, and the ability to preserve economic choice while reducing excessive dependence on concentrated external sources.
 
 ---
 
 4. Core Mathematical Specification
 
-The Master Version 1.0 is:
+Master Version 1.0 specifies:
 
 [
-\boxed{
 JESI =
 100 \times
 G^{0.20}
@@ -190,7 +159,6 @@ C^{0.20}
 R^{0.20}
 \times
 A^{0.15}
-}
 ]
 
 where:
@@ -199,13 +167,15 @@ where:
 0 \leq G,P,C,R,A \leq 1
 ]
 
-The weights satisfy:
+and:
 
 [
 0.20+0.25+0.20+0.20+0.15=1
 ]
 
-The multiplicative structure means that weaknesses in one structural dimension can materially reduce the aggregate index.
+The production JESI currently uses a weighted geometric aggregation.
+
+The research-validation layer separately evaluates the sensitivity of the production results to alternative methodological specifications.
 
 ---
 
@@ -219,25 +189,11 @@ In general:
 Pillar_j=f(X_{1j},X_{2j},...,X_{nj})
 ]
 
-The initial implementation will evaluate both:
+The methodological framework considers alternative aggregation approaches, including arithmetic and geometric aggregation.
 
-Arithmetic aggregation
+The production specification is preserved during research-validation analysis.
 
-[
-Pillar =
-\sum_{i=1}^{n} w_iX_i
-]
-
-and:
-
-Geometric aggregation
-
-[
-Pillar =
-\prod_{i=1}^{n}X_i^{w_i}
-]
-
-The preferred method will be determined through methodological and robustness testing rather than assumed in advance.
+Validation scripts do not automatically replace the production methodology.
 
 ---
 
@@ -245,9 +201,7 @@ The preferred method will be determined through methodological and robustness te
 
 Because the underlying indicators have different units and scales, they must be transformed into a common range.
 
-Positive-direction indicators
-
-For indicators where higher values are structurally preferable:
+For positive-direction indicators:
 
 [
 X_{norm}=
@@ -255,9 +209,7 @@ X_{norm}=
 {X_{max}-X_{min}}
 ]
 
-Negative-direction indicators
-
-For indicators where lower values are structurally preferable:
+For negative-direction indicators:
 
 [
 X_{norm}=
@@ -265,29 +217,15 @@ X_{norm}=
 {X_{max}-X_{min}}
 ]
 
-The empirical implementation will document the directional assumption for every indicator.
+The directional assumption for each indicator is documented in the empirical implementation.
+
+Normalization sensitivity is evaluated separately in Script 45.
 
 ---
 
-7. Benchmark and Outlier Protocol
+7. Weighting Methodology
 
-Simple minimum-maximum normalization can be highly sensitive to extreme observations.
-
-Therefore, the empirical project will test alternative approaches including:
-
-- Full-sample min-max normalization
-- Winsorized min-max normalization
-- Percentile-based normalization
-- Rank-based approaches
-- Fixed benchmark ranges where theoretically justified
-
-The benchmark period will be documented and kept consistent for comparable cross-country analysis.
-
----
-
-8. Weighting Methodology
-
-Master Version 1.0 uses the following strategic baseline:
+Master Version 1.0 uses the following baseline pillar weights:
 
 Pillar| Weight
 Growth| 20%
@@ -296,234 +234,499 @@ Connectivity| 20%
 Resilience| 20%
 Strategic Autonomy| 15%
 
-Alternative specifications will be tested.
+The research-validation program tests alternative specifications without automatically replacing the production weights.
 
-Model A — JAS Strategic Weights
-
-20 / 25 / 20 / 20 / 15
-
-Model B — Equal Weights
-
-20 / 20 / 20 / 20 / 20
-
-Model C — Statistical Weights
-
-Potential methods include:
-
-- Principal Component Analysis (PCA)
-- Factor-based approaches
-- Multivariate statistical methods
-- Predictive-validity-based weighting
-
-Statistical weighting will be treated as an alternative empirical specification rather than automatically replacing theoretical weights.
+Current weight-sensitivity analysis is implemented in Script 46.
 
 ---
 
-9. Data Sources
+8. Data Sources
 
-The empirical implementation will prioritize internationally comparable datasets.
+The empirical implementation prioritizes internationally comparable datasets.
 
-Potential sources include:
+Current and intended sources include:
 
 - World Bank
 - International Monetary Fund (IMF)
 - UNCTAD
-- Other recognized international statistical databases
+- Other recognized international statistical databases where required
 
-The repository will document:
+The repository documents, where applicable:
 
-- Indicator definitions
-- Source databases
-- API endpoints where applicable
-- Retrieval dates
-- Country codes
-- Units
-- Transformation procedures
-- Missing-data treatment
+- indicator definitions,
+- source databases,
+- retrieval procedures,
+- country codes,
+- units,
+- transformations,
+- missing-data treatment,
+- and validation procedures.
+
+Raw datasets subject to third-party licensing are not necessarily redistributed.
 
 ---
 
-10. Empirical Strategy
+9. Empirical Research Pipeline
 
-The research pipeline will follow:
+The empirical implementation follows the general process:
 
-Raw International Data
+International Source Data
+        ↓
+Data Acquisition
         ↓
 Data Cleaning
         ↓
 Indicator Construction
         ↓
-Missing-Data Treatment
-        ↓
 Normalization
         ↓
-Pillar Aggregation
+Pillar Construction
         ↓
-JESI Calculation
+Production JESI Calculation
         ↓
-Cross-Country Comparison
+Research Validation
         ↓
-Historical Back-Testing
+Robustness Analysis
         ↓
-Sensitivity Analysis
+Historical Validation
         ↓
-Robustness Testing
+Final Methodological Judgment
 
-The objective is to make the entire analytical process reproducible.
+The production calculation and research-validation layers are kept conceptually separate.
 
 ---
 
-11. Historical Back-Testing
+10. Research-Validation Sequence
 
-The framework will be evaluated against historical economic shocks.
+The current research-validation sequence is:
 
-Potential episodes include:
+Script 44 — Indicator Redundancy / Correlation
 
-- Global Financial Crisis
-- Major commodity-price shocks
-- COVID-19 economic shock
-- Foreign-exchange and balance-of-payments crises
-- Major country-specific economic stress episodes
+"scripts/44_analyze_indicator_redundancy.py"
 
-The analysis will investigate whether pre-shock JESI values are associated with subsequent economic resilience.
+Purpose:
 
-The project will not assume causality merely because a statistical association exists.
+- evaluate relationships among persisted indicator-score representations,
+- calculate Pearson and Spearman relationships,
+- retain pairwise sample sizes,
+- examine missingness,
+- identify potential redundancy-review flags.
 
----
+This is a research-validation layer only.
 
-12. Predictive and Explanatory Testing
-
-Potential empirical outcomes include:
-
-Cross-sectional analysis
-
-[
-JESI_{i,t}
-]
-
-will be compared across countries.
-
-Time-series analysis
-
-[
-JESI_{i,t}
-]
-
-will be examined across years.
-
-Shock-response analysis
-
-Pre-shock JESI may be compared with subsequent:
-
-- GDP contraction
-- investment performance
-- employment performance
-- inflation pressure
-- external-balance stress
-- recovery speed
-
-Where sufficient data exist, regression and out-of-sample tests may be used.
+It does not automatically remove indicators, reweight pillars, impute observations, or modify production JESI.
 
 ---
 
-13. Robustness Testing
+Script 45 — Normalization Sensitivity
 
-The framework will be tested under alternative assumptions.
+"scripts/45_normalization_sensitivity.py"
 
-Key tests include:
+Purpose:
 
-- Alternative weights
-- Alternative normalization methods
-- Alternative aggregation methods
-- Alternative indicator sets
-- Different benchmark periods
-- Outlier treatment
-- Missing-data treatment
-- Pillar exclusion tests
-- Country-sample changes
+- evaluate sensitivity to alternative normalization specifications,
+- compare the production baseline with alternative normalization approaches,
+- examine country-year and country-level sensitivity,
+- assess rank relationships across specifications.
 
-A major objective is to determine whether conclusions remain reasonably stable when methodological assumptions change.
+The production normalization is not automatically replaced.
 
 ---
 
-14. Missing Data
+Script 46 — Weight Sensitivity
+
+"scripts/46_weight_sensitivity.py"
+
+Purpose:
+
+- evaluate sensitivity to alternative pillar-weight specifications,
+- compare the Master Version 1.0 strategic weights with alternative weighting structures,
+- examine country-year results and rank relationships.
+
+The production weights remain unchanged.
+
+---
+
+Script 47 — Aggregation Sensitivity
+
+"scripts/47_aggregation_sensitivity.py"
+
+Purpose:
+
+- evaluate sensitivity to alternative aggregation functions,
+- preserve the same pillar scores,
+- preserve the production weights,
+- preserve the production normalization,
+- preserve the documented missing-data treatment.
+
+The production aggregation method is not automatically replaced.
+
+---
+
+Script 48 — Historical Validation
+
+"scripts/48_historical_validation.py"
+
+Purpose:
+
+- reconstruct the production JESI historical series,
+- evaluate historical event windows,
+- decompose JESI changes into pillar contributions,
+- compare JESI with independent World Bank outcomes,
+- calculate level and first-difference Spearman correlations.
+
+Historical validation is treated as empirical validation evidence rather than proof of causality.
+
+---
+
+11. Methodological Sequence
+
+The methodological sequence is intentionally preserved:
+
+«JESI Concept → Pillar validity → Indicator validity → Redundancy/Correlation → Normalization sensitivity → Weight sensitivity → Aggregation sensitivity → Historical validation → Final methodological judgment»
+
+This sequence is a core methodological requirement of the project.
+
+Research-validation scripts are not intended to bypass this sequence or prematurely produce a final methodological judgment.
+
+---
+
+12. Research-Validation Principles
+
+The research-validation layer follows several safeguards:
+
+- No fabricated observations.
+- No silent replacement of missing observations.
+- No automatic indicator deletion.
+- No automatic reweighting.
+- No automatic production-methodology replacement.
+- No undocumented methodological changes.
+- No interpretation of correlation as proof of causality.
+- Production JESI remains separate from alternative validation specifications.
+
+Where a sensitivity analysis identifies an issue, the finding is treated as methodological evidence to be reviewed rather than automatically converted into a production change.
+
+---
+
+13. Historical Validation
+
+Historical validation evaluates the behavior of the existing production JESI over the documented historical sample.
+
+The analysis may examine:
+
+- historical economic stress periods,
+- changes in JESI over time,
+- pillar-level contributions,
+- relationships with independent economic outcomes,
+- and event-window behavior.
+
+Historical association does not by itself establish causality.
+
+The historical-validation layer therefore reports empirical relationships together with their sample and methodological limitations.
+
+---
+
+14. Robustness Testing
+
+The broader JESI robustness program includes evaluation of:
+
+- indicator redundancy,
+- normalization sensitivity,
+- weight sensitivity,
+- aggregation sensitivity,
+- missing-data treatment,
+- alternative specifications,
+- sample sensitivity,
+- historical validation,
+- and other methodological assumptions where appropriate.
+
+The objective is to determine how stable the empirical results are when methodological assumptions change.
+
+---
+
+15. Missing Data
 
 International datasets frequently contain incomplete observations.
 
-The empirical implementation will document missing-data procedures rather than silently replacing missing values.
+The repository documents missing-data procedures rather than silently replacing missing values.
 
-Possible approaches include:
+Depending on the specific research-validation task, the project may use:
 
-- Complete-case analysis
-- Limited interpolation for appropriate time-series variables
-- Cross-sectional imputation where justified
-- Pillar-level minimum data requirements
-- Explicit uncertainty flags
+- complete-case analysis,
+- explicitly documented time-series procedures where justified,
+- cross-sectional procedures where justified,
+- pillar-level data requirements,
+- explicit missingness reporting.
 
-No imputation method will be applied universally without evaluating its effect on results.
+No universal imputation method is assumed.
+
+Research-validation scripts may deliberately restrict analysis to complete-case observations when required by the methodological design.
 
 ---
 
-15. GDP Size vs Economic Strength
+16. GDP Size vs Economic Strength
 
 A central proposition of JESI is:
 
 «GDP SIZE ≠ ECONOMIC STRENGTH»
 
-GDP primarily asks:
+GDP primarily describes the size of an economy.
 
-«How large is the economy?»
+JESI is designed to examine a broader structural combination of:
 
-JESI asks:
+- growth,
+- productivity,
+- connectivity,
+- resilience,
+- and strategic autonomy.
 
-«How strong is the economic system?»
-
-An economy can therefore have:
-
-- high GDP but low resilience,
-- high growth but low productivity,
-- high connectivity but excessive concentration,
-- or moderate GDP but strong structural resilience and autonomy.
-
-JESI is designed to capture these multidimensional differences.
+The empirical research program is intended to determine how useful this multidimensional representation is rather than assuming its superiority in advance.
 
 ---
 
-16. Research Hypotheses
+17. Research Hypotheses
 
-The empirical project may test the following hypotheses.
+The project may empirically examine propositions concerning:
 
 H1 — Structural Strength
 
-Higher JESI is positively associated with broader measures of structural economic performance.
+Whether higher JESI is associated with broader measures of structural economic performance.
 
 H2 — Resilience
 
-Higher JESI is associated with smaller economic deterioration during major external shocks.
+Whether higher JESI is associated with smaller economic deterioration during selected external shocks.
 
 H3 — Recovery
 
-Higher JESI is associated with faster post-shock economic recovery.
+Whether higher JESI is associated with faster post-shock recovery.
 
 H4 — Beyond GDP
 
-JESI provides information about economic resilience and structure that is not fully captured by GDP size alone.
+Whether JESI contains structural information not fully represented by GDP size alone.
 
 H5 — Robustness
 
-The principal cross-country conclusions remain reasonably stable under alternative weighting and normalization specifications.
+Whether principal empirical relationships remain reasonably stable under alternative methodological specifications.
 
-These hypotheses are empirical propositions and are not treated as established facts.
+These are empirical propositions, not established findings.
 
 ---
 
-17. Limitations
+18. Current Empirical-Validation Status
 
-JESI has several potential limitations.
+Current project stage: Empirical Construction + Validation
+
+The repository currently contains the production JESI implementation together with a dedicated research-validation sequence covering:
+
+1. Indicator redundancy / correlation — Script 44
+2. Normalization sensitivity — Script 45
+3. Weight sensitivity — Script 46
+4. Aggregation sensitivity — Script 47
+5. Historical validation — Script 48
+
+The corresponding GitHub Actions workflows are also present for these validation stages.
+
+The validation program is ongoing.
+
+The project has not yet converted these validation stages into a final methodological judgment.
+
+Therefore:
+
+«JESI remains a proposed analytical framework under empirical validation.»
+
+No claim of universal superiority, predictive superiority, or causal validity is made merely from the existence of the current production results.
+
+---
+
+19. Reproducibility
+
+A core objective of the repository is:
+
+«Retrieve → Process → Calculate → Reproduce → Evaluate»
+
+The codebase is structured so that the transformation from source data to production JESI and research-validation outputs can be inspected and reproduced.
+
+Where permitted by data-provider licensing, users should be able to reproduce the analysis using the repository's code and documented data sources.
+
+---
+
+20. Installation
+
+Clone the repository:
+
+git clone https://github.com/jainulabedinshawon/JAS-JESI.git
+cd JAS-JESI
+
+Create a virtual environment:
+
+python -m venv .venv
+
+Activate it.
+
+Windows
+
+.venv\Scripts\activate
+
+Linux / macOS
+
+source .venv/bin/activate
+
+Install the repository dependencies:
+
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+The research-validation scripts additionally use scientific-computing dependencies:
+
+pip install numpy scipy
+
+---
+
+21. Running the Production Validation Pipeline
+
+The main production workflow is:
+
+GitHub Actions → Final JESI Pipeline
+
+It is designed to validate the production repository pipeline and related outputs.
+
+The production pipeline should not be confused with the separate research-validation sequence.
+
+---
+
+22. Running Research Validation
+
+Each research-validation stage has a dedicated GitHub Actions workflow.
+
+Script 44
+
+python scripts/44_analyze_indicator_redundancy.py
+
+Workflow:
+
+Indicator Redundancy Analysis
+
+Script 45
+
+python scripts/45_normalization_sensitivity.py
+
+Workflow:
+
+JESI Normalization Sensitivity
+
+Script 46
+
+python scripts/46_weight_sensitivity.py
+
+Workflow:
+
+JESI Weight Sensitivity
+
+Script 47
+
+python scripts/47_aggregation_sensitivity.py
+
+Workflow:
+
+JESI Aggregation Sensitivity
+
+Script 48
+
+python scripts/48_historical_validation.py
+
+Workflow:
+
+JESI Historical Validation
+
+The intended research order remains:
+
+44 → 45 → 46 → 47 → 48
+
+followed by:
+
+Final Methodological Judgment
+
+---
+
+23. Current Repository Structure
+
+The current repository contains the following core structure:
+
+JAS-JESI/
+│
+├── README.md
+├── DATA_LICENSES.md
+├── requirements.txt
+├── .gitignore
+│
+├── methodology/
+│   └── JESI_Master_V1.0.md
+│
+├── data/
+│   ├── raw/
+│   ├── processed/
+│   └── results/
+│
+├── src/
+│   ├── __init__.py
+│   ├── data_download.py
+│   ├── data_cleaning.py
+│   ├── normalization.py
+│   ├── pillar_construction.py
+│   ├── jesi_calculation.py
+│   └── robustness_tests.py
+│
+├── scripts/
+│   ├── 44_analyze_indicator_redundancy.py
+│   ├── 45_normalization_sensitivity.py
+│   ├── 46_weight_sensitivity.py
+│   ├── 47_aggregation_sensitivity.py
+│   └── 48_historical_validation.py
+│
+├── tests/
+│   └── test_jesi.py
+│
+└── .github/
+    └── workflows/
+        ├── python-app.yml
+        ├── final-jesi.yml
+        ├── indicator-redundancy.yml
+        ├── normalization-sensitivity.yml
+        ├── weight-sensitivity.yml
+        ├── aggregation-sensitivity.yml
+        └── historical-validation.yml
+
+Additional data files and research outputs are maintained under the relevant "data/" directories.
+
+---
+
+24. Production Results Snapshot
+
+The current production repository contains the following JESI empirical results for the documented production sample.
+
+Study period: 2016–2023
+Benchmark countries: 5
+Aggregation: Weighted geometric mean
+Baseline weights: G 0.20, P 0.25, C 0.20, R 0.20, A 0.15
+
+Rank| Code| Country| Growth| Productivity| Connectivity| Resilience| Strategic Autonomy| JESI
+1| MYS| Malaysia| 0.323| 0.713| 0.762| 0.767| 0.687| 59.231
+2| VNM| Vietnam| 0.602| 0.469| 0.823| 0.690| 0.482| 57.161
+3| IND| India| 0.618| 0.562| 0.372| 0.852| 0.271| 48.644
+4| IDN| Indonesia| 0.353| 0.562| 0.406| 0.804| 0.361| 46.865
+5| BGD| Bangladesh| 0.701| 0.237| 0.157| 0.796| 0.274| 34.464
+
+«Research note: These are production JESI results for the documented methodology, sample, data, normalization rules, weights, aggregation method, and study period. They are not presented as an established international standard, nor as proof of causal economic relationships.»
+
+---
+
+25. Limitations
+
+JESI has several methodological limitations that are subject to ongoing evaluation.
 
 Measurement limitations
 
-Some concepts, particularly strategic autonomy and economic connectivity, cannot be perfectly represented by a small number of indicators.
+Concepts such as strategic autonomy and economic connectivity cannot be perfectly represented by a small number of indicators.
 
 Data limitations
 
@@ -536,145 +739,60 @@ International datasets may contain:
 
 Weighting limitations
 
-The initial weights are theoretically motivated rather than empirically proven universal weights.
-
-Causality limitations
-
-A correlation between JESI and economic outcomes does not by itself establish causation.
+The Master Version 1.0 weights are theoretically motivated and are subject to empirical sensitivity testing.
 
 Normalization limitations
 
-Country rankings can change depending on benchmark selection and treatment of outliers.
+Country-level results may vary depending on normalization and benchmark assumptions.
 
-These limitations will be explicitly evaluated rather than hidden.
+Causality limitations
+
+Statistical association does not by itself establish causation.
+
+These limitations are treated as research questions rather than hidden assumptions.
 
 ---
 
-18. Expected Research Contribution
+26. Expected Research Contribution
 
-The project aims to contribute a structured framework for examining economic strength as a multidimensional system.
+The project aims to develop a transparent, reproducible framework for examining economic strength as a multidimensional system.
 
-Its potential contributions include:
+Potential contributions include:
 
 1. Moving beyond GDP-size comparisons.
-2. Combining productive, external, resilience and strategic dimensions.
-3. Providing a transparent mathematical specification.
+2. Combining productive, external, resilience, and strategic dimensions.
+3. Providing an explicit mathematical specification.
 4. Developing reproducible country-level calculations.
-5. Testing the framework against historical economic shocks.
+5. Testing the framework against historical economic conditions.
 6. Evaluating methodological robustness.
-7. Creating an open computational implementation.
+7. Maintaining an open computational implementation.
 
-The ultimate value of JESI will depend on the results of empirical validation.
-
----
-
-19. Reproducibility
-
-A core objective of this repository is:
-
-«Retrieve → Process → Calculate → Reproduce → Evaluate»
-
-The codebase will document the transformation from source data to final JESI scores.
-
-Where permitted by data-provider licensing, users should be able to reproduce the analysis using the repository's code and documented data sources.
-
-Raw datasets subject to third-party licensing will not necessarily be redistributed; instead, the repository may provide retrieval scripts and source references.
+The ultimate research contribution depends on the outcome of empirical validation.
 
 ---
 
-20. Planned Repository Structure
-
-JAS-JESI/
-│
-├── README.md
-├── LICENSE
-├── .gitignore
-│
-├── methodology/
-│   └── JESI_Master_V1.0.pdf
-│
-├── data/
-│   ├── raw/
-│   └── processed/
-│
-├── src/
-│   ├── data_download.py
-│   ├── data_cleaning.py
-│   ├── normalization.py
-│   ├── pillar_construction.py
-│   ├── jesI_calculation.py
-│   └── robustness_tests.py
-│
-├── notebooks/
-│   ├── JESI_Data_Exploration.ipynb
-│   └── JESI_Backtesting.ipynb
-│
-└── results/
-    ├── country_scores.csv
-    ├── rankings.csv
-    └── charts/
-
----
-
-21. Development Roadmap
-
-Master Version 1.0
-
-Theoretical Specification
-
-- Five-pillar architecture
-- Mathematical formulation
-- Initial indicators
-- Strategic weighting
-
-Empirical Version 1.1
-
-Data Implementation
-
-- World Bank / IMF data pipeline
-- Automated data retrieval
-- Indicator construction
-- Normalization
-- Country-level JESI calculation
-
-Validation Version 1.5
-
-Empirical Testing
-
-- Cross-country analysis
-- Historical back-testing
-- Sensitivity analysis
-- Alternative weighting
-- Robustness testing
-
-JESI Version 2.0
-
-Empirically Refined Framework
-
-Potential improvements based on evidence:
-
-- Validated indicator set
-- Refined aggregation methodology
-- Empirically evaluated weighting
-- Improved resilience measures
-- Expanded country/time coverage
-- Out-of-sample validation
-
----
-
-22. Research Status
+27. Research Status and Interpretation
 
 «JESI is a proposed JAS analytical framework, not an established international statistical index.»
 
-The framework has not yet been empirically validated as a universally superior measure of economic strength.
+The current repository contains a production empirical implementation and an expanding research-validation layer.
 
-Claims regarding predictive power, causal relationships, or superiority over existing indices should only be made after appropriate statistical testing.
+The existence of production scores does not by itself establish:
+
+- universal validity,
+- causal relationships,
+- predictive superiority,
+- or methodological superiority over existing indices.
+
+Those questions require appropriate empirical evidence.
+
+The final methodological judgment will be made only after the complete validation sequence has been evaluated.
 
 ---
 
-23. Guiding Principle
+28. Guiding Principle
 
-«An economy should not be judged by its size alone. Its true strength lies in its ability to grow, produce efficiently, connect globally, absorb shocks and preserve strategic economic choice.»
+«An economy should not be judged by its size alone. Its structural strength should be examined through its ability to grow, produce efficiently, connect globally, absorb shocks, and preserve strategic economic choice.»
 
 — JAS
 
@@ -684,32 +802,4 @@ License
 
 The source code in this repository is released under the MIT License.
 
-Methodological text, documentation and future research outputs may be subject to separate attribution and publication terms where applicable.
-
-<!-- JESI_FINAL_RESULTS_START -->
-
-## JESI Final Empirical Results
-
-The following table is generated automatically from the validated
-JESI Master Version 1.0 empirical results.
-
-**Study period:** 2016-2023  
-**Benchmark countries:** 5  
-**Aggregation:** Weighted geometric mean  
-**Baseline weights:** G 0.20, P 0.25, C 0.20, R 0.20, A 0.15
-
-|   Rank | Code   | Country    |   Growth |   Productivity |   Connectivity |   Resilience |   Strategic Autonomy |   JESI |
-|-------:|:-------|:-----------|---------:|---------------:|---------------:|-------------:|---------------------:|-------:|
-|      1 | MYS    | Malaysia   |    0.323 |          0.713 |          0.762 |        0.767 |                0.687 | 59.231 |
-|      2 | VNM    | Vietnam    |    0.602 |          0.469 |          0.823 |        0.69  |                0.482 | 57.161 |
-|      3 | IND    | India      |    0.618 |          0.562 |          0.372 |        0.852 |                0.271 | 48.644 |
-|      4 | IDN    | Indonesia  |    0.353 |          0.562 |          0.406 |        0.804 |                0.361 | 46.865 |
-|      5 | BGD    | Bangladesh |    0.701 |          0.237 |          0.157 |        0.796 |                0.274 | 34.464 |
-
-> **Research note:** JESI is a proposed composite economic-strength
-> framework. These results are specific to the documented methodology,
-> benchmark sample, data sources, normalization rules, weighting scheme,
-> and study period. They should not be interpreted as an established
-> international standard or as a causal measure of economic performance.
-
-<!-- JESI_FINAL_RESULTS_END -->
+Methodological text, documentation, and future research outputs may be subject to separate attribution and publication terms where applicable.
