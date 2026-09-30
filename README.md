@@ -512,29 +512,37 @@ These are empirical propositions, not established findings.
 
 ---
 
-18. Current Empirical-Validation Status
+18. Final Empirical-Validation Status
 
-Current project stage: Empirical Construction + Validation
+Current project stage: Empirical Validation Program Completed — Master Version 1.0
 
-The repository currently contains the production JESI implementation together with a dedicated research-validation sequence covering:
+The documented empirical validation sequence for JESI Master Version 1.0 has been completed for the current production specification, sample, data coverage, and validation design.
 
-1. Indicator redundancy / correlation — Script 44
-2. Normalization sensitivity — Script 45
-3. Weight sensitivity — Script 46
-4. Aggregation sensitivity — Script 47
+The completed validation sequence was:
+
+1. Indicator redundancy and correlation analysis — Script 44
+2. Normalization sensitivity analysis — Script 45
+3. Pillar-weight sensitivity analysis — Script 46
+4. Aggregation sensitivity analysis — Script 47
 5. Historical validation — Script 48
 
-The corresponding GitHub Actions workflows are also present for these validation stages.
+The validation program preserved the production JESI methodology and did not automatically modify production indicators, pillar weights, normalization, aggregation, or missing-data treatment.
 
-The validation program is ongoing.
+The completed validation program provides empirical evidence relevant to the framework's internal coherence, methodological robustness, and historical empirical relevance within the tested research design. The evidence remains conditional on the documented five-country, 2016–2023 sample, available data, complete-case requirements, and external validation measures.
 
-The project has not yet converted these validation stages into a final methodological judgment.
+Historical associations are not interpreted as causal effects. The current evidence does not establish universal validity, predictive superiority, or superiority over alternative economic indices.
 
-Therefore:
+Final Methodological Status
 
-«JESI remains a proposed analytical framework under empirical validation.»
+«JESI is an empirically supported but not universally validated multidimensional framework for assessing structural economic strength.»
 
-No claim of universal superiority, predictive superiority, or causal validity is made merely from the existence of the current production results.
+This is the final methodological judgment for the current Master Version 1.0 empirical validation phase.
+
+The completion of the empirical validation phase does not mean that JESI is an established international statistical index or that future scientific testing is unnecessary.
+
+Future research may extend the evidence base through broader country coverage, longer historical periods, additional external outcomes, predictive testing, independent replication, and further methodological research.
+
+The completion of the empirical validation phase therefore represents a methodological milestone, not the end of scientific testing.
 
 ---
 
