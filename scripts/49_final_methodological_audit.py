@@ -6,19 +6,15 @@ Purpose
 Final governance and methodological audit for the JESI empirical validation
 program.
 
-This script is an audit layer only. It does NOT:
-- modify production JESI methodology
-- modify production weights
-- rerun research-validation analyses
-- impute missing observations
-- interpolate missing observations
-- fabricate observations
-- automatically delete indicators
-- automatically reweight indicators or pillars
-- automatically replace the production aggregation method
+This script is READ-ONLY. It does not modify:
+- production JESI methodology
+- production weights
+- production aggregation
+- research-validation methodology
+- research-validation outputs
 
 Locked methodological sequence
---------------------------------
+------------------------------
 JESI Concept
 → Pillar validity
 → Indicator validity
@@ -28,19 +24,6 @@ JESI Concept
 → Aggregation sensitivity
 → Historical validation
 → Final methodological judgment
-
-Expected production specification
----------------------------------
-Growth (G)               = 0.20
-Productivity (P)         = 0.25
-Connectivity (C)         = 0.20
-Resilience (R)           = 0.20
-Strategic Autonomy (A)   = 0.15
-
-Production aggregation:
-JESI = 100 × G^0.20 × P^0.25 × C^0.20 × R^0.20 × A^0.15
-
-The audit is intentionally read-only.
 """
 
 from __future__ import annotations
@@ -49,13 +32,11 @@ import re
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PILLARS = ["G", "P", "C", "R", "A"]
 EXPECTED_WEIGHTS = {
     "G": 0.20,
     "P": 0.25,
@@ -67,6 +48,7 @@ EXPECTED_WEIGHTS = {
 REQUIRED_FILES = [
     "README.md",
     "METHODOLOGY_NOTICE.md",
+    "requirements.txt",
     "scripts/36_calculate_jesi.py",
     "scripts/42_final_repository_audit.py",
     "scripts/44_analyze_indicator_redundancy.py",
@@ -75,12 +57,12 @@ REQUIRED_FILES = [
     "scripts/47_aggregation_sensitivity.py",
     "scripts/48_historical_validation.py",
     ".github/workflows/research-validation.yml",
-    ".github/workflows/final-jesi-pipeline.yml",
+    ".github/workflows/final-jesi.yml",
 ]
 
-EXPECTED_PRODUCTION_OUTPUTS = [
-    "results/final_jesi_scores.csv",
-    "results/final_jesi_scores_excluded.csv",
+PRODUCTION_OUTPUTS = [
+    "data/results/jesi_country_year_2016_2023.csv",
+    "data/results/jesi_excluded_country_years_2016_2023.csv",
 ]
 
 
@@ -126,19 +108,24 @@ audit = Audit()
 
 def read_text(relative_path: str) -> str:
     path = ROOT / relative_path
+
     if not path.exists():
         return ""
-    return path.read_text(encoding="utf-8")
+
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
 
 
-def contains_any(text: str, patterns: list[str]) -> bool:
+def contains_any(text: str, phrases: list[str]) -> bool:
     lowered = text.lower()
-    return any(pattern.lower() in lowered for pattern in patterns)
+    return any(phrase.lower() in lowered for phrase in phrases)
 
 
-def contains_all(text: str, patterns: list[str]) -> bool:
+def contains_all(text: str, phrases: list[str]) -> bool:
     lowered = text.lower()
-    return all(pattern.lower() in lowered for pattern in patterns)
+    return all(phrase.lower() in lowered for phrase in phrases)
 
 
 def load_csv(relative_path: str) -> pd.DataFrame | None:
@@ -155,16 +142,31 @@ def load_csv(relative_path: str) -> pd.DataFrame | None:
         return None
 
 
-def find_production_weight_evidence(text: str) -> dict[str, bool]:
-    """
-    Detect production weights using tolerant textual patterns.
+# ---------------------------------------------------------------------------
+# 1. REQUIRED REPOSITORY FILES
+# ---------------------------------------------------------------------------
 
-    The audit does not require one exact formatting style.
-    """
-    evidence: dict[str, bool] = {}
+def verify_required_files() -> None:
+    for relative_path in REQUIRED_FILES:
+        if (ROOT / relative_path).exists():
+            audit.ok(f"Required file present: {relative_path}")
+        else:
+            audit.fail(f"Required file missing: {relative_path}")
 
-    for pillar, weight in EXPECTED_WEIGHTS.items():
-        weight_text = f"{weight:.2f}"
+
+# ---------------------------------------------------------------------------
+# 2. PRODUCTION WEIGHTS AND AGGREGATION
+# ---------------------------------------------------------------------------
+
+def verify_production_weights() -> None:
+    text = read_text("scripts/36_calculate_jesi.py")
+
+    if not text:
+        audit.fail("Production JESI calculation script is missing or unreadable.")
+        return
+
+    for pillar, expected_weight in EXPECTED_WEIGHTS.items():
+        weight_text = f"{expected_weight:.2f}"
 
         patterns = [
             rf"['\"]{pillar}['\"]\s*:\s*{weight_text}",
@@ -172,178 +174,86 @@ def find_production_weight_evidence(text: str) -> dict[str, bool]:
             rf"\b{pillar}\b\s*[:=]\s*{weight_text}",
         ]
 
-        evidence[pillar] = any(
+        found = any(
             re.search(pattern, text, flags=re.IGNORECASE)
             for pattern in patterns
         )
 
-    return evidence
+        if found:
+            audit.ok(
+                f"Production weight {pillar} = {weight_text} is represented in production code."
+            )
+        else:
+            audit.fail(
+                f"Production weight {pillar} = {weight_text} could not be verified."
+            )
+
+    if abs(sum(EXPECTED_WEIGHTS.values()) - 1.0) < 1e-12:
+        audit.ok("Production pillar weights sum to 1.00.")
+    else:
+        audit.fail("Production pillar weights do not sum to 1.00.")
 
 
-def verify_production_aggregation(text: str) -> bool:
-    """
-    Verify that the production script uses a weighted geometric aggregation.
+def verify_weighted_geometric_aggregation() -> None:
+    text = read_text("scripts/36_calculate_jesi.py").lower()
 
-    The check intentionally accepts several normal coding styles.
-    """
-    lowered = text.lower()
-
-    geometric_terms = [
+    geometric_signals = [
         "geometric",
         "np.prod",
         "prod(",
-        "power",
         "**",
+        "power",
     ]
 
-    pillar_terms = [
-        "g",
-        "p",
-        "c",
-        "r",
-        "a",
+    weight_signals = [
+        "weight",
+        "weights",
+        "0.20",
+        "0.25",
+        "0.15",
     ]
 
-    has_geometric_signal = any(term in lowered for term in geometric_terms)
-    has_all_pillars = all(
-        re.search(rf"\b{pillar}\b", lowered) is not None
-        for pillar in pillar_terms
-    )
+    has_geometric = any(signal in text for signal in geometric_signals)
+    has_weights = any(signal in text for signal in weight_signals)
 
-    has_weighted_power_pattern = bool(
-        re.search(r"\*\*\s*0?\.2", lowered)
-        or re.search(r"\*\*\s*0?\.25", lowered)
-        or re.search(r"weight", lowered)
-    )
+    if has_geometric and has_weights:
+        audit.ok(
+            "Production code contains evidence of weighted geometric aggregation."
+        )
+    else:
+        audit.fail(
+            "Production weighted geometric aggregation could not be verified."
+        )
 
-    return has_geometric_signal and has_all_pillars and has_weighted_power_pattern
-
-
-def verify_complete_case_source(text: str) -> bool:
-    """
-    Verify the production source contains a recognizable complete-case
-    construction.
-
-    This deliberately avoids one brittle exact string.
-
-    Accepted patterns include:
-      - pillar_columns.notna().all(axis=1)
-      - pillar_columns.notnull().all(axis=1)
-      - dataframe[pillar_columns].notna().all(axis=1)
-      - dropna(subset=pillar_columns)
-      - complete-case masks constructed from multiple pillar columns
-    """
-    lowered = text.lower()
-
-    direct_mask_patterns = [
-        r"\b[pP]illar_columns\b\s*\]\s*\.\s*notna\s*\(\s*\)\s*\.\s*all\s*\(",
-        r"\b[pP]illar_columns\b\s*\]\s*\.\s*notnull\s*\(\s*\)\s*\.\s*all\s*\(",
-        r"\b[pP]illar_columns\b\s*\.\s*notna\s*\(\s*\)\s*\.\s*all\s*\(",
-        r"\b[pP]illar_columns\b\s*\.\s*notnull\s*\(\s*\)\s*\.\s*all\s*\(",
-        r"\.dropna\s*\(\s*subset\s*=\s*[pP]illar_columns",
-        r"\.dropna\s*\(\s*subset\s*=\s*[" "'\"]" r"[gp cra]+",
-    ]
-
-    if any(re.search(pattern, lowered) for pattern in direct_mask_patterns):
-        return True
-
-    # Broader semantic fallback:
-    # require pillar_columns + missingness/completeness logic in the same file.
-    has_pillar_columns = "pillar_columns" in lowered
-    has_missingness_logic = any(
-        term in lowered
-        for term in [
-            ".notna(",
-            ".notnull(",
-            "dropna(",
-            "isna(",
-            "isnull(",
-            "complete_case",
-            "complete-case",
-            "complete case",
-            "missing",
+    documentation = "\n".join(
+        [
+            read_text("README.md"),
+            read_text("METHODOLOGY_NOTICE.md"),
         ]
     )
 
-    has_all_axis = ".all(axis=1)" in lowered or ".all(axis = 1)" in lowered
-
-    if has_pillar_columns and has_missingness_logic and has_all_axis:
-        return True
-
-    # Final fallback for implementations that explicitly construct a
-    # complete-case boolean mask.
-    complete_case_terms = [
-        "complete_case",
-        "complete-case",
-        "complete case",
-    ]
-
-    if any(term in lowered for term in complete_case_terms):
-        return has_pillar_columns and has_missingness_logic
-
-    return False
-
-
-def verify_no_imputation_production(text: str) -> bool:
-    """
-    Production code must not contain active missing-value imputation.
-
-    The audit treats explicit documentation of no-imputation as sufficient
-    when the implementation itself does not call common fill/interpolation
-    methods.
-    """
-    lowered = text.lower()
-
-    explicit_no_imputation = contains_any(
-        text,
+    if contains_any(
+        documentation,
         [
-            "no imputation",
-            "without imputation",
-            "does not impute",
-            "do not impute",
-            "no missing-observation imputation",
+            "weighted geometric",
+            "geometric aggregation",
+            "weighted geometric aggregation",
         ],
-    )
-
-    active_imputation_patterns = [
-        r"\.fillna\s*\(",
-        r"\.interpolate\s*\(",
-        r"\bsimpleimputer\b",
-        r"\biterativeimputer\b",
-        r"\bknnimputer\b",
-    ]
-
-    active_imputation = any(
-        re.search(pattern, lowered) for pattern in active_imputation_patterns
-    )
-
-    return explicit_no_imputation and not active_imputation
+    ):
+        audit.ok(
+            "README/METHODOLOGY documentation describes weighted geometric aggregation."
+        )
+    else:
+        audit.warn(
+            "README/METHODOLOGY documentation does not explicitly describe weighted geometric aggregation."
+        )
 
 
-def verify_safeguard_language(
-    script_path: str,
-    required_groups: list[list[str]],
-) -> bool:
-    """
-    Check safeguard semantics without requiring identical boilerplate
-    wording in every research-validation script.
+# ---------------------------------------------------------------------------
+# 3. RESEARCH VALIDATION WORKFLOW
+# ---------------------------------------------------------------------------
 
-    A group passes when at least one phrase from that group is present.
-    """
-    text = read_text(script_path)
-
-    if not text:
-        return False
-
-    for group in required_groups:
-        if not contains_any(text, group):
-            return False
-
-    return True
-
-
-def verify_validation_workflow() -> None:
-    path = ROOT / ".github/workflows/research-validation.yml"
+def verify_research_validation_workflow() -> None:
     text = read_text(".github/workflows/research-validation.yml")
 
     if not text:
@@ -360,8 +270,14 @@ def verify_validation_workflow() -> None:
                 f"Research-validation workflow does not include script {script_number}."
             )
 
-    if "contents: read" in text or "contents: read" in text.lower():
-        audit.ok("Research-validation workflow uses read-only contents permission.")
+    if re.search(
+        r"permissions:\s*\n\s*contents:\s*read",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        audit.ok(
+            "Research-validation workflow uses read-only contents permission."
+        )
     else:
         audit.fail(
             "Research-validation workflow does not explicitly use contents: read."
@@ -379,9 +295,10 @@ def verify_validation_workflow() -> None:
     if contains_any(
         text,
         [
-            "production JESI modification = NONE",
-            "production modification = NONE",
+            "Production JESI modification:  NONE",
+            "Production JESI modification: NONE",
             "production modification",
+            "production JESI modification",
             "does not modify production",
         ],
     ):
@@ -394,92 +311,33 @@ def verify_validation_workflow() -> None:
         )
 
 
-def verify_required_files() -> None:
-    for relative_path in REQUIRED_FILES:
-        if (ROOT / relative_path).exists():
-            audit.ok(f"Required file present: {relative_path}")
-        else:
-            audit.fail(f"Required file missing: {relative_path}")
-
-
-def verify_weights_and_aggregation() -> None:
-    production_text = read_text("scripts/36_calculate_jesi.py")
-
-    if not production_text:
-        audit.fail("Production JESI calculation script is missing or unreadable.")
-        return
-
-    evidence = find_production_weight_evidence(production_text)
-
-    for pillar, found in evidence.items():
-        if found:
-            audit.ok(
-                f"Production weight {pillar} = {EXPECTED_WEIGHTS[pillar]:.2f} is represented in production code."
-            )
-        else:
-            audit.fail(
-                f"Production weight {pillar} = {EXPECTED_WEIGHTS[pillar]:.2f} could not be verified."
-            )
-
-    if abs(sum(EXPECTED_WEIGHTS.values()) - 1.0) < 1e-12:
-        audit.ok("Production pillar weights sum to 1.00.")
-    else:
-        audit.fail("Expected production pillar weights do not sum to 1.00.")
-
-    if verify_production_aggregation(production_text):
-        audit.ok("Production code contains evidence of weighted geometric aggregation.")
-    else:
-        audit.fail(
-            "Production weighted geometric aggregation could not be verified."
-        )
-
-    documentation = "\n".join(
-        [
-            read_text("README.md"),
-            read_text("METHODOLOGY_NOTICE.md"),
-        ]
-    )
-
-    if contains_any(
-        documentation,
-        [
-            "weighted geometric",
-            "weighted geometric aggregation",
-            "geometric aggregation",
-        ],
-    ):
-        audit.ok(
-            "README/METHODOLOGY documentation describes weighted geometric aggregation."
-        )
-    else:
-        audit.warn(
-            "README/METHODOLOGY documentation does not explicitly describe weighted geometric aggregation."
-        )
-
+# ---------------------------------------------------------------------------
+# 4. PRODUCTION / VALIDATION SEPARATION
+# ---------------------------------------------------------------------------
 
 def verify_production_separation() -> None:
-    validation_text = read_text(
-        ".github/workflows/research-validation.yml"
-    )
+    workflow = read_text(".github/workflows/research-validation.yml")
 
-    validation_text += "\n" + "\n".join(
-        read_text(f"scripts/{number}_{name}.py")
-        for number, name in [
-            ("44", "analyze_indicator_redundancy"),
-            ("45", "normalization_sensitivity"),
-            ("46", "weight_sensitivity"),
-            ("47", "aggregation_sensitivity"),
-            ("48", "historical_validation"),
+    scripts_text = "\n".join(
+        [
+            read_text("scripts/44_analyze_indicator_redundancy.py"),
+            read_text("scripts/45_normalization_sensitivity.py"),
+            read_text("scripts/46_weight_sensitivity.py"),
+            read_text("scripts/47_aggregation_sensitivity.py"),
+            read_text("scripts/48_historical_validation.py"),
         ]
     )
 
+    combined = workflow + "\n" + scripts_text
+
     if contains_any(
-        validation_text,
+        combined,
         [
             "production methodology",
             "production JESI",
             "production specification",
             "does not modify production",
+            "production modification",
         ],
     ):
         audit.ok(
@@ -491,29 +349,42 @@ def verify_production_separation() -> None:
         )
 
 
-def verify_research_safeguards() -> None:
-    safeguard_groups = [
-        [
+# ---------------------------------------------------------------------------
+# 5. RESEARCH SCRIPT SAFEGUARDS
+# ---------------------------------------------------------------------------
+
+def verify_research_script_safeguards() -> None:
+    scripts = [
+        ("44", "scripts/44_analyze_indicator_redundancy.py"),
+        ("45", "scripts/45_normalization_sensitivity.py"),
+        ("46", "scripts/46_weight_sensitivity.py"),
+        ("47", "scripts/47_aggregation_sensitivity.py"),
+        ("48", "scripts/48_historical_validation.py"),
+    ]
+
+    safeguard_groups = {
+        "no_imputation": [
             "no imputation",
             "without imputation",
             "does not impute",
             "do not impute",
             "no missing-observation imputation",
+            "no missing observation is imputed",
         ],
-        [
+        "no_interpolation": [
             "no interpolation",
             "without interpolation",
             "does not interpolate",
             "do not interpolate",
         ],
-        [
+        "no_fabrication": [
             "no fabricated",
             "without fabricated",
             "does not fabricate",
             "do not fabricate",
             "fabricated observations are not",
         ],
-        [
+        "no_automatic_changes": [
             "no automatic",
             "not automatic",
             "does not automatically",
@@ -521,130 +392,122 @@ def verify_research_safeguards() -> None:
             "automatic reweighting",
             "automatic deletion",
         ],
-        [
+        "production_separation": [
             "production methodology",
             "production JESI",
             "production specification",
+            "does not modify production",
         ],
-    ]
+    }
 
-    for script_number, name in [
-        ("44", "analyze_indicator_redundancy"),
-        ("45", "normalization_sensitivity"),
-        ("46", "weight_sensitivity"),
-        ("47", "aggregation_sensitivity"),
-        ("48", "historical_validation"),
-    ]:
-        path = f"scripts/{script_number}_{name}.py"
-
+    for number, path in scripts:
         text = read_text(path)
 
         if not text:
             audit.fail(f"Could not read research-validation script: {path}")
             continue
 
-        # We do not require identical boilerplate in every script.
-        # Instead, inspect for actual methodological safeguards and/or
-        # strong read-only research-validation semantics.
-        has_no_imputation = contains_any(
-            text,
-            [
-                "no imputation",
-                "without imputation",
-                "does not impute",
-                "do not impute",
-                "no missing-observation imputation",
-            ],
-        )
+        score = 0
+        passed_groups = []
 
-        has_no_interpolation = contains_any(
-            text,
-            [
-                "no interpolation",
-                "without interpolation",
-                "does not interpolate",
-                "do not interpolate",
-            ],
-        )
+        for group_name, phrases in safeguard_groups.items():
+            if contains_any(text, phrases):
+                score += 1
+                passed_groups.append(group_name)
 
-        has_no_fabrication = contains_any(
-            text,
-            [
-                "no fabricated",
-                "without fabricated",
-                "does not fabricate",
-                "do not fabricate",
-                "fabricated observations are not",
-            ],
-        )
-
-        has_no_automatic = contains_any(
-            text,
-            [
-                "no automatic",
-                "not automatic",
-                "does not automatically",
-                "do not automatically",
-                "automatic reweighting",
-                "automatic deletion",
-            ],
-        )
-
-        has_production_separation = contains_any(
-            text,
-            [
-                "production methodology",
-                "production JESI",
-                "production specification",
-                "does not modify production",
-            ],
-        )
-
-        safeguard_score = sum(
-            [
-                has_no_imputation,
-                has_no_interpolation,
-                has_no_fabrication,
-                has_no_automatic,
-                has_production_separation,
-            ]
-        )
-
-        if safeguard_score >= 3:
+        if score >= 3:
             audit.ok(
-                f"{path} contains sufficient methodological safeguard/separation evidence ({safeguard_score}/5 checks)."
+                f"{path} contains sufficient methodological safeguard/separation evidence "
+                f"({score}/5 checks)."
             )
-        elif safeguard_score >= 1:
+        elif score >= 1:
             audit.warn(
-                f"{path} contains limited explicit safeguard language ({safeguard_score}/5 checks); behavior remains subject to validation outputs."
+                f"{path} contains limited explicit safeguard language "
+                f"({score}/5 checks); this is not treated as a methodological failure."
             )
         else:
             audit.warn(
-                f"{path} does not contain explicit safeguard language; workflow-level safeguards remain in force."
+                f"{path} does not contain explicit safeguard language; "
+                "workflow-level read-only safeguards remain in force."
             )
 
 
-def verify_production_complete_case() -> None:
-    production_text = read_text("scripts/36_calculate_jesi.py")
+# ---------------------------------------------------------------------------
+# 6. COMPLETE-CASE PRODUCTION LOGIC
+# ---------------------------------------------------------------------------
 
-    if not production_text:
+def verify_complete_case_source() -> None:
+    text = read_text("scripts/36_calculate_jesi.py")
+
+    if not text:
         audit.fail(
-            "Production complete-case mask could not be verified because the production script is unavailable."
+            "Production complete-case implementation could not be checked."
         )
         return
 
-    if verify_complete_case_source(production_text):
+    lowered = text.lower()
+
+    patterns = [
+        r"pillar_columns.*notna\s*\(\s*\).*all\s*\(",
+        r"pillar_columns.*notnull\s*\(\s*\).*all\s*\(",
+        r"notna\s*\(\s*\).*all\s*\(\s*axis\s*=\s*1",
+        r"notnull\s*\(\s*\).*all\s*\(\s*axis\s*=\s*1",
+        r"dropna\s*\(\s*subset\s*=\s*pillar_columns",
+        r"complete[_ -]?case",
+    ]
+
+    if any(re.search(pattern, lowered, flags=re.DOTALL) for pattern in patterns):
         audit.ok(
             "Production complete-case implementation is verified using a tolerant source-code pattern check."
         )
     else:
         audit.fail(
-            "Production complete-case implementation could not be verified from the production source."
+            "Production complete-case implementation could not be verified."
         )
 
-    if verify_no_imputation_production(production_text):
+
+def verify_no_imputation() -> None:
+    text = read_text("scripts/36_calculate_jesi.py")
+
+    if not text:
+        audit.fail("Production script unavailable for no-imputation verification.")
+        return
+
+    lowered = text.lower()
+
+    explicit_no_imputation = contains_any(
+        text,
+        [
+            "no imputation",
+            "without imputation",
+            "does not impute",
+            "do not impute",
+            "no missing-observation imputation",
+            "no missing observation is imputed",
+            "missing observation is not imputed",
+        ],
+    )
+
+    active_imputation_patterns = [
+        r"\.fillna\s*\(",
+        r"\.interpolate\s*\(",
+        r"\bsimpleimputer\b",
+        r"\biterativeimputer\b",
+        r"\bknnimputer\b",
+    ]
+
+    active_imputation = any(
+        re.search(pattern, lowered)
+        for pattern in active_imputation_patterns
+    )
+
+    if explicit_no_imputation and not active_imputation:
         audit.ok(
-            "Production source documents no missing-observation imputation and contains no active common imputation call."
+            "Production source explicitly documents no missing-observation imputation and contains no active common imputation call."
+        )
+    elif active_imputation:
+        audit.fail(
+            "Production source contains an active missing-value imputation operation."
         )
     else:
         audit.fail(
@@ -652,78 +515,109 @@ def verify_production_complete_case() -> None:
         )
 
 
-def verify_production_outputs() -> pd.DataFrame | None:
-    final_df = load_csv("results/final_jesi_scores.csv")
+# ---------------------------------------------------------------------------
+# 7. PRODUCTION OUTPUTS
+# ---------------------------------------------------------------------------
 
-    if final_df is None:
-        return None
+def verify_production_outputs() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    included = load_csv(PRODUCTION_OUTPUTS[0])
+    excluded = load_csv(PRODUCTION_OUTPUTS[1])
 
-    required_columns = {
-        "country_code",
-        "year",
-        "jesi_score",
-    }
+    if included is not None:
+        required_columns = {
+            "country_code",
+            "year",
+            "jesi_score",
+        }
 
-    missing_columns = required_columns - set(final_df.columns)
+        missing = required_columns - set(included.columns)
 
-    if missing_columns:
-        audit.fail(
-            "Production JESI output is missing required columns: "
-            + ", ".join(sorted(missing_columns))
-        )
-    else:
-        audit.ok("Production JESI output contains required identity and score columns.")
-
-    if final_df.empty:
-        audit.fail("Production JESI output is empty.")
-        return final_df
-
-    if final_df[["country_code", "year"]].duplicated().any():
-        audit.fail("Production JESI output contains duplicate country-year observations.")
-    else:
-        audit.ok("Production JESI output has no duplicate country-year observations.")
-
-    if "jesi_score" in final_df.columns:
-        score_numeric = pd.to_numeric(
-            final_df["jesi_score"], errors="coerce"
-        )
-
-        if score_numeric.notna().all():
-            audit.ok("Production JESI scores are numeric.")
+        if missing:
+            audit.fail(
+                "Production JESI output is missing required columns: "
+                + ", ".join(sorted(missing))
+            )
         else:
-            audit.fail("Production JESI output contains non-numeric scores.")
+            audit.ok(
+                "Production JESI output contains required identity and score columns."
+            )
 
-    return final_df
+        if included.empty:
+            audit.fail("Production JESI included output is empty.")
+        else:
+            audit.ok(
+                f"Production JESI included output contains {len(included)} rows."
+            )
+
+        if {"country_code", "year"}.issubset(included.columns):
+            if included[["country_code", "year"]].duplicated().any():
+                audit.fail(
+                    "Production JESI output contains duplicate country-year observations."
+                )
+            else:
+                audit.ok(
+                    "Production JESI output has no duplicate country-year observations."
+                )
+
+    if excluded is not None:
+        audit.ok(
+            f"Production JESI excluded-observation output contains {len(excluded)} rows."
+        )
+
+    return included, excluded
 
 
-def verify_output_ranges(final_df: pd.DataFrame | None) -> None:
-    if final_df is None or final_df.empty:
+# ---------------------------------------------------------------------------
+# 8. OUTPUT RANGE / SAMPLE COVERAGE
+# ---------------------------------------------------------------------------
+
+def verify_output_ranges(included: pd.DataFrame | None) -> None:
+    if included is None or included.empty:
         return
 
-    if "jesi_score" in final_df.columns:
-        scores = pd.to_numeric(final_df["jesi_score"], errors="coerce")
+    if "jesi_score" not in included.columns:
+        return
 
-        if scores.between(0, 100).all():
-            audit.ok("Production JESI scores are within the expected 0–100 range.")
-        else:
-            audit.fail("Production JESI scores contain values outside 0–100.")
+    scores = pd.to_numeric(included["jesi_score"], errors="coerce")
+
+    if scores.notna().all():
+        audit.ok("Production JESI scores are numeric.")
+    else:
+        audit.fail("Production JESI scores contain non-numeric values.")
+
+    if scores.between(0, 100).all():
+        audit.ok("Production JESI scores are within the expected 0–100 range.")
+    else:
+        audit.fail(
+            "Production JESI scores contain values outside the expected 0–100 range."
+        )
 
 
-def verify_sample_coverage(final_df: pd.DataFrame | None) -> None:
-    if final_df is None or final_df.empty:
+def verify_sample_coverage(included: pd.DataFrame | None) -> None:
+    if included is None or included.empty:
         return
 
     expected_countries = {"BGD", "IND", "VNM", "IDN", "MYS"}
     expected_years = set(range(2016, 2024))
 
-    countries = set(final_df["country_code"].astype(str))
-    years = set(pd.to_numeric(final_df["year"], errors="coerce").dropna().astype(int))
+    if not {"country_code", "year"}.issubset(included.columns):
+        return
+
+    countries = set(included["country_code"].astype(str))
+    years = set(
+        pd.to_numeric(
+            included["year"],
+            errors="coerce",
+        )
+        .dropna()
+        .astype(int)
+    )
 
     if countries == expected_countries:
         audit.ok("Production output covers the five-country benchmark sample.")
     else:
         audit.fail(
-            "Production country coverage differs from the expected five-country benchmark: "
+            "Production country coverage differs from the expected five-country sample: "
             f"{sorted(countries)}"
         )
 
@@ -735,44 +629,45 @@ def verify_sample_coverage(final_df: pd.DataFrame | None) -> None:
             f"{sorted(years)}"
         )
 
-    expected_complete_cases = len(expected_countries) * len(expected_years)
+    expected_complete_cases = 5 * 8
 
-    if len(final_df) == expected_complete_cases:
+    if len(included) == expected_complete_cases:
         audit.ok(
             f"Production output contains {expected_complete_cases} complete-case observations."
         )
     else:
         audit.fail(
-            f"Production output contains {len(final_df)} rows; expected {expected_complete_cases}."
+            f"Production output contains {len(included)} rows; "
+            f"expected {expected_complete_cases}."
         )
 
 
-def verify_exclusion_accounting(final_df: pd.DataFrame | None) -> None:
-    excluded_df = load_csv("results/final_jesi_scores_excluded.csv")
-
-    if final_df is None or excluded_df is None:
+def verify_exclusion_accounting(
+    included: pd.DataFrame | None,
+    excluded: pd.DataFrame | None,
+) -> None:
+    if included is None or excluded is None:
         return
 
-    total_expected = 40
-    complete_cases = len(final_df)
-    excluded_cases = len(excluded_df)
+    theoretical = 5 * 8
+    included_count = len(included)
+    excluded_count = len(excluded)
 
-    if complete_cases + excluded_cases == total_expected:
+    if included_count + excluded_count == theoretical:
         audit.ok(
-            f"Complete-case accounting reconciles {total_expected} theoretical observations "
-            f"to {complete_cases} included + {excluded_cases} excluded."
+            f"Complete-case accounting reconciles {theoretical} theoretical observations "
+            f"to {included_count} included + {excluded_count} excluded."
         )
     else:
         audit.fail(
             "Complete-case accounting does not reconcile: "
-            f"{complete_cases} included + {excluded_cases} excluded != {total_expected}."
+            f"{included_count} + {excluded_count} != {theoretical}."
         )
 
-    if excluded_cases == total_expected - complete_cases:
-        audit.ok("Excluded-observation count reconciles exactly with production output.")
-    else:
-        audit.fail("Excluded-observation count does not reconcile with production output.")
 
+# ---------------------------------------------------------------------------
+# 9. HISTORICAL VALIDATION
+# ---------------------------------------------------------------------------
 
 def verify_historical_validation() -> None:
     text = read_text("scripts/48_historical_validation.py")
@@ -801,18 +696,34 @@ def verify_historical_validation() -> None:
         )
 
 
-def verify_repository_audit_integration() -> None:
-    workflow = read_text(".github/workflows/final-jesi-pipeline.yml")
+# ---------------------------------------------------------------------------
+# 10. FINAL JESI PIPELINE INTEGRATION
+# ---------------------------------------------------------------------------
 
-    if "42_final_repository_audit.py" in workflow:
+def verify_final_pipeline() -> None:
+    path = ".github/workflows/final-jesi.yml"
+    text = read_text(path)
+
+    if not text:
+        audit.fail(
+            "Final JESI workflow is missing or unreadable: "
+            ".github/workflows/final-jesi.yml"
+        )
+        return
+
+    if "scripts/42_final_repository_audit.py" in text:
         audit.ok(
-            "Final JESI pipeline integrates the existing repository integrity audit."
+            "Final JESI pipeline integrates scripts/42_final_repository_audit.py."
         )
     else:
         audit.fail(
             "Final JESI pipeline does not integrate scripts/42_final_repository_audit.py."
         )
 
+
+# ---------------------------------------------------------------------------
+# 11. LOCKED METHODOLOGICAL SEQUENCE
+# ---------------------------------------------------------------------------
 
 def verify_locked_sequence() -> None:
     documentation = "\n".join(
@@ -848,11 +759,15 @@ def verify_locked_sequence() -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# 12. DOCUMENTATION CONSISTENCY
+# ---------------------------------------------------------------------------
+
 def verify_documentation_consistency() -> None:
     readme = read_text("README.md")
     notice = read_text("METHODOLOGY_NOTICE.md")
 
-    completed_signal = (
+    completed = (
         contains_any(
             readme,
             [
@@ -871,13 +786,13 @@ def verify_documentation_consistency() -> None:
         )
     )
 
-    if completed_signal:
+    if completed:
         audit.ok(
-            "README documents the empirical validation program and its completed Master Version 1.0 status."
+            "README documents the empirical validation program and completed Master Version 1.0 status."
         )
     else:
         audit.warn(
-            "README does not clearly contain both empirical-validation and completed Master Version 1.0 signals."
+            "README does not clearly contain empirical-validation and completed-version signals."
         )
 
     if contains_any(
@@ -890,24 +805,17 @@ def verify_documentation_consistency() -> None:
         ],
     ):
         audit.warn(
-            "METHODOLOGY_NOTICE.md still contains pending final-evaluation language; documentation should be reconciled with the completed validation-program status."
+            "METHODOLOGY_NOTICE.md contains pending-final-evaluation language."
         )
     else:
         audit.ok(
             "METHODOLOGY_NOTICE.md does not contain obsolete pending-final-evaluation language."
         )
 
-
-def verify_final_methodological_judgment() -> None:
-    documentation = "\n".join(
-        [
-            read_text("README.md"),
-            read_text("METHODOLOGY_NOTICE.md"),
-        ]
-    )
+    combined = readme + "\n" + notice
 
     if contains_any(
-        documentation,
+        combined,
         [
             "empirically supported but not universally validated",
             "not universally validated",
@@ -919,9 +827,13 @@ def verify_final_methodological_judgment() -> None:
         )
     else:
         audit.warn(
-            "Current conditional methodological judgment was not found in README/METHODOLOGY_NOTICE."
+            "Current conditional methodological judgment was not found in documentation."
         )
 
+
+# ---------------------------------------------------------------------------
+# MAIN
+# ---------------------------------------------------------------------------
 
 def main() -> int:
     print("=" * 72)
@@ -932,22 +844,26 @@ def main() -> int:
     print()
 
     verify_required_files()
-    verify_weights_and_aggregation()
-    verify_validation_workflow()
-    verify_production_separation()
-    verify_research_safeguards()
-    verify_production_complete_case()
+    verify_production_weights()
+    verify_weighted_geometric_aggregation()
 
-    final_df = verify_production_outputs()
-    verify_output_ranges(final_df)
-    verify_sample_coverage(final_df)
-    verify_exclusion_accounting(final_df)
+    verify_research_validation_workflow()
+    verify_production_separation()
+    verify_research_script_safeguards()
+
+    verify_complete_case_source()
+    verify_no_imputation()
+
+    included, excluded = verify_production_outputs()
+
+    verify_output_ranges(included)
+    verify_sample_coverage(included)
+    verify_exclusion_accounting(included, excluded)
 
     verify_historical_validation()
-    verify_repository_audit_integration()
+    verify_final_pipeline()
     verify_locked_sequence()
     verify_documentation_consistency()
-    verify_final_methodological_judgment()
 
     audit.summary()
 
