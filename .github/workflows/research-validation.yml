@@ -36,33 +36,85 @@ jobs:
         run: |
           echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
 
-      - name: Validate syntax
+      - name: Validate research-validation syntax
         run: |
-          python -m compileall -q scripts src
+          python -m py_compile \
+            scripts/44_analyze_indicator_redundancy.py \
+            scripts/45_normalization_sensitivity.py \
+            scripts/46_weight_sensitivity.py \
+            scripts/47_aggregation_sensitivity.py \
+            scripts/48_historical_validation.py \
+            scripts/50_balanced_panel_sensitivity.py
 
-      - name: Indicator redundancy
+      - name: Run indicator redundancy
         run: |
           python scripts/44_analyze_indicator_redundancy.py
 
-      - name: Normalization sensitivity
+      - name: Verify indicator redundancy outputs
+        run: |
+          test -s data/results/jesi_indicator_redundancy_pairwise.csv
+          test -s data/results/jesi_indicator_redundancy_missingness.csv
+          test -s data/results/jesi_indicator_redundancy_pillar_summary.csv
+          test -s data/results/jesi_indicator_redundancy_report.md
+
+      - name: Run normalization sensitivity
         run: |
           python scripts/45_normalization_sensitivity.py
 
-      - name: Weight sensitivity
+      - name: Verify normalization sensitivity outputs
+        run: |
+          test -s data/results/jesi_normalization_sensitivity_country_year.csv
+          test -s data/results/jesi_normalization_sensitivity_country_summary.csv
+          test -s data/results/jesi_normalization_sensitivity_rank_correlations.csv
+          test -s data/results/jesi_normalization_sensitivity_summary.csv
+          test -s data/results/jesi_normalization_sensitivity_report.md
+
+      - name: Run weight sensitivity
         run: |
           python scripts/46_weight_sensitivity.py
 
-      - name: Aggregation sensitivity
+      - name: Verify weight sensitivity outputs
+        run: |
+          test -s data/results/jesi_weight_sensitivity_country_year.csv
+          test -s data/results/jesi_weight_sensitivity_country_summary.csv
+          test -s data/results/jesi_weight_sensitivity_rank_correlations.csv
+          test -s data/results/jesi_weight_sensitivity_summary.csv
+          test -s data/results/jesi_weight_sensitivity_report.md
+
+      - name: Run aggregation sensitivity
         run: |
           python scripts/47_aggregation_sensitivity.py
 
-      - name: Historical validation
+      - name: Verify aggregation sensitivity outputs
+        run: |
+          test -s data/results/jesi_aggregation_sensitivity_country_year.csv
+          test -s data/results/jesi_aggregation_sensitivity_country_summary.csv
+          test -s data/results/jesi_aggregation_sensitivity_rank_correlations.csv
+          test -s data/results/jesi_aggregation_sensitivity_summary.csv
+          test -s data/results/jesi_aggregation_sensitivity_report.md
+
+      - name: Run historical validation
         run: |
           python scripts/48_historical_validation.py
 
-      - name: Balanced-panel sensitivity
+      - name: Verify historical validation outputs
+        run: |
+          test -s data/results/jesi_historical_validation_country_year.csv
+          test -s data/results/jesi_historical_validation_event_windows.csv
+          test -s data/results/jesi_historical_validation_pillar_contributions.csv
+          test -s data/results/jesi_historical_validation_correlations.csv
+          test -s data/results/jesi_historical_validation_summary.csv
+          test -s data/results/jesi_historical_validation_report.md
+
+      - name: Run balanced-panel sensitivity
         run: |
           python scripts/50_balanced_panel_sensitivity.py
+
+      - name: Verify balanced-panel sensitivity outputs
+        run: |
+          test -s data/results/jesi_balanced_panel_country_results.csv
+          test -s data/results/jesi_balanced_panel_country_means.csv
+          test -s data/results/jesi_balanced_panel_summary.csv
 
       - name: Verify production repository unchanged
         run: |
@@ -70,6 +122,41 @@ jobs:
           git diff --exit-code
 
           echo "Production repository remained unchanged."
+
+      - name: Upload canonical research-validation evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jesi-research-validation
+          if-no-files-found: error
+          path: |
+            data/results/jesi_indicator_redundancy_pairwise.csv
+            data/results/jesi_indicator_redundancy_missingness.csv
+            data/results/jesi_indicator_redundancy_pillar_summary.csv
+            data/results/jesi_indicator_redundancy_report.md
+            data/results/jesi_normalization_sensitivity_country_year.csv
+            data/results/jesi_normalization_sensitivity_country_summary.csv
+            data/results/jesi_normalization_sensitivity_rank_correlations.csv
+            data/results/jesi_normalization_sensitivity_summary.csv
+            data/results/jesi_normalization_sensitivity_report.md
+            data/results/jesi_weight_sensitivity_country_year.csv
+            data/results/jesi_weight_sensitivity_country_summary.csv
+            data/results/jesi_weight_sensitivity_rank_correlations.csv
+            data/results/jesi_weight_sensitivity_summary.csv
+            data/results/jesi_weight_sensitivity_report.md
+            data/results/jesi_aggregation_sensitivity_country_year.csv
+            data/results/jesi_aggregation_sensitivity_country_summary.csv
+            data/results/jesi_aggregation_sensitivity_rank_correlations.csv
+            data/results/jesi_aggregation_sensitivity_summary.csv
+            data/results/jesi_aggregation_sensitivity_report.md
+            data/results/jesi_historical_validation_country_year.csv
+            data/results/jesi_historical_validation_event_windows.csv
+            data/results/jesi_historical_validation_pillar_contributions.csv
+            data/results/jesi_historical_validation_correlations.csv
+            data/results/jesi_historical_validation_summary.csv
+            data/results/jesi_historical_validation_report.md
+            data/results/jesi_balanced_panel_country_results.csv
+            data/results/jesi_balanced_panel_country_means.csv
+            data/results/jesi_balanced_panel_summary.csv
 
       - name: Research validation summary
         run: |
@@ -82,6 +169,8 @@ jobs:
           echo "47 - Aggregation Sensitivity:   COMPLETE"
           echo "48 - Historical Validation:     COMPLETE"
           echo "50 - Balanced Panel:             COMPLETE"
+          echo "Canonical aggregate workflow:   COMPLETE"
+          echo "Standalone workflows:           PRESERVED"
           echo "Production JESI modification:   NONE"
           echo "Production reweighting:         NONE"
           echo "Imputation:                     NONE"
