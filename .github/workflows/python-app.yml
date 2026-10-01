@@ -1,13 +1,10 @@
-# This workflow installs dependencies, validates the Python code,
-# runs tests, and performs the Strategic Autonomy data validation.
-
 name: Python application
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -15,168 +12,99 @@ permissions:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
-    # ==============================================================
-    # CHECKOUT
-    # ==============================================================
+      - name: Set up Python
+        uses: actions/setup-python@a26af69e3e2e5f3f9f8b3f7b6e6f0a0b8d4d0f4e # v5.6.0
+        with:
+          python-version: "3.10"
+          cache: "pip"
 
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    # ==============================================================
-    # PYTHON
-    # ==============================================================
-
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-        cache: "pip"
-
-    # ==============================================================
-    # DEPENDENCIES
-    # ==============================================================
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-
-        pip install flake8 pytest
-
-        if [ -f requirements.txt ]; then
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-        fi
 
-        pip install pandas numpy scipy openpyxl requests py7zr
+      - name: Configure Python path
+        run: |
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
 
-    # ==============================================================
-    # PYTHON PATH
-    # ==============================================================
+      - name: Validate Python syntax
+        run: |
+          python -m compileall -q scripts src
+          echo "Python syntax validation: PASSED"
 
-    - name: Configure Python path
-      run: |
-        echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
+      - name: Lint
+        run: |
+          flake8 . \
+            --count \
+            --select=E9,F63,F7,F82 \
+            --show-source \
+            --statistics
 
-    # ==============================================================
-    # SYNTAX VALIDATION
-    # ==============================================================
+          flake8 . \
+            --count \
+            --exit-zero \
+            --max-complexity=10 \
+            --max-line-length=127 \
+            --statistics
 
-    - name: Validate Python syntax
-      run: |
-        python -m compileall -q scripts src
-        echo "Python syntax validation: PASSED"
+      - name: Run tests
+        run: |
+          PYTHONPATH=. pytest
 
-    # ==============================================================
-    # LINT
-    # ==============================================================
+      - name: Download resilience data
+        run: |
+          python scripts/08_download_resilience_data.py
 
-    - name: Lint with flake8
-      run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      - name: Validate resilience data
+        run: |
+          python scripts/09_validate_resilience_data.py
 
-        flake8 . \
-          --count \
-          --exit-zero \
-          --max-complexity=10 \
-          --max-line-length=127 \
-          --statistics
+      - name: Analyze resilience distribution
+        run: |
+          python scripts/10_analyze_resilience_distribution.py
 
-    # ==============================================================
-    # TESTS
-    # ==============================================================
+      - name: Download Strategic Autonomy data
+        run: |
+          python scripts/29_download_autonomy_data.py
 
-    - name: Test with pytest
-      run: |
-        PYTHONPATH=. pytest
+      - name: Download UNCTAD import concentration data
+        run: |
+          python scripts/31_download_import_concentration.py
 
-    # ==============================================================
-    # RESILIENCE
-    # ==============================================================
+      - name: Verify UNCTAD output
+        run: |
+          test -f data/raw/import_product_concentration_2015_2024.csv
 
-    - name: Download resilience data
-      run: |
-        python scripts/08_download_resilience_data.py
+          python - <<'PY'
+          import pandas as pd
 
-    - name: Validate resilience data
-      run: |
-        python scripts/09_validate_resilience_data.py
+          path = "data/raw/import_product_concentration_2015_2024.csv"
+          df = pd.read_csv(path)
 
-    - name: Analyze resilience distribution
-      run: |
-        python scripts/10_analyze_resilience_distribution.py
+          if len(df) != 50:
+              raise SystemExit(
+                  f"Expected 50 UNCTAD observations; found {len(df)}"
+              )
 
-    # ==============================================================
-    # STRATEGIC AUTONOMY BASE DATA
-    # ==============================================================
+          print("UNCTAD output verification: PASSED")
+          PY
 
-    - name: Download Strategic Autonomy data
-      run: |
-        python scripts/29_download_autonomy_data.py
+      - name: Analyze Strategic Autonomy coverage
+        run: |
+          python scripts/43_analyze_autonomy_coverage.py
 
-    # ==============================================================
-    # UNCTAD IMPORT PRODUCT CONCENTRATION
-    #
-    # IMPORTANT:
-    # Script 43 requires the official UNCTAD output
-    # generated by Script 31.
-    # ==============================================================
-
-    - name: Download UNCTAD import concentration data
-      run: |
-        python scripts/31_download_import_concentration.py
-
-    # ==============================================================
-    # VERIFY UNCTAD OUTPUT
-    # ==============================================================
-
-    - name: Verify UNCTAD concentration output
-      run: |
-        test -f data/raw/import_product_concentration_2015_2024.csv
-
-        echo "UNCTAD concentration file:"
-        ls -lh data/raw/import_product_concentration_2015_2024.csv
-
-        echo "UNCTAD concentration rows:"
-        python - <<'PY'
-        import pandas as pd
-
-        path = "data/raw/import_product_concentration_2015_2024.csv"
-
-        df = pd.read_csv(path)
-
-        print("Rows:", len(df))
-        print("Columns:", list(df.columns))
-
-        expected_rows = 50
-
-        if len(df) != expected_rows:
-            raise SystemExit(
-                f"ERROR: Expected {expected_rows} rows, found {len(df)}"
-            )
-
-        print("UNCTAD output verification: PASSED")
-        PY
-
-    # ==============================================================
-    # STRATEGIC AUTONOMY COVERAGE ANALYSIS
-    # ==============================================================
-
-    - name: Analyze Strategic Autonomy coverage
-      run: |
-        python scripts/43_analyze_autonomy_coverage.py
-
-    # ==============================================================
-    # UPLOAD STRATEGIC AUTONOMY COVERAGE RESULTS
-    # ==============================================================
-
-    - name: Upload Strategic Autonomy coverage analysis
-      uses: actions/upload-artifact@v4
-      with:
-        name: strategic-autonomy-coverage-analysis
-        if-no-files-found: error
-        path: |
-          data/processed/strategic_autonomy_*_2015_2024.csv
+      - name: Upload coverage analysis
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: strategic-autonomy-coverage-analysis
+          if-no-files-found: error
+          path: data/processed/strategic_autonomy_*_2015_2024.csv
