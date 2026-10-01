@@ -50,6 +50,17 @@ jobs:
           persist-credentials: false
 
       # ============================================================
+      # RECORD SOURCE COMMIT
+      # ============================================================
+
+      - name: Record workflow source commit
+        run: |
+          echo "JESI_SOURCE_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "JESI_SOURCE_SHA=${GITHUB_SHA}"
+          echo "JESI_SOURCE_REF=${GITHUB_REF}"
+          echo "JESI_SOURCE_REPOSITORY=${GITHUB_REPOSITORY}"
+
+      # ============================================================
       # PYTHON
       # ============================================================
 
@@ -422,11 +433,38 @@ jobs:
           echo "Generated JESI outputs downloaded successfully."
 
       # ============================================================
+      # VERIFY REMOTE BRANCH BEFORE COMMIT
+      # ==============================================================
+
+      - name: Verify source commit is still current
+        run: |
+          set -euo pipefail
+
+          git fetch origin main
+
+          SOURCE_SHA="${{ github.sha }}"
+          REMOTE_SHA="$(git rev-parse origin/main)"
+
+          echo "Workflow source SHA: ${SOURCE_SHA}"
+          echo "Current remote main: ${REMOTE_SHA}"
+
+          if [ "${REMOTE_SHA}" != "${SOURCE_SHA}" ]; then
+            echo "ERROR: Remote main changed while this JESI pipeline was running."
+            echo "The generated outputs will NOT be pushed."
+            echo "This protects the repository from stale-result overwrites."
+            exit 1
+          fi
+
+          echo "Remote main is unchanged. Safe to commit generated outputs."
+
+      # ============================================================
       # COMMIT GENERATED OUTPUTS
       # ==============================================================
 
       - name: Commit generated JESI outputs
         run: |
+          set -euo pipefail
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -439,7 +477,7 @@ jobs:
             echo "No generated changes to commit."
           else
             git commit -m "Update final JESI results"
-            git push
+            git push origin HEAD:main
           fi
 
       # ============================================================
