@@ -38,7 +38,7 @@ jobs:
           PYTHONPATH=. python scripts/18_analyze_productivity_p2_distribution.py
 
       - name: Upload Productivity P2 outputs
-        uses: actions/upload-artifact@v4
+        uses: uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: jesi-productivity-p2-pipeline-output
           path: |
