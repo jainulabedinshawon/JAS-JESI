@@ -78,19 +78,45 @@ Any independent modification should be clearly distinguished from the original J
 
 JESI is a proposed research framework.
 
-It should not be represented as an established official international economic index or as an index endorsed by any external statistical institution.
+It should not be represented as an established official international
+economic index or as an index endorsed by any external statistical
+institution.
 
-The framework remains subject to:
+The current Master Version 1.0 empirical validation program evaluates
+the documented production specification using:
 
-- empirical construction;
-- indicator validity assessment;
-- redundancy and correlation analysis;
-- normalization sensitivity testing;
-- weight sensitivity testing;
-- aggregation sensitivity testing;
+- indicator redundancy/correlation analysis;
+- normalization sensitivity;
+- weight sensitivity;
+- aggregation sensitivity;
 - historical validation;
-- robustness analysis; and
-- final methodological evaluation.
+- missing-data coverage analysis;
+- balanced-panel sensitivity;
+- final methodological audit.
+
+The production calculation uses complete-case country-year observations.
+
+No missing observation is silently imputed, interpolated, fabricated,
+or automatically replaced.
+
+The current theoretical panel contains 40 country-years for five
+countries over 2016–2023.
+
+The current production complete-case sample contains 34 observations.
+
+Country-level coverage is unequal. Bangladesh currently contributes
+2 complete observations, while India, Vietnam, Indonesia and Malaysia
+each contribute 8 complete observations.
+
+This unequal coverage is explicitly treated as a methodological
+limitation and is evaluated through a separate balanced-panel sensitivity
+analysis.
+
+The balanced-panel sensitivity analysis does not replace the production
+result and does not modify the baseline JESI methodology.
+
+Completion of the empirical validation program represents a methodological
+milestone, not universal scientific validation.
 
 ## 8. No Institutional Endorsement
 
