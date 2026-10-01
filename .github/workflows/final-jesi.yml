@@ -29,16 +29,17 @@ jobs:
       # ==============================================================
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # ==============================================================
       # PYTHON
       # ==============================================================
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69e3e2e5f3f9f8b3f7b6e6f0a0b8d4d0f4e # v5
         with:
           python-version: "3.10"
           cache: "pip"
@@ -47,15 +48,16 @@ jobs:
       # DEPENDENCIES
       # ==============================================================
 
-      - name: Install dependencies
+      - name: Install pinned dependencies
         run: |
           python -m pip install --upgrade pip
 
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
+          if [ ! -f requirements.txt ]; then
+            echo "ERROR: requirements.txt not found."
+            exit 1
           fi
 
-          pip install pandas numpy scipy openpyxl
+          pip install -r requirements.txt
 
       # ==============================================================
       # PYTHON PATH
@@ -70,7 +72,8 @@ jobs:
           python --version
           python -c "import pandas; print('pandas:', pandas.__version__)"
           python -c "import numpy; print('numpy:', numpy.__version__)"
-          python -c "import scipy; print('scipy: OK')"
+          python -c "import scipy; print('scipy:', scipy.__version__)"
+          python -c "import openpyxl; print('openpyxl:', openpyxl.__version__)"
           python -c "import src; print('src package import: OK')"
 
       # ==============================================================
@@ -81,6 +84,14 @@ jobs:
         run: |
           python -m compileall -q scripts src
           echo "Python syntax validation: PASSED"
+
+      # ==============================================================
+      # TEST SUITE
+      # ==============================================================
+
+      - name: Run JESI test suite
+        run: |
+          PYTHONPATH=. pytest
 
       # ==============================================================
       # GROWTH
@@ -317,7 +328,7 @@ jobs:
       # ==============================================================
 
       - name: Upload final JESI outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: JESI-final-results
           if-no-files-found: error
