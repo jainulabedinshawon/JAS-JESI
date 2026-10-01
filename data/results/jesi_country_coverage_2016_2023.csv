@@ -1,0 +1,6 @@
+country_code,country,observations,first_year,last_year,expected_observations,missing_observations,coverage_pct,balanced_panel_eligible
+BGD,Bangladesh,2,2017,2018,8,6,25.0,False
+IDN,Indonesia,8,2016,2023,8,0,100.0,True
+IND,India,8,2016,2023,8,0,100.0,True
+MYS,Malaysia,8,2016,2023,8,0,100.0,True
+VNM,Vietnam,8,2016,2023,8,0,100.0,True
