@@ -8,6 +8,24 @@ Generates:
 2. Pillar-level country averages
 3. Year-level JESI summary
 4. Final research-ready table
+5. Country coverage metadata
+
+Important methodological rule:
+    The production JESI remains based on the complete-case
+    country-year sample.
+
+    Unequal country observation counts are NOT silently treated
+    as equivalent coverage.
+
+    Coverage, missing observations, and balanced-panel eligibility
+    are explicitly reported for research transparency.
+
+This script does NOT change:
+    - production pillar scores
+    - production weights
+    - production normalization
+    - production aggregation
+    - complete-case methodology
 """
 
 from pathlib import Path
@@ -28,6 +46,22 @@ PILLARS = [
     "R",
     "A",
 ]
+
+EXPECTED_COUNTRIES = {
+    "BGD",
+    "IND",
+    "IDN",
+    "MYS",
+    "VNM",
+}
+
+EXPECTED_YEARS = set(
+    range(2016, 2024)
+)
+
+EXPECTED_YEARS_PER_COUNTRY = len(
+    EXPECTED_YEARS
+)
 
 
 def validate_input(df):
@@ -54,6 +88,46 @@ def validate_input(df):
             "Input JESI dataset is empty."
         )
 
+    actual_countries = set(
+        df["country_code"]
+    )
+
+    if actual_countries != EXPECTED_COUNTRIES:
+        raise ValueError(
+            "Unexpected country set in JESI dataset. "
+            f"Expected: {sorted(EXPECTED_COUNTRIES)}; "
+            f"Found: {sorted(actual_countries)}"
+        )
+
+    actual_years = set(
+        df["year"]
+    )
+
+    if not actual_years.issubset(
+        EXPECTED_YEARS
+    ):
+        unexpected_years = (
+            actual_years
+            - EXPECTED_YEARS
+        )
+
+        raise ValueError(
+            "Unexpected years found in JESI dataset: "
+            f"{sorted(unexpected_years)}"
+        )
+
+    if actual_years != EXPECTED_YEARS:
+        missing_years = (
+            EXPECTED_YEARS
+            - actual_years
+        )
+
+        raise ValueError(
+            "Input JESI dataset does not contain all "
+            f"expected years 2016-2023. "
+            f"Missing years: {sorted(missing_years)}"
+        )
+
     duplicates = df[
         df.duplicated(
             subset=[
@@ -66,7 +140,8 @@ def validate_input(df):
 
     if not duplicates.empty:
         raise ValueError(
-            "Duplicate country-year observations found."
+            "Duplicate country-year observations found:\n"
+            f"{duplicates.to_string(index=False)}"
         )
 
     if df["JESI"].isna().any():
@@ -75,26 +150,150 @@ def validate_input(df):
         )
 
     for pillar in PILLARS:
+
         if df[pillar].isna().any():
             raise ValueError(
                 f"Missing values found in pillar {pillar}."
             )
 
         if (
-            (df[pillar] < 0).any()
+            (df[pillar] <= 0).any()
             or (df[pillar] > 1).any()
         ):
             raise ValueError(
                 f"Pillar {pillar} contains values "
-                "outside [0, 1]."
+                "outside (0, 1]."
             )
 
     if (
-        (df["JESI"] < 0).any()
+        (df["JESI"] <= 0).any()
         or (df["JESI"] > 100).any()
     ):
         raise ValueError(
             "JESI values must be between 0 and 100."
+        )
+
+
+def calculate_country_coverage(df):
+    """
+    Calculate country-level observation coverage.
+
+    This is descriptive metadata only.
+
+    It does not alter the production JESI sample.
+    """
+
+    coverage = (
+        df.groupby(
+            [
+                "country_code",
+                "country",
+            ]
+        )["year"]
+        .agg(
+            observations="count",
+            first_year="min",
+            last_year="max",
+        )
+        .reset_index()
+    )
+
+    coverage["expected_observations"] = (
+        EXPECTED_YEARS_PER_COUNTRY
+    )
+
+    coverage["missing_observations"] = (
+        coverage["expected_observations"]
+        - coverage["observations"]
+    )
+
+    coverage["coverage_pct"] = (
+        coverage["observations"]
+        / coverage["expected_observations"]
+        * 100
+    )
+
+    coverage["balanced_panel_eligible"] = (
+        coverage["observations"]
+        == EXPECTED_YEARS_PER_COUNTRY
+    )
+
+    return coverage
+
+
+def validate_country_coverage(coverage):
+    """
+    Validate that coverage metadata is internally consistent.
+
+    Unequal coverage is reported as a methodological caution,
+    not treated as a data error.
+
+    The production methodology remains complete-case analysis.
+    """
+
+    if coverage.empty:
+        raise ValueError(
+            "Country coverage table is empty."
+        )
+
+    if set(
+        coverage["country_code"]
+    ) != EXPECTED_COUNTRIES:
+        raise ValueError(
+            "Country coverage does not contain "
+            "the expected five countries."
+        )
+
+    if (
+        coverage["observations"] < 1
+    ).any():
+        raise ValueError(
+            "At least one country has zero observations."
+        )
+
+    expected_missing = (
+        coverage["expected_observations"]
+        - coverage["observations"]
+    )
+
+    if not (
+        expected_missing
+        == coverage["missing_observations"]
+    ).all():
+        raise ValueError(
+            "Country missing-observation counts "
+            "are internally inconsistent."
+        )
+
+    expected_coverage = (
+        coverage["observations"]
+        / coverage["expected_observations"]
+        * 100
+    )
+
+    if not (
+        expected_coverage
+        .round(10)
+        == coverage["coverage_pct"]
+        .round(10)
+    ).all():
+        raise ValueError(
+            "Country coverage percentages "
+            "are internally inconsistent."
+        )
+
+    expected_balanced = (
+        coverage["observations"]
+        == EXPECTED_YEARS_PER_COUNTRY
+    )
+
+    if not (
+        expected_balanced
+        == coverage["balanced_panel_eligible"]
+    ).all():
+        raise ValueError(
+            "Balanced-panel eligibility flags "
+            "are internally inconsistent."
         )
 
 
@@ -113,9 +312,28 @@ def main():
             f"Missing JESI input file: {INPUT_FILE}"
         )
 
-    df = pd.read_csv(INPUT_FILE)
+    df = pd.read_csv(
+        INPUT_FILE
+    )
 
     validate_input(df)
+
+    # ---------------------------------------------------------------
+    # Country coverage
+    # ---------------------------------------------------------------
+
+    coverage = calculate_country_coverage(
+        df
+    )
+
+    validate_country_coverage(
+        coverage
+    )
+
+    unequal_coverage = (
+        coverage["observations"]
+        != EXPECTED_YEARS_PER_COUNTRY
+    ).any()
 
     # ---------------------------------------------------------------
     # Country-level averages
@@ -138,6 +356,29 @@ def main():
             observations=("JESI", "count"),
         )
         .reset_index()
+    )
+
+    # ---------------------------------------------------------------
+    # Merge coverage metadata into country results
+    # ---------------------------------------------------------------
+
+    country_results = country_results.merge(
+        coverage[
+            [
+                "country_code",
+                "observations",
+                "expected_observations",
+                "missing_observations",
+                "coverage_pct",
+                "balanced_panel_eligible",
+            ]
+        ],
+        on=[
+            "country_code",
+            "observations",
+        ],
+        how="left",
+        validate="one_to_one",
     )
 
     # ---------------------------------------------------------------
@@ -164,6 +405,7 @@ def main():
             "country",
         ],
         how="left",
+        validate="one_to_one",
     )
 
     # ---------------------------------------------------------------
@@ -238,6 +480,11 @@ def main():
 
     # ---------------------------------------------------------------
     # Final research-ready table
+    #
+    # IMPORTANT:
+    # Observation and coverage metadata are deliberately included
+    # so that unequal country coverage cannot be hidden in the
+    # research-facing table.
     # ---------------------------------------------------------------
 
     research_table = country_results[
@@ -252,6 +499,11 @@ def main():
             "A",
             "JESI_score_100",
             "JESI_std",
+            "observations",
+            "expected_observations",
+            "missing_observations",
+            "coverage_pct",
+            "balanced_panel_eligible",
         ]
     ].copy()
 
@@ -294,6 +546,11 @@ def main():
         / "JESI_final_research_table.csv"
     )
 
+    coverage_file = (
+        OUTPUT_DIR
+        / "jesi_country_coverage_2016_2023.csv"
+    )
+
     country_results.to_csv(
         country_file,
         index=False,
@@ -309,9 +566,22 @@ def main():
         index=False,
     )
 
+    coverage.to_csv(
+        coverage_file,
+        index=False,
+    )
+
     # ---------------------------------------------------------------
     # Console output
     # ---------------------------------------------------------------
+
+    print()
+    print("Country coverage:")
+    print(
+        coverage.to_string(
+            index=False
+        )
+    )
 
     print()
     print("Final country-level JESI results:")
@@ -350,11 +620,40 @@ def main():
         f"Saved: {research_file}"
     )
 
+    print(
+        f"Saved: {coverage_file}"
+    )
+
+    print()
+
+    if unequal_coverage:
+        print(
+            "METHODOLOGICAL CAUTION:"
+        )
+        print(
+            "Country-level observation coverage is unequal."
+        )
+        print(
+            "The production complete-case methodology "
+            "has NOT been changed."
+        )
+        print(
+            "Balanced-panel sensitivity analysis should "
+            "be considered separately."
+        )
+    else:
+        print(
+            "Country-level observation coverage is balanced."
+        )
+
     print()
     print("=" * 70)
     print("STATUS: GREEN")
     print(
         "Final JESI research results generated successfully."
+    )
+    print(
+        "Country observation coverage is explicitly reported."
     )
     print("=" * 70)
 
