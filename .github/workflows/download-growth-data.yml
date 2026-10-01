@@ -39,7 +39,7 @@ jobs:
           head -20 data/raw/growth_indicators_2015_2025.csv
 
       - name: Upload Growth dataset
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: jesI-growth-data-2015-2025
           path: data/raw/growth_indicators_2015_2025.csv
