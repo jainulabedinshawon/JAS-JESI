@@ -12,10 +12,11 @@ Validates:
 6. JESI score range
 7. Mathematical consistency
 8. Country-level aggregation
-9. Ranking integrity
-10. Year-level summary consistency
-11. Robustness output consistency
+9. Country observation coverage
+10. Ranking integrity
+11. Year-level summary consistency
 12. Final research table consistency
+13. Robustness output consistency
 
 Methodological rule:
     The theoretical JESI panel contains 40 observations
@@ -25,8 +26,16 @@ Methodological rule:
     when source data are unavailable.
 
     Missing observations are excluded transparently.
+
     No imputation, interpolation, replacement, or fabrication
     is permitted.
+
+Important:
+    Unequal country coverage is a methodological caution.
+    It is NOT silently treated as equivalent coverage.
+
+    The production complete-case methodology is NOT changed
+    by this validation script.
 """
 
 from pathlib import Path
@@ -72,6 +81,11 @@ RESEARCH_TABLE_FILE = (
     / "JESI_final_research_table.csv"
 )
 
+COUNTRY_COVERAGE_FILE = (
+    RESULTS_DIR
+    / "jesi_country_coverage_2016_2023.csv"
+)
+
 PILLARS = [
     "G",
     "P",
@@ -98,6 +112,10 @@ EXPECTED_COUNTRIES = {
 
 EXPECTED_YEARS = set(
     range(2016, 2024)
+)
+
+EXPECTED_YEARS_PER_COUNTRY = len(
+    EXPECTED_YEARS
 )
 
 EXPECTED_THEORETICAL_OBSERVATIONS = (
@@ -445,6 +463,199 @@ def validate_mathematical_consistency(df):
     )
 
 
+def calculate_expected_country_coverage(
+    country_year_df,
+):
+    """
+    Calculate expected country coverage directly from
+    the country-year analytical dataset.
+    """
+
+    coverage = (
+        country_year_df.groupby(
+            [
+                "country_code",
+                "country",
+            ]
+        )["year"]
+        .agg(
+            observations="count",
+            first_year="min",
+            last_year="max",
+        )
+        .reset_index()
+    )
+
+    coverage["expected_observations"] = (
+        EXPECTED_YEARS_PER_COUNTRY
+    )
+
+    coverage["missing_observations"] = (
+        coverage["expected_observations"]
+        - coverage["observations"]
+    )
+
+    coverage["coverage_pct"] = (
+        coverage["observations"]
+        / coverage["expected_observations"]
+        * 100
+    )
+
+    coverage["balanced_panel_eligible"] = (
+        coverage["observations"]
+        == EXPECTED_YEARS_PER_COUNTRY
+    )
+
+    return coverage
+
+
+def validate_country_coverage(
+    country_year_df,
+    coverage_df,
+):
+    """
+    Validate country-level observation coverage.
+
+    Unequal coverage is a methodological caution rather than
+    a calculation error.
+
+    The production complete-case sample is preserved.
+    """
+
+    required = {
+        "country_code",
+        "country",
+        "observations",
+        "expected_observations",
+        "missing_observations",
+        "coverage_pct",
+        "balanced_panel_eligible",
+    }
+
+    missing = required - set(
+        coverage_df.columns
+    )
+
+    if missing:
+        raise ValueError(
+            "Country coverage file is missing columns: "
+            f"{sorted(missing)}"
+        )
+
+    expected = calculate_expected_country_coverage(
+        country_year_df
+    )
+
+    expected = expected.sort_values(
+        "country_code"
+    ).reset_index(drop=True)
+
+    actual = coverage_df[
+        [
+            "country_code",
+            "country",
+            "observations",
+            "expected_observations",
+            "missing_observations",
+            "coverage_pct",
+            "balanced_panel_eligible",
+        ]
+    ].copy()
+
+    actual = actual.sort_values(
+        "country_code"
+    ).reset_index(drop=True)
+
+    if set(
+        actual["country_code"]
+    ) != EXPECTED_COUNTRIES:
+        raise ValueError(
+            "Country coverage file does not contain "
+            "the expected five countries."
+        )
+
+    if not np.array_equal(
+        actual["observations"].to_numpy(),
+        expected["observations"].to_numpy(),
+    ):
+        raise ValueError(
+            "Country observation counts do not match "
+            "the country-year JESI dataset."
+        )
+
+    if not np.array_equal(
+        actual["expected_observations"].to_numpy(),
+        expected["expected_observations"].to_numpy(),
+    ):
+        raise ValueError(
+            "Expected observation counts are inconsistent."
+        )
+
+    if not np.array_equal(
+        actual["missing_observations"].to_numpy(),
+        expected["missing_observations"].to_numpy(),
+    ):
+        raise ValueError(
+            "Missing observation counts are inconsistent."
+        )
+
+    if not np.allclose(
+        actual["coverage_pct"].to_numpy(),
+        expected["coverage_pct"].to_numpy(),
+        rtol=1e-9,
+        atol=1e-9,
+    ):
+        raise ValueError(
+            "Country coverage percentages are inconsistent."
+        )
+
+    if not np.array_equal(
+        actual["balanced_panel_eligible"].to_numpy(),
+        expected["balanced_panel_eligible"].to_numpy(),
+    ):
+        raise ValueError(
+            "Balanced-panel eligibility flags are inconsistent."
+        )
+
+    unequal = (
+        expected["observations"]
+        != EXPECTED_YEARS_PER_COUNTRY
+    )
+
+    print()
+    print(
+        "Country-level observation coverage:"
+    )
+
+    print(
+        actual.to_string(
+            index=False
+        )
+    )
+
+    if unequal.any():
+        print()
+        print(
+            "METHODOLOGICAL CAUTION:"
+        )
+        print(
+            "Country-level observation coverage is unequal."
+        )
+        print(
+            "This validation does not remove or reweight "
+            "any observations."
+        )
+        print(
+            "Balanced-panel sensitivity should be evaluated "
+            "as a separate research-validation exercise."
+        )
+    else:
+        print()
+        print(
+            "Country-level observation coverage is balanced."
+        )
+
+
 def validate_country_ranking(
     country_year_df,
     ranking_df,
@@ -462,7 +673,9 @@ def validate_country_ranking(
         "rank",
     }
 
-    missing = required - set(ranking_df.columns)
+    missing = required - set(
+        ranking_df.columns
+    )
 
     if missing:
         raise ValueError(
@@ -517,7 +730,9 @@ def validate_country_ranking(
         "country_code"
     ).reset_index(drop=True)
 
-    if set(actual["country_code"]) != EXPECTED_COUNTRIES:
+    if set(
+        actual["country_code"]
+    ) != EXPECTED_COUNTRIES:
         raise ValueError(
             "Country ranking does not contain "
             "the expected five countries."
@@ -540,7 +755,7 @@ def validate_country_ranking(
             equal_nan=True,
         ):
             raise ValueError(
-                f"Country ranking aggregation mismatch "
+                "Country ranking aggregation mismatch "
                 f"in column {column}."
             )
 
@@ -578,11 +793,17 @@ def validate_final_country_results(
         "JESI",
         "JESI_std",
         "observations",
+        "expected_observations",
+        "missing_observations",
+        "coverage_pct",
+        "balanced_panel_eligible",
         "rank",
         "JESI_score_100",
     }
 
-    missing = required - set(final_df.columns)
+    missing = required - set(
+        final_df.columns
+    )
 
     if missing:
         raise ValueError(
@@ -608,6 +829,26 @@ def validate_final_country_results(
             observations=("JESI", "count"),
         )
         .reset_index()
+    )
+
+    expected["expected_observations"] = (
+        EXPECTED_YEARS_PER_COUNTRY
+    )
+
+    expected["missing_observations"] = (
+        expected["expected_observations"]
+        - expected["observations"]
+    )
+
+    expected["coverage_pct"] = (
+        expected["observations"]
+        / expected["expected_observations"]
+        * 100
+    )
+
+    expected["balanced_panel_eligible"] = (
+        expected["observations"]
+        == EXPECTED_YEARS_PER_COUNTRY
     )
 
     expected["JESI_score_100"] = (
@@ -639,6 +880,10 @@ def validate_final_country_results(
             "JESI",
             "JESI_std",
             "observations",
+            "expected_observations",
+            "missing_observations",
+            "coverage_pct",
+            "balanced_panel_eligible",
             "rank",
             "JESI_score_100",
         ]
@@ -648,6 +893,14 @@ def validate_final_country_results(
         "country_code"
     ).reset_index(drop=True)
 
+    if set(
+        actual["country_code"]
+    ) != EXPECTED_COUNTRIES:
+        raise ValueError(
+            "Final country results do not contain "
+            "the expected five countries."
+        )
+
     for column in [
         "G",
         "P",
@@ -656,6 +909,7 @@ def validate_final_country_results(
         "A",
         "JESI",
         "JESI_std",
+        "coverage_pct",
         "JESI_score_100",
     ]:
 
@@ -667,16 +921,31 @@ def validate_final_country_results(
             equal_nan=True,
         ):
             raise ValueError(
-                f"Final country results mismatch "
+                "Final country results mismatch "
+                f"in column {column}."
+            )
+
+    for column in [
+        "observations",
+        "expected_observations",
+        "missing_observations",
+    ]:
+
+        if not np.array_equal(
+            actual[column].to_numpy(),
+            expected[column].to_numpy(),
+        ):
+            raise ValueError(
+                "Final country result mismatch "
                 f"in column {column}."
             )
 
     if not np.array_equal(
-        actual["observations"].to_numpy(),
-        expected["observations"].to_numpy(),
+        actual["balanced_panel_eligible"].to_numpy(),
+        expected["balanced_panel_eligible"].to_numpy(),
     ):
         raise ValueError(
-            "Final country observation counts do not match."
+            "Final country balanced-panel flags do not match."
         )
 
     if not np.array_equal(
@@ -704,7 +973,9 @@ def validate_yearly_summary(
         "observations",
     }
 
-    missing = required - set(yearly_df.columns)
+    missing = required - set(
+        yearly_df.columns
+    )
 
     if missing:
         raise ValueError(
@@ -793,9 +1064,16 @@ def validate_research_table(
         "Strategic_Autonomy",
         "JESI",
         "JESI_std",
+        "observations",
+        "expected_observations",
+        "missing_observations",
+        "coverage_pct",
+        "balanced_panel_eligible",
     }
 
-    missing = required - set(research_df.columns)
+    missing = required - set(
+        research_df.columns
+    )
 
     if missing:
         raise ValueError(
@@ -815,6 +1093,11 @@ def validate_research_table(
             "A",
             "JESI",
             "JESI_std",
+            "observations",
+            "expected_observations",
+            "missing_observations",
+            "coverage_pct",
+            "balanced_panel_eligible",
         ]
     ].copy()
 
@@ -844,6 +1127,11 @@ def validate_research_table(
             "Strategic_Autonomy",
             "JESI",
             "JESI_std",
+            "observations",
+            "expected_observations",
+            "missing_observations",
+            "coverage_pct",
+            "balanced_panel_eligible",
         ]
     ].copy()
 
@@ -859,6 +1147,7 @@ def validate_research_table(
         "Strategic_Autonomy",
         "JESI",
         "JESI_std",
+        "coverage_pct",
     ]:
 
         if not np.allclose(
@@ -872,6 +1161,29 @@ def validate_research_table(
                 f"Research table mismatch "
                 f"in column {column}."
             )
+
+    for column in [
+        "observations",
+        "expected_observations",
+        "missing_observations",
+    ]:
+
+        if not np.array_equal(
+            actual[column].to_numpy(),
+            expected[column].to_numpy(),
+        ):
+            raise ValueError(
+                f"Research table mismatch "
+                f"in column {column}."
+            )
+
+    if not np.array_equal(
+        actual["balanced_panel_eligible"].to_numpy(),
+        expected["balanced_panel_eligible"].to_numpy(),
+    ):
+        raise ValueError(
+            "Research table balanced-panel flags do not match."
+        )
 
     if not np.array_equal(
         actual["rank"].to_numpy(),
@@ -994,6 +1306,7 @@ def main():
         FINAL_COUNTRY_FILE,
         YEARLY_FILE,
         RESEARCH_TABLE_FILE,
+        COUNTRY_COVERAGE_FILE,
     ]
 
     for path in required_files:
@@ -1031,6 +1344,10 @@ def main():
         RESEARCH_TABLE_FILE
     )
 
+    coverage_df = pd.read_csv(
+        COUNTRY_COVERAGE_FILE
+    )
+
     # ---------------------------------------------------------------
     # Validation sequence
     # ---------------------------------------------------------------
@@ -1059,7 +1376,19 @@ def main():
 
     print()
     print(
-        "3. Validating country ranking..."
+        "3. Validating country observation coverage..."
+    )
+
+    validate_country_coverage(
+        country_year_df,
+        coverage_df,
+    )
+
+    print("GREEN")
+
+    print()
+    print(
+        "4. Validating country ranking..."
     )
 
     validate_country_ranking(
@@ -1071,7 +1400,7 @@ def main():
 
     print()
     print(
-        "4. Validating final country results..."
+        "5. Validating final country results..."
     )
 
     validate_final_country_results(
@@ -1083,7 +1412,7 @@ def main():
 
     print()
     print(
-        "5. Validating yearly JESI summary..."
+        "6. Validating yearly JESI summary..."
     )
 
     validate_yearly_summary(
@@ -1095,7 +1424,7 @@ def main():
 
     print()
     print(
-        "6. Validating final research table..."
+        "7. Validating final research table..."
     )
 
     validate_research_table(
@@ -1107,7 +1436,7 @@ def main():
 
     print()
     print(
-        "7. Validating robustness outputs..."
+        "8. Validating robustness outputs..."
     )
 
     validate_robustness(
@@ -1134,6 +1463,17 @@ def main():
         actual_observations
         / EXPECTED_THEORETICAL_OBSERVATIONS
         * 100
+    )
+
+    balanced_countries = int(
+        coverage_df[
+            "balanced_panel_eligible"
+        ].sum()
+    )
+
+    unbalanced_countries = (
+        len(EXPECTED_COUNTRIES)
+        - balanced_countries
     )
 
     print()
@@ -1172,6 +1512,38 @@ def main():
         f"{retention:.2f}%"
     )
 
+    print(
+        f"Balanced-panel countries: "
+        f"{balanced_countries}"
+    )
+
+    print(
+        f"Unequal-coverage countries: "
+        f"{unbalanced_countries}"
+    )
+
+    print()
+
+    if unbalanced_countries > 0:
+        print(
+            "METHODOLOGICAL CAUTION:"
+        )
+        print(
+            "Country-level coverage is unequal."
+        )
+        print(
+            "The baseline complete-case JESI calculation "
+            "has NOT been altered."
+        )
+        print(
+            "A balanced-panel sensitivity analysis should "
+            "be treated as a separate research-validation step."
+        )
+    else:
+        print(
+            "Country-level coverage is balanced."
+        )
+
     print()
     print("=" * 70)
     print("STATUS: GREEN")
@@ -1181,6 +1553,9 @@ def main():
     print(
         "The theoretical 40-observation panel was "
         "reconciled with the complete-case analytical sample."
+    )
+    print(
+        "Country-level observation coverage was explicitly validated."
     )
     print(
         "No missing observation was imputed, "
