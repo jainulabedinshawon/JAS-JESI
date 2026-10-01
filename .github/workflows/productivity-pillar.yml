@@ -42,7 +42,7 @@ jobs:
           PYTHONPATH=. python scripts/15_score_productivity_p1.py
 
       - name: Upload Productivity P1 outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: jesi-productivity-p1-pipeline-output
           path: |
