@@ -1,0 +1,877 @@
+name: JAS-JESI Step E + Step F Audit
+
+on:
+  workflow_dispatch:
+
+# ==============================================================
+# GLOBAL SECURITY
+# ==============================================================
+
+# This workflow is strictly read-only.
+# It must never modify repository contents.
+permissions:
+  contents: read
+
+concurrency:
+  group: jesi-pytest-step-e-f-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+
+jobs:
+
+  # ==============================================================
+  # STEP E
+  # REFERENCE / ENVIRONMENT IDENTITY
+  # ==============================================================
+
+  reference:
+    name: E0 Reference Environment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+
+      - name: Record reference identity
+        run: |
+          set -euo pipefail
+
+          echo "=== Repository ==="
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "SHA:        ${GITHUB_SHA}"
+          echo "Ref:        ${GITHUB_REF}"
+
+          echo "=== Runner ==="
+          uname -a
+          lscpu | grep -E 'Architecture|Model name|CPU\(s\)' || true
+
+          echo "=== Python ==="
+          python --version
+          python -c "import sys; print(sys.version)"
+          python -c "import platform; print(platform.platform())"
+          python -c "import platform; print(platform.machine())"
+
+          echo "=== Git ==="
+          git rev-parse HEAD
+
+      - name: Record input SHA-256
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/reference
+
+          {
+            echo "Input SHA-256 manifest"
+            echo "====================="
+            find data/raw data/processed -type f -print0 2>/dev/null \
+              | sort -z \
+              | xargs -0 -r sha256sum
+          } > audit/reference/input-sha256.txt
+
+          cat audit/reference/input-sha256.txt
+
+      - name: Record checked-in Master 1.0 results
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/reference
+          mkdir -p audit/reference/master-results
+
+          if [ ! -d data/results ]; then
+            echo "ERROR: data/results does not exist."
+            exit 1
+          fi
+
+          cp -a data/results/. audit/reference/master-results/
+
+          find audit/reference/master-results \
+            -type f \
+            -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > audit/reference/master-results-sha256.txt
+
+          cat audit/reference/master-results-sha256.txt
+
+      - name: Upload reference evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a0 # v7.0.1
+        with:
+          name: jesi-step-e-reference
+          if-no-files-found: error
+          path: audit/reference/
+
+
+  # ==============================================================
+  # STEP E
+  # PYTEST COMPATIBILITY MATRIX
+  # ==============================================================
+
+  compatibility:
+    name: E1 Pytest ${{ matrix.pytest }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        pytest:
+          - "8.3.5"
+          - "9.0.3"
+          - "9.1.1"
+
+    permissions:
+      contents: read
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+
+      - name: Create isolated candidate environment
+        run: |
+          set -euo pipefail
+
+          python -m venv .venv
+
+          . .venv/bin/activate
+
+          python -m pip install --upgrade pip
+
+          # Keep all production dependencies exactly as pinned
+          # in requirements.txt, except pytest which is the
+          # controlled experimental variable in Step E.
+          grep -v '^pytest==' requirements.txt > /tmp/requirements-no-pytest.txt
+
+          python -m pip install -r /tmp/requirements-no-pytest.txt
+          python -m pip install "pytest==${{ matrix.pytest }}"
+
+      - name: Record Python and pytest versions
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+
+          echo "Python:"
+          python --version
+
+          echo "Pytest:"
+          pytest --version
+
+      - name: Record installed environment
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+
+          mkdir -p audit/compatibility
+
+          python -m pip freeze \
+            | sort \
+            > "audit/compatibility/pip-freeze-${{ matrix.pytest }}.txt"
+
+          cat "audit/compatibility/pip-freeze-${{ matrix.pytest }}.txt"
+
+      # ----------------------------------------------------------
+      # Primary compatibility test
+      # ----------------------------------------------------------
+
+      - name: Run pytest primary test
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+
+          pytest -ra
+
+      # ----------------------------------------------------------
+      # Secondary diagnostic only
+      #
+      # This is NOT the primary Step E pass/fail criterion.
+      # ----------------------------------------------------------
+
+      - name: Run deprecation diagnostic
+        continue-on-error: true
+        run: |
+          . .venv/bin/activate
+
+          pytest -ra -W error::DeprecationWarning \
+            > "audit-deprecation-${{ matrix.pytest }}.log" 2>&1
+
+      # ----------------------------------------------------------
+      # Separate security-audit environment
+      # ----------------------------------------------------------
+
+      - name: Create separate pip-audit environment
+        run: |
+          set -euo pipefail
+
+          python -m venv .audit-venv
+
+          . .audit-venv/bin/activate
+
+          python -m pip install --upgrade pip
+          python -m pip install "pip-audit==2.10.1"
+
+      - name: Build candidate dependency specification
+        run: |
+          set -euo pipefail
+
+          grep -v '^pytest==' requirements.txt \
+            > /tmp/requirements-candidate.txt
+
+          echo "pytest==${{ matrix.pytest }}" \
+            >> /tmp/requirements-candidate.txt
+
+          cat /tmp/requirements-candidate.txt
+
+      - name: Audit candidate requirements
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/security
+
+          set +e
+
+          . .audit-venv/bin/activate
+
+          pip-audit \
+            -r /tmp/requirements-candidate.txt \
+            --format json \
+            --output "audit/security/requirements-pip-audit-${{ matrix.pytest }}.json"
+
+          status=$?
+
+          set -e
+
+          echo "requirements pip-audit exit code: ${status}"
+
+          if [ ! -f "audit/security/requirements-pip-audit-${{ matrix.pytest }}.json" ]; then
+            echo "ERROR: pip-audit did not produce JSON evidence."
+            exit 1
+          fi
+
+          # pip-audit exit code 1 means vulnerabilities were found.
+          # Other non-zero codes indicate scanner failure.
+          if [ "${status}" -ne 0 ]; then
+            echo "pip-audit reported a non-zero result."
+            exit "${status}"
+          fi
+
+      - name: Audit installed candidate environment
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/security
+
+          set +e
+
+          . .audit-venv/bin/activate
+
+          pip-audit \
+            --path ".venv/lib/python3.10/site-packages" \
+            --format json \
+            --output "audit/security/installed-pip-audit-${{ matrix.pytest }}.json"
+
+          status=$?
+
+          set -e
+
+          echo "installed environment pip-audit exit code: ${status}"
+
+          if [ ! -f "audit/security/installed-pip-audit-${{ matrix.pytest }}.json" ]; then
+            echo "ERROR: installed-environment pip-audit did not produce JSON evidence."
+            exit 1
+          fi
+
+          if [ "${status}" -ne 0 ]; then
+            echo "installed environment pip-audit reported a non-zero result."
+            exit "${status}"
+          fi
+
+      - name: Upload Step E evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a0 # v7.0.1
+        with:
+          name: jesi-step-e-${{ matrix.pytest }}
+          if-no-files-found: warn
+          path: |
+            audit/
+            audit-deprecation-${{ matrix.pytest }}.log
+
+
+  # ==============================================================
+  # STEP F
+  # BASELINE DETERMINISM + MASTER 1.0 REPRODUCTION
+  # ==============================================================
+
+  baseline-determinism:
+    name: F1 Baseline 8.3.5 Determinism
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    needs:
+      - reference
+      - compatibility
+
+    permissions:
+      contents: read
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+
+      - name: Create baseline environment
+        run: |
+          set -euo pipefail
+
+          python -m venv .venv
+          . .venv/bin/activate
+
+          python -m pip install --upgrade pip
+
+          python -m pip install -r requirements.txt
+
+          python --version
+          pytest --version
+
+      - name: Preserve checked-in Master 1.0 results
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/master
+          cp -a data/results/. audit/master/checked-in-results/
+
+      # ----------------------------------------------------------
+      # BASELINE RUN A
+      # ----------------------------------------------------------
+
+      - name: Run full Master 1.0 pipeline A
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+
+          export PYTHONPATH="${GITHUB_WORKSPACE}"
+
+          python scripts/27_score_growth.py
+          python scripts/28_construct_growth_pillar.py
+
+          python scripts/12_download_productivity_data.py
+          python scripts/15_score_productivity_p1.py
+
+          python scripts/16_download_productivity_p2.py
+          python scripts/19_score_productivity_p2.py
+
+          python scripts/20_construct_productivity_pillar.py
+
+          python scripts/21_download_connectivity_data.py
+          python scripts/22_download_connectivity_data.py
+          python scripts/23_analyze_connectivity_distribution.py
+          python scripts/24_score_connectivity.py
+          python scripts/25_construct_connectivity_pillar.py
+
+          python scripts/08_download_resilience_data.py
+          python scripts/09_validate_resilience_data.py
+          python scripts/10_analyze_resilience_distribution.py
+          python scripts/11_score_resilience_pillar.py
+
+          python scripts/29_download_autonomy_data.py
+          python scripts/31_download_import_concentration.py
+          python scripts/30_validate_autonomy_data.py
+          python scripts/32_validate_autonomy_data.py
+          python scripts/33_analyze_autonomy_distribution.py
+          python scripts/34_score_autonomy.py
+          python scripts/35_construct_autonomy_pillar.py
+
+          test -f data/processed/growth_pillar_scores_2015_2024.csv
+          test -f data/processed/productivity_pillar_scores_2016_2023.csv
+          test -f data/processed/connectivity_pillar_scores_2015_2024.csv
+          test -f data/processed/resilience_pillar_scores_2015_2024.csv
+          test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
+
+          python scripts/36_calculate_jesi.py
+          python scripts/37_robustness_tests.py
+          python scripts/38_generate_final_jesi_results.py
+          python scripts/39_validate_final_jesi.py
+          python scripts/40_generate_jesi_report.py
+          python scripts/41_update_readme_jesi.py
+          python scripts/42_final_repository_audit.py
+
+      - name: Save baseline A
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/master/baseline-A
+          cp -a data/results/. audit/master/baseline-A/
+
+          find audit/master/baseline-A \
+            -type f \
+            -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > audit/master/baseline-A-sha256.txt
+
+      # ----------------------------------------------------------
+      # RESET COMPUTATIONAL OUTPUTS
+      # ----------------------------------------------------------
+
+      - name: Reset generated results before baseline B
+        run: |
+          set -euo pipefail
+
+          rm -rf data/results
+          mkdir -p data/results
+
+      # ----------------------------------------------------------
+      # BASELINE RUN B
+      # ----------------------------------------------------------
+
+      - name: Run full Master 1.0 pipeline B
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+
+          export PYTHONPATH="${GITHUB_WORKSPACE}"
+
+          python scripts/27_score_growth.py
+          python scripts/28_construct_growth_pillar.py
+
+          python scripts/12_download_productivity_data.py
+          python scripts/15_score_productivity_p1.py
+
+          python scripts/16_download_productivity_p2.py
+          python scripts/19_score_productivity_p2.py
+
+          python scripts/20_construct_productivity_pillar.py
+
+          python scripts/21_download_connectivity_data.py
+          python scripts/22_download_connectivity_data.py
+          python scripts/23_analyze_connectivity_distribution.py
+          python scripts/24_score_connectivity.py
+          python scripts/25_construct_connectivity_pillar.py
+
+          python scripts/08_download_resilience_data.py
+          python scripts/09_validate_resilience_data.py
+          python scripts/10_analyze_resilience_distribution.py
+          python scripts/11_score_resilience_pillar.py
+
+          python scripts/29_download_autonomy_data.py
+          python scripts/31_download_import_concentration.py
+          python scripts/30_validate_autonomy_data.py
+          python scripts/32_validate_autonomy_data.py
+          python scripts/33_analyze_autonomy_distribution.py
+          python scripts/34_score_autonomy.py
+          python scripts/35_construct_autonomy_pillar.py
+
+          test -f data/processed/growth_pillar_scores_2015_2024.csv
+          test -f data/processed/productivity_pillar_scores_2016_2023.csv
+          test -f data/processed/connectivity_pillar_scores_2015_2024.csv
+          test -f data/processed/resilience_pillar_scores_2015_2024.csv
+          test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
+
+          python scripts/36_calculate_jesi.py
+          python scripts/37_robustness_tests.py
+          python scripts/38_generate_final_jesi_results.py
+          python scripts/39_validate_final_jesi.py
+          python scripts/40_generate_jesi_report.py
+          python scripts/41_update_readme_jesi.py
+          python scripts/42_final_repository_audit.py
+
+      - name: Save baseline B
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/master/baseline-B
+          cp -a data/results/. audit/master/baseline-B/
+
+          find audit/master/baseline-B \
+            -type f \
+            -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > audit/master/baseline-B-sha256.txt
+
+      # ----------------------------------------------------------
+      # G2: A/B DETERMINISM
+      # ----------------------------------------------------------
+
+      - name: G2 Compare baseline A and B byte-for-byte
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/master
+
+          diff -qr \
+            audit/master/baseline-A \
+            audit/master/baseline-B \
+            > audit/master/baseline-A-vs-B.diff
+
+          echo "G2 PASS: Baseline A and B are byte-for-byte identical."
+
+      # ----------------------------------------------------------
+      # G3: Freeze nondeterminism classification
+      # ----------------------------------------------------------
+
+      - name: Freeze nondeterministic files
+        run: |
+          set -euo pipefail
+
+          : > audit/master/nondeterministic-files.txt
+
+          if [ -s audit/master/baseline-A-vs-B.diff ]; then
+            echo "ERROR: Baseline A/B differ."
+            echo "No nondeterministic files may be declared before G2 passes."
+            exit 1
+          fi
+
+          echo "NONE" > audit/master/nondeterministic-files.txt
+
+      # ----------------------------------------------------------
+      # G4: Master 1.0 reproduction
+      # ----------------------------------------------------------
+
+      - name: G4 Compare fresh baseline against checked-in Master 1.0
+        run: |
+          set -euo pipefail
+
+          diff -qr \
+            audit/master/checked-in-results \
+            audit/master/baseline-A \
+            > audit/master/master-vs-baseline.diff
+
+          echo "G4 PASS: Fresh Python 3.10 + pytest 8.3.5 baseline reproduces checked-in Master 1.0 results byte-for-byte."
+
+      - name: Upload Step F baseline evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a0 # v7.0.1
+        with:
+          name: jesi-step-f-baseline
+          if-no-files-found: warn
+          path: audit/master/
+
+
+  # ==============================================================
+  # STEP F
+  # CANDIDATE FULL PIPELINE + NUMERICAL EQUIVALENCE
+  # ==============================================================
+
+  candidate-pipeline:
+    name: F2 Candidate ${{ matrix.pytest }} Numerical Equivalence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    needs:
+      - compatibility
+      - baseline-determinism
+
+    strategy:
+      fail-fast: false
+      matrix:
+        pytest:
+          - "9.0.3"
+          - "9.1.1"
+
+    permissions:
+      contents: read
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+
+      - name: Create candidate environment
+        run: |
+          set -euo pipefail
+
+          python -m venv .venv
+          . .venv/bin/activate
+
+          python -m pip install --upgrade pip
+
+          grep -v '^pytest==' requirements.txt \
+            > /tmp/requirements-no-pytest.txt
+
+          python -m pip install \
+            -r /tmp/requirements-no-pytest.txt
+
+          python -m pip install \
+            "pytest==${{ matrix.pytest }}"
+
+      - name: Verify candidate environment
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+
+          echo "Python:"
+          python --version
+
+          echo "Pytest:"
+          pytest --version
+
+          mkdir -p audit/candidate
+
+          python -m pip freeze \
+            | sort \
+            > "audit/candidate/pip-freeze-${{ matrix.pytest }}.txt"
+
+      # ----------------------------------------------------------
+      # G0: Candidate environment identity
+      # ----------------------------------------------------------
+
+      - name: Record candidate identity
+        run: |
+          set -euo pipefail
+
+          . .venv/bin/activate
+
+          {
+            echo "Repository: ${GITHUB_REPOSITORY}"
+            echo "SHA: ${GITHUB_SHA}"
+            echo "Runner:"
+            uname -a
+            echo "Python:"
+            python --version
+            python -c "import sys; print(sys.version)"
+            echo "Architecture:"
+            python -c "import platform; print(platform.machine())"
+            echo "Pytest:"
+            pytest --version
+          } > "audit/candidate/environment-${{ matrix.pytest }}.txt"
+
+      # ----------------------------------------------------------
+      # G1: Input SHA-256
+      # ----------------------------------------------------------
+
+      - name: Record candidate input SHA-256
+        run: |
+          set -euo pipefail
+
+          {
+            echo "Candidate input SHA-256 manifest"
+            echo "================================"
+            find data/raw data/processed -type f -print0 2>/dev/null \
+              | sort -z \
+              | xargs -0 -r sha256sum
+          } > "audit/candidate/input-sha256-${{ matrix.pytest }}.txt"
+
+      # ----------------------------------------------------------
+      # Full candidate pipeline
+      # ----------------------------------------------------------
+
+      - name: Run full JESI pipeline
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+
+          export PYTHONPATH="${GITHUB_WORKSPACE}"
+
+          python scripts/27_score_growth.py
+          python scripts/28_construct_growth_pillar.py
+
+          python scripts/12_download_productivity_data.py
+          python scripts/15_score_productivity_p1.py
+
+          python scripts/16_download_productivity_p2.py
+          python scripts/19_score_productivity_p2.py
+
+          python scripts/20_construct_productivity_pillar.py
+
+          python scripts/21_download_connectivity_data.py
+          python scripts/22_download_connectivity_data.py
+          python scripts/23_analyze_connectivity_distribution.py
+          python scripts/24_score_connectivity.py
+          python scripts/25_construct_connectivity_pillar.py
+
+          python scripts/08_download_resilience_data.py
+          python scripts/09_validate_resilience_data.py
+          python scripts/10_analyze_resilience_distribution.py
+          python scripts/11_score_resilience_pillar.py
+
+          python scripts/29_download_autonomy_data.py
+          python scripts/31_download_import_concentration.py
+          python scripts/30_validate_autonomy_data.py
+          python scripts/32_validate_autonomy_data.py
+          python scripts/33_analyze_autonomy_distribution.py
+          python scripts/34_score_autonomy.py
+          python scripts/35_construct_autonomy_pillar.py
+
+          test -f data/processed/growth_pillar_scores_2015_2024.csv
+          test -f data/processed/productivity_pillar_scores_2016_2023.csv
+          test -f data/processed/connectivity_pillar_scores_2015_2024.csv
+          test -f data/processed/resilience_pillar_scores_2015_2024.csv
+          test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
+
+          python scripts/36_calculate_jesi.py
+          python scripts/37_robustness_tests.py
+          python scripts/38_generate_final_jesi_results.py
+          python scripts/39_validate_final_jesi.py
+          python scripts/40_generate_jesi_report.py
+          python scripts/41_update_readme_jesi.py
+          python scripts/42_final_repository_audit.py
+
+      # ----------------------------------------------------------
+      # G6: Byte-for-byte comparison
+      # ----------------------------------------------------------
+
+      - name: Download deterministic baseline
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: jesi-step-f-baseline
+          path: audit/baseline
+
+      - name: G6 Compare candidate results byte-for-byte
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/comparison
+
+          diff -qr \
+            audit/baseline/baseline-A \
+            data/results \
+            > "audit/comparison/candidate-${{ matrix.pytest }}.diff"
+
+          echo "G6 PASS: pytest ${{ matrix.pytest }} reproduces baseline results byte-for-byte."
+
+      # ----------------------------------------------------------
+      # G7 / G8
+      # ----------------------------------------------------------
+
+      - name: Verify no tolerance-based comparison was used
+        run: |
+          set -euo pipefail
+
+          if grep -RniE \
+            'allclose|isclose|rtol|atol|round\(' \
+            audit/comparison \
+            > audit/comparison/tolerance-search.txt 2>/dev/null; then
+            echo "ERROR: Tolerance-based comparison detected."
+            exit 1
+          fi
+
+          echo "G8 PASS: No arbitrary numerical tolerance was used."
+
+      - name: Upload candidate evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a0 # v7.0.1
+        with:
+          name: jesi-step-f-candidate-${{ matrix.pytest }}
+          if-no-files-found: warn
+          path: |
+            audit/
+
+
+  # ==============================================================
+  # FINAL AUDIT SUMMARY
+  # ==============================================================
+
+  audit-summary:
+    name: Step E + Step F Evidence Summary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    needs:
+      - reference
+      - compatibility
+      - baseline-determinism
+      - candidate-pipeline
+
+    if: always()
+
+    permissions:
+      contents: read
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download all audit evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: jesi-step-*
+          path: audit/evidence
+          merge-multiple: false
+
+      - name: Generate audit summary
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit/summary
+
+          {
+            echo "JAS-JESI STEP E + STEP F AUDIT"
+            echo "================================"
+            echo
+            echo "Repository: ${GITHUB_REPOSITORY}"
+            echo "Commit:     ${GITHUB_SHA}"
+            echo
+            echo "Frozen Python baseline: 3.10"
+            echo "Reference pytest:       8.3.5"
+            echo "Candidates:              9.0.3, 9.1.1"
+            echo
+            echo "Step E:"
+            echo "  - Primary test: pytest -ra"
+            echo "  - DeprecationWarnings: secondary diagnostic only"
+            echo "  - Requirements audit: pip-audit 2.10.1"
+            echo "  - Installed environment audit: pip-audit --path"
+            echo
+            echo "Step F:"
+            echo "  G0 Environment identity"
+            echo "  G1 Input SHA-256"
+            echo "  G2 Baseline A/B determinism"
+            echo "  G3 Nondeterminism classification"
+            echo "  G4 Master 1.0 reproduction"
+            echo "  G5 Candidate full pipeline"
+            echo "  G6 Byte-for-byte comparison"
+            echo "  G7 Only pre-identified nondeterminism may be canonicalized"
+            echo "  G8 No arbitrary float tolerance"
+            echo
+            echo "IMPORTANT:"
+            echo "This workflow produces evidence only."
+            echo "A successful workflow run does not by itself constitute"
+            echo "a final methodological judgment."
+          } | tee audit/summary/STEP-E-F-AUDIT-SUMMARY.txt
+
+      - name: Upload final audit summary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a0 # v7.0.1
+        with:
+          name: jesi-step-e-f-final-summary
+          if-no-files-found: error
+          path: audit/summary/
