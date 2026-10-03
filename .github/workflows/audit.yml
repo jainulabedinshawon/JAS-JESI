@@ -1,0 +1,84 @@
+name: JAS-JESI Independent Audit
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+
+  workflow_dispatch:
+
+# ==============================================================
+# GLOBAL SECURITY
+# ==============================================================
+
+# The audit workflow must never modify repository contents.
+permissions:
+  contents: read
+
+# Prevent multiple stale audits for the same ref.
+concurrency:
+  group: jas-jesi-independent-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+
+  # ============================================================
+  # INDEPENDENT REPOSITORY AUDIT
+  # ============================================================
+
+  audit:
+    name: Repository Security & Reproducibility Audit
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+
+    steps:
+
+      # ========================================================
+      # CHECKOUT
+      # ========================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # ========================================================
+      # PYTHON 3.10
+      # ========================================================
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      # ========================================================
+      # INDEPENDENT AUDIT
+      # ========================================================
+
+      - name: Run independent repository audit
+        run: |
+          python scripts/43_repository_security_audit.py
+
+      # ========================================================
+      # UPLOAD AUDIT EVIDENCE
+      # ========================================================
+
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: JAS-JESI-independent-audit
+          if-no-files-found: warn
+          path: |
+            audit/repository-audit.json
+            audit/pip-audit.json
