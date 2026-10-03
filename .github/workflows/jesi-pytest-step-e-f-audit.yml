@@ -192,12 +192,21 @@ jobs:
 
       # ----------------------------------------------------------
       # Primary compatibility test
+      #
+      # IMPORTANT:
+      # The repository root is explicitly placed on PYTHONPATH
+      # because the test suite imports modules as "from src....".
       # ----------------------------------------------------------
 
       - name: Run pytest primary test
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           set -euo pipefail
           . .venv/bin/activate
+
+          echo "PYTHONPATH=${PYTHONPATH}"
+          python -c "import src; print('src import: OK')"
 
           pytest -ra
 
@@ -205,12 +214,21 @@ jobs:
       # Secondary diagnostic only
       #
       # This is NOT the primary Step E pass/fail criterion.
+      # It must still execute when the primary test fails so that
+      # diagnostic evidence is preserved.
       # ----------------------------------------------------------
 
       - name: Run deprecation diagnostic
+        if: always()
         continue-on-error: true
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           . .venv/bin/activate
+
+          mkdir -p audit
+
+          echo "PYTHONPATH=${PYTHONPATH}"
 
           pytest -ra -W error::DeprecationWarning \
             > "audit-deprecation-${{ matrix.pytest }}.log" 2>&1
@@ -220,6 +238,7 @@ jobs:
       # ----------------------------------------------------------
 
       - name: Create separate pip-audit environment
+        if: always()
         run: |
           set -euo pipefail
 
@@ -231,6 +250,7 @@ jobs:
           python -m pip install "pip-audit==2.10.1"
 
       - name: Build candidate dependency specification
+        if: always()
         run: |
           set -euo pipefail
 
@@ -243,6 +263,7 @@ jobs:
           cat /tmp/requirements-candidate.txt
 
       - name: Audit candidate requirements
+        if: always()
         run: |
           set -euo pipefail
 
@@ -276,6 +297,7 @@ jobs:
           fi
 
       - name: Audit installed candidate environment
+        if: always()
         run: |
           set -euo pipefail
 
@@ -848,6 +870,7 @@ jobs:
             echo
             echo "Step E:"
             echo "  - Primary test: pytest -ra"
+            echo "  - Repository root exposed through PYTHONPATH"
             echo "  - DeprecationWarnings: secondary diagnostic only"
             echo "  - Requirements audit: pip-audit 2.10.1"
             echo "  - Installed environment audit: pip-audit --path"
