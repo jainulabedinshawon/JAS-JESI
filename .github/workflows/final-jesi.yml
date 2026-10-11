@@ -9,6 +9,7 @@ on:
       - "src/**"
       - ".github/workflows/final-jesi.yml"
       - "requirements.txt"
+      - "requirements.lock"
 
 # ==============================================================
 # GLOBAL SECURITY
@@ -69,22 +70,32 @@ jobs:
         with:
           python-version: "3.10"
           cache: "pip"
+          cache-dependency-path: requirements.lock
 
       # ============================================================
       # DEPENDENCIES
       # ==============================================================
 
-      - name: Install pinned dependencies
+      - name: Install reviewed hash-locked dependencies
         run: |
           set -euo pipefail
+
           python -m pip install --upgrade pip
 
-          if [ ! -f requirements.txt ]; then
-            echo "ERROR: requirements.txt not found."
+          if [ ! -s requirements.txt ]; then
+            echo "ERROR: requirements.txt is missing or empty."
             exit 1
           fi
 
-          python -m pip install -r requirements.txt
+          if [ ! -s requirements.lock ]; then
+            echo "ERROR: Reviewed requirements.lock is missing or empty."
+            exit 1
+          fi
+
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip check
+
+          echo "Hash-locked dependency installation: PASSED"
 
       # ==============================================================
       # PYTHON PATH
@@ -435,8 +446,6 @@ jobs:
   # ==============================================================
 
   commit-results:
-    # Only publish generated outputs from the canonical main branch.
-    # PRs and non-main branch runs remain computation-only.
     if: >-
       github.ref == 'refs/heads/main' &&
       (
@@ -453,10 +462,6 @@ jobs:
 
     steps:
 
-      # ============================================================
-      # CHECKOUT
-      # ============================================================
-
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -464,19 +469,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      # ============================================================
-      # DOWNLOAD GENERATED ARTIFACT
-      # ==============================================================
-
       - name: Download generated JESI outputs
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: JESI-final-results
           path: .
-
-      # ============================================================
-      # VERIFY DOWNLOADED OUTPUTS
-      # ==============================================================
 
       - name: Verify generated outputs
         run: |
@@ -486,10 +483,6 @@ jobs:
           test -f README.md
 
           echo "Generated JESI outputs downloaded successfully."
-
-      # ==============================================================
-      # VERIFY REMOTE BRANCH BEFORE COMMIT
-      # ==============================================================
 
       - name: Verify source commit is still current
         run: |
@@ -512,10 +505,6 @@ jobs:
 
           echo "Remote main is unchanged. Safe to commit generated outputs."
 
-      # ==============================================================
-      # COMMIT GENERATED OUTPUTS
-      # ==============================================================
-
       - name: Commit generated JESI outputs
         run: |
           set -euo pipefail
@@ -534,10 +523,6 @@ jobs:
             git commit -m "Update final JESI results"
             git push origin HEAD:main
           fi
-
-      # ==============================================================
-      # SUCCESS SUMMARY
-      # ==============================================================
 
       - name: Final pipeline success
         run: |
