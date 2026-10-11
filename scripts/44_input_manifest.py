@@ -36,22 +36,25 @@ def collect_files(extra_files: list[str]) -> list[Path]:
     if not RAW_DIR.is_dir():
         raise FileNotFoundError(f"Missing raw-data directory: {RAW_DIR}")
 
-    files = {
-        path.resolve()
-        for path in RAW_DIR.rglob("*")
-        if path.is_file()
-    }
+    files: set[Path] = set()
 
-    for item in extra_files:
-        path = (ROOT / item).resolve()
-        if not path.is_file():
-            raise FileNotFoundError(f"Missing extra input: {item}")
-        repo_relative(path)
-        files.add(path)
-
-    for path in files:
+    for path in RAW_DIR.rglob("*"):
         if path.is_symlink():
             raise ValueError(f"Symlink inputs are not supported: {path}")
+        if path.is_file():
+            files.add(path)
+
+    for item in extra_files:
+        candidate = ROOT / item
+        if candidate.is_symlink():
+            raise ValueError(f"Symlink inputs are not supported: {candidate}")
+
+        path = candidate.resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"Missing extra input: {item}")
+
+        repo_relative(path)
+        files.add(path)
 
     return sorted(files, key=repo_relative)
 
