@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
 REQUIREMENTS_FILE = ROOT / "requirements.txt"
+LOCK_FILE = ROOT / "requirements.lock"
 
 AUDIT_DIR = ROOT / "audit"
 REPORT_FILE = AUDIT_DIR / "repository-audit.json"
@@ -74,7 +75,7 @@ def read_text(path: Path) -> str:
 
 
 def audit_requirements() -> None:
-    """Validate requirements.txt exact version pinning."""
+    """Validate requirements.txt exact version pinning and requirements.lock presence/hashes."""
 
     if not REQUIREMENTS_FILE.exists():
         record(
@@ -129,17 +130,49 @@ def audit_requirements() -> None:
             f"All {len(lines)} dependency entries use exact == pins.",
         )
 
-    # Lock strategy is intentionally not enforced yet because it is
-    # a later phase in the locked JAS-JESI execution order.
-    record(
-        "requirements.lock",
-        "WARN",
-        (
-            "No lock/hashed requirements file is currently enforced. "
-            "Dependency lock/reproducibility strategy remains a later "
-            "Master 1.0 hardening phase."
-        ),
-    )
+    # Verify that the hash-locked file exists and contains
+    # pinned versions plus SHA-256 hashes.
+    if not LOCK_FILE.exists():
+        record(
+            "requirements.lock",
+            "WARN",
+            "requirements.lock is missing; "
+            "generate and review a hashed lock file.",
+        )
+    else:
+        lock_text = read_text(LOCK_FILE)
+        lock_lines = [
+            line.strip()
+            for line in lock_text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+
+        lock_has_hash = any(
+            "--hash=sha256:" in line
+            for line in lock_lines
+        )
+
+        lock_has_unpinned = any(
+            line.startswith(("-", "--"))
+            and not line.startswith("--hash=")
+            for line in lock_lines
+        )
+
+        if not lock_lines or not lock_has_hash or lock_has_unpinned:
+            record(
+                "requirements.lock",
+                "FAIL",
+                "requirements.lock is empty, lacks SHA-256 hashes, "
+                "or contains unexpected non-package options.",
+            )
+        else:
+            record(
+                "requirements.lock",
+                "PASS",
+                "requirements.lock exists and includes SHA-256 hashes. "
+                "Installability and vulnerability status must be "
+                "validated separately.",
+            )
 
 
 # ==============================================================
