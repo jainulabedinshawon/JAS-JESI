@@ -1,4 +1,3 @@
-
 name: Run Growth Data Download
 
 on:
@@ -34,6 +33,7 @@ jobs:
 
       - name: Install pinned dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
