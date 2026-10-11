@@ -107,7 +107,7 @@ jobs:
           cat audit/reference/master-results-sha256.txt
 
       - name: Upload reference evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jesi-step-e-reference
           if-no-files-found: error
@@ -330,7 +330,7 @@ jobs:
 
       - name: Upload Step E evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jesi-step-e-${{ matrix.pytest }}
           if-no-files-found: warn
@@ -591,7 +591,7 @@ jobs:
 
       - name: Upload Step F baseline evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jesi-step-f-baseline
           if-no-files-found: warn
@@ -808,7 +808,7 @@ jobs:
 
       - name: Upload candidate evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jesi-step-f-candidate-${{ matrix.pytest }}
           if-no-files-found: warn
@@ -893,7 +893,7 @@ jobs:
           } | tee audit/summary/STEP-E-F-AUDIT-SUMMARY.txt
 
       - name: Upload final audit summary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jesi-step-e-f-final-summary
           if-no-files-found: error
