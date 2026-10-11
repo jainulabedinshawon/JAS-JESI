@@ -14,6 +14,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -29,20 +31,24 @@ jobs:
 
       - name: Install pinned dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Configure Python path
         run: |
+          set -euo pipefail
           echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
 
       - name: Validate Python syntax
         run: |
+          set -euo pipefail
           python -m compileall -q scripts src
           echo "Python syntax validation: PASSED"
 
       - name: Lint
         run: |
+          set -euo pipefail
           flake8 . \
             --count \
             --select=E9,F63,F7,F82 \
@@ -58,30 +64,37 @@ jobs:
 
       - name: Run tests
         run: |
+          set -euo pipefail
           PYTHONPATH=. pytest
 
       - name: Download resilience data
         run: |
+          set -euo pipefail
           python scripts/08_download_resilience_data.py
 
       - name: Validate resilience data
         run: |
+          set -euo pipefail
           python scripts/09_validate_resilience_data.py
 
       - name: Analyze resilience distribution
         run: |
+          set -euo pipefail
           python scripts/10_analyze_resilience_distribution.py
 
       - name: Download Strategic Autonomy data
         run: |
+          set -euo pipefail
           python scripts/29_download_autonomy_data.py
 
       - name: Download UNCTAD import concentration data
         run: |
+          set -euo pipefail
           python scripts/31_download_import_concentration.py
 
       - name: Verify UNCTAD output
         run: |
+          set -euo pipefail
           test -f data/raw/import_product_concentration_2015_2024.csv
 
           python - <<'PY'
@@ -100,6 +113,7 @@ jobs:
 
       - name: Analyze Strategic Autonomy coverage
         run: |
+          set -euo pipefail
           python scripts/43_analyze_autonomy_coverage.py
 
       - name: Upload coverage analysis
