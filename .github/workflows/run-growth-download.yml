@@ -1,51 +1,85 @@
+
 name: Run Growth Data Download
 
 on:
   workflow_dispatch:
 
+# Read-only: this workflow must not push to the repository.
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: jesi-growth-data-download
+  cancel-in-progress: false
 
 jobs:
   download-growth-data:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.10"
+          cache: pip
 
-      - name: Install dependencies
+      - name: Install pinned dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install -r requirements.txt
 
       - name: Download Growth data
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
+          set -euo pipefail
           python scripts/01_download_growth_data.py
 
       - name: Verify Growth data
         run: |
-          test -f data/raw/growth_indicators_2015_2025.csv
-          echo "Growth raw data file created successfully."
-          wc -l data/raw/growth_indicators_2015_2025.csv
+          set -euo pipefail
 
-      - name: Commit Growth raw data
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          FILE="data/raw/growth_indicators_2015_2025.csv"
 
-          git add data/raw/growth_indicators_2015_2025.csv
+          test -s "$FILE"
 
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Add raw World Bank Growth pillar data"
-            git push
-          fi
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          path = Path("data/raw/growth_indicators_2015_2025.csv")
+
+          with path.open("r", encoding="utf-8-sig", newline="") as handle:
+              reader = csv.reader(handle)
+              header = next(reader, None)
+              first_row = next(reader, None)
+
+          if not header or not first_row:
+              raise SystemExit("Growth CSV is empty or has no data rows.")
+
+          if len(header) != len(first_row):
+              raise SystemExit("Growth CSV header and data columns do not match.")
+
+          print(f"Validation passed: {path}")
+          print(f"Columns: {len(header)}")
+          print(f"Data rows: {sum(1 for _ in path.open(encoding='utf-8-sig')) - 1}")
+          PY
+
+          sha256sum "$FILE"
+
+      - name: Upload Growth data artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jesi-growth-data-${{ github.sha }}
+          path: data/raw/growth_indicators_2015_2025.csv
+          if-no-files-found: error
+          retention-days: 30
