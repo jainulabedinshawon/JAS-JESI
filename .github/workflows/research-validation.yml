@@ -15,6 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
+    permissions:
+      contents: read
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -29,15 +32,18 @@ jobs:
 
       - name: Install pinned dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Configure Python path
         run: |
+          set -euo pipefail
           echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
 
       - name: Validate research-validation syntax
         run: |
+          set -euo pipefail
           python -m py_compile \
             scripts/44_analyze_indicator_redundancy.py \
             scripts/45_normalization_sensitivity.py \
@@ -48,10 +54,12 @@ jobs:
 
       - name: Run indicator redundancy
         run: |
+          set -euo pipefail
           python scripts/44_analyze_indicator_redundancy.py
 
       - name: Verify indicator redundancy outputs
         run: |
+          set -euo pipefail
           test -s data/results/jesi_indicator_redundancy_pairwise.csv
           test -s data/results/jesi_indicator_redundancy_missingness.csv
           test -s data/results/jesi_indicator_redundancy_pillar_summary.csv
@@ -59,10 +67,12 @@ jobs:
 
       - name: Run normalization sensitivity
         run: |
+          set -euo pipefail
           python scripts/45_normalization_sensitivity.py
 
       - name: Verify normalization sensitivity outputs
         run: |
+          set -euo pipefail
           test -s data/results/jesi_normalization_sensitivity_country_year.csv
           test -s data/results/jesi_normalization_sensitivity_country_summary.csv
           test -s data/results/jesi_normalization_sensitivity_rank_correlations.csv
@@ -71,10 +81,12 @@ jobs:
 
       - name: Run weight sensitivity
         run: |
+          set -euo pipefail
           python scripts/46_weight_sensitivity.py
 
       - name: Verify weight sensitivity outputs
         run: |
+          set -euo pipefail
           test -s data/results/jesi_weight_sensitivity_country_year.csv
           test -s data/results/jesi_weight_sensitivity_country_summary.csv
           test -s data/results/jesi_weight_sensitivity_rank_correlations.csv
@@ -83,10 +95,12 @@ jobs:
 
       - name: Run aggregation sensitivity
         run: |
+          set -euo pipefail
           python scripts/47_aggregation_sensitivity.py
 
       - name: Verify aggregation sensitivity outputs
         run: |
+          set -euo pipefail
           test -s data/results/jesi_aggregation_sensitivity_country_year.csv
           test -s data/results/jesi_aggregation_sensitivity_country_summary.csv
           test -s data/results/jesi_aggregation_sensitivity_rank_correlations.csv
@@ -95,10 +109,12 @@ jobs:
 
       - name: Run historical validation
         run: |
+          set -euo pipefail
           python scripts/48_historical_validation.py
 
       - name: Verify historical validation outputs
         run: |
+          set -euo pipefail
           test -s data/results/jesi_historical_validation_country_year.csv
           test -s data/results/jesi_historical_validation_event_windows.csv
           test -s data/results/jesi_historical_validation_pillar_contributions.csv
@@ -108,16 +124,19 @@ jobs:
 
       - name: Run balanced-panel sensitivity
         run: |
+          set -euo pipefail
           python scripts/50_balanced_panel_sensitivity.py
 
       - name: Verify balanced-panel sensitivity outputs
         run: |
+          set -euo pipefail
           test -s data/results/jesi_balanced_panel_country_results.csv
           test -s data/results/jesi_balanced_panel_country_means.csv
           test -s data/results/jesi_balanced_panel_summary.csv
 
       - name: Verify production repository unchanged
         run: |
+          set -euo pipefail
           git status --short
           git diff --exit-code
 
@@ -160,6 +179,7 @@ jobs:
 
       - name: Research validation summary
         run: |
+          set -euo pipefail
           echo "=================================================="
           echo "JESI RESEARCH VALIDATION COMPLETED"
           echo "=================================================="
