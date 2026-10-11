@@ -131,7 +131,7 @@ def audit_requirements() -> None:
         )
 
     # Verify that the hash-locked file exists and contains
-    # pinned versions plus SHA-256 hashes.
+    # pinned versions plus valid SHA-256 hashes.
     if not LOCK_FILE.exists():
         record(
             "requirements.lock",
@@ -147,9 +147,20 @@ def audit_requirements() -> None:
             if line.strip() and not line.lstrip().startswith("#")
         ]
 
-        lock_has_hash = any(
-            "--hash=sha256:" in line
-            for line in lock_lines
+        lock_hashes = re.findall(
+            r"--hash=sha256:([0-9a-fA-F]{64})",
+            lock_text,
+        )
+
+        empty_file_sha256 = (
+            "e3b0c44298fc1c149afbf4c8996fb924"
+            "27ae41e4649b934ca495991b7852b855"
+        )
+
+        lock_has_hash = bool(lock_hashes)
+        lock_has_invalid_empty_hash = any(
+            value.lower() == empty_file_sha256
+            for value in lock_hashes
         )
 
         lock_has_unpinned = any(
@@ -158,12 +169,18 @@ def audit_requirements() -> None:
             for line in lock_lines
         )
 
-        if not lock_lines or not lock_has_hash or lock_has_unpinned:
+        if (
+            not lock_lines
+            or not lock_has_hash
+            or lock_has_invalid_empty_hash
+            or lock_has_unpinned
+        ):
             record(
                 "requirements.lock",
                 "FAIL",
                 "requirements.lock is empty, lacks SHA-256 hashes, "
-                "or contains unexpected non-package options.",
+                "contains an invalid empty-file hash, or contains "
+                "unexpected non-package options.",
             )
         else:
             record(
@@ -615,16 +632,17 @@ def audit_python_syntax() -> None:
 
 def audit_dependencies() -> None:
     """
-    Install a fixed pip-audit version and scan requirements.txt.
-
-    The scanner installation does not modify requirements.txt.
+    Install a fixed pip-audit version and scan the reviewed lock file
+    when available; otherwise scan requirements.txt.
     """
 
-    if not REQUIREMENTS_FILE.exists():
+    scan_file = LOCK_FILE if LOCK_FILE.is_file() else REQUIREMENTS_FILE
+
+    if not scan_file.is_file():
         record(
             "security.pip-audit",
             "FAIL",
-            "Cannot scan dependencies because requirements.txt is missing.",
+            "Neither requirements.lock nor requirements.txt is available.",
         )
         return
 
@@ -666,7 +684,7 @@ def audit_dependencies() -> None:
         "-m",
         "pip_audit",
         "-r",
-        str(REQUIREMENTS_FILE),
+        str(scan_file),
         "--format",
         "json",
         "--output",
@@ -690,8 +708,8 @@ def audit_dependencies() -> None:
             "security.pip-audit",
             "PASS",
             (
-                f"pip-audit {PIP_AUDIT_VERSION} completed "
-                "without reported known vulnerabilities."
+                f"pip-audit {PIP_AUDIT_VERSION} scanned "
+                f"{scan_file.name} without reported known vulnerabilities."
             ),
         )
     else:
