@@ -85,7 +85,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pytest: ["8.3.5", "9.0.3", "9.1.1"]
+        pytest: ["9.0.3", "9.1.1"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -210,7 +210,7 @@ jobs:
   # STEP F1: freeze the Master 1.0 reference pytest version, run A/B,
   # and compare the fresh result with the checked-in result.
   baseline-determinism:
-    name: F1 Baseline 8.3.5 Determinism
+    name: F1 Baseline 9.0.3 Determinism
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     needs: [reference, compatibility]
@@ -235,15 +235,51 @@ jobs:
           . .venv/bin/activate
           python -m pip install --upgrade pip
 
-          # Install all pinned requirements except pytest, then pin
-          # the reference pytest explicitly to 8.3.5.
+          # Keep the Python 3.10 research environment unchanged.
+          # Use the security-reviewed pytest baseline.
           grep -v '^pytest==' requirements.txt > /tmp/requirements-baseline.txt
           python -m pip install -r /tmp/requirements-baseline.txt
-          python -m pip install "pytest==8.3.5"
+          python -m pip install "pytest==9.0.3"
 
           python --version
           pytest --version
-          python -c "import pytest; assert pytest.__version__ == '8.3.5', pytest.__version__; print('Baseline pytest 8.3.5 verified')"
+          python -c "import pytest; assert pytest.__version__ == '9.0.3', pytest.__version__; print('Baseline pytest 9.0.3 verified')"
+
+      - name: Download and freeze external inputs once
+        run: |
+          set -euo pipefail
+          mkdir -p audit/master
+
+          # Download each external input only once for this audit run.
+          python scripts/12_download_productivity_data.py
+          python scripts/16_download_productivity_p2.py
+          python scripts/21_download_connectivity_data.py
+          python scripts/08_download_resilience_data.py
+          python scripts/29_download_autonomy_data.py
+          python scripts/31_download_import_concentration.py
+
+          # This workbook is an additional input used by the pipeline.
+          test -f WEOApr2026all.xlsx
+
+          python scripts/44_input_manifest.py create \
+            --output audit/master/input-manifest.json \
+            --extra-file WEOApr2026all.xlsx
+
+          # Freeze the complete raw-data directory and the additional workbook.
+          tar -czf audit/master/frozen-inputs.tar.gz \
+            data/raw WEOApr2026all.xlsx
+
+          # Store the checksum relative to the archive directory.
+          (
+            cd audit/master
+            sha256sum frozen-inputs.tar.gz \
+              > frozen-inputs-archive.sha256
+          )
+
+          # Confirm the snapshot matches the manifest before proceeding.
+          python scripts/44_input_manifest.py verify \
+            --manifest audit/master/input-manifest.json \
+            --extra-file WEOApr2026all.xlsx
 
       - name: Preserve checked-in Master 1.0 results
         run: |
@@ -251,6 +287,16 @@ jobs:
           test -d data/results
           mkdir -p audit/master/checked-in-results
           cp -a data/results/. audit/master/checked-in-results/
+
+      - name: Restore frozen inputs before baseline A
+        run: |
+          set -euo pipefail
+          rm -rf data/raw
+          tar -xzf audit/master/frozen-inputs.tar.gz -C .
+
+          python scripts/44_input_manifest.py verify \
+            --manifest audit/master/input-manifest.json \
+            --extra-file WEOApr2026all.xlsx
 
       - name: Clean generated results before baseline A
         run: |
@@ -266,22 +312,16 @@ jobs:
 
           python scripts/27_score_growth.py
           python scripts/28_construct_growth_pillar.py
-          python scripts/12_download_productivity_data.py
           python scripts/15_score_productivity_p1.py
-          python scripts/16_download_productivity_p2.py
           python scripts/19_score_productivity_p2.py
           python scripts/20_construct_productivity_pillar.py
-          python scripts/21_download_connectivity_data.py
           python scripts/22_download_connectivity_data.py
           python scripts/23_analyze_connectivity_distribution.py
           python scripts/24_score_connectivity.py
           python scripts/25_construct_connectivity_pillar.py
-          python scripts/08_download_resilience_data.py
           python scripts/09_validate_resilience_data.py
           python scripts/10_analyze_resilience_distribution.py
           python scripts/11_score_resilience_pillar.py
-          python scripts/29_download_autonomy_data.py
-          python scripts/31_download_import_concentration.py
           python scripts/30_validate_autonomy_data.py
           python scripts/32_validate_autonomy_data.py
           python scripts/33_analyze_autonomy_distribution.py
@@ -311,6 +351,16 @@ jobs:
             | sort -z | xargs -0 -r sha256sum \
             > audit/master/baseline-A-sha256.txt
 
+      - name: Restore frozen inputs before baseline B
+        run: |
+          set -euo pipefail
+          rm -rf data/raw
+          tar -xzf audit/master/frozen-inputs.tar.gz -C .
+
+          python scripts/44_input_manifest.py verify \
+            --manifest audit/master/input-manifest.json \
+            --extra-file WEOApr2026all.xlsx
+
       - name: Clean generated results before baseline B
         run: |
           set -euo pipefail
@@ -325,22 +375,16 @@ jobs:
 
           python scripts/27_score_growth.py
           python scripts/28_construct_growth_pillar.py
-          python scripts/12_download_productivity_data.py
           python scripts/15_score_productivity_p1.py
-          python scripts/16_download_productivity_p2.py
           python scripts/19_score_productivity_p2.py
           python scripts/20_construct_productivity_pillar.py
-          python scripts/21_download_connectivity_data.py
           python scripts/22_download_connectivity_data.py
           python scripts/23_analyze_connectivity_distribution.py
           python scripts/24_score_connectivity.py
           python scripts/25_construct_connectivity_pillar.py
-          python scripts/08_download_resilience_data.py
           python scripts/09_validate_resilience_data.py
           python scripts/10_analyze_resilience_distribution.py
           python scripts/11_score_resilience_pillar.py
-          python scripts/29_download_autonomy_data.py
-          python scripts/31_download_import_concentration.py
           python scripts/30_validate_autonomy_data.py
           python scripts/32_validate_autonomy_data.py
           python scripts/33_analyze_autonomy_distribution.py
@@ -433,6 +477,26 @@ jobs:
           name: jesi-step-f-baseline
           path: audit/baseline
 
+      - name: Verify and restore frozen baseline inputs
+        run: |
+          set -euo pipefail
+
+          test -f audit/baseline/frozen-inputs.tar.gz
+          test -f audit/baseline/frozen-inputs-archive.sha256
+          test -f audit/baseline/input-manifest.json
+
+          (
+            cd audit/baseline
+            sha256sum -c frozen-inputs-archive.sha256
+          )
+
+          rm -rf data/raw
+          tar -xzf audit/baseline/frozen-inputs.tar.gz -C .
+
+          python scripts/44_input_manifest.py verify \
+            --manifest audit/baseline/input-manifest.json \
+            --extra-file WEOApr2026all.xlsx
+
       - name: Clean generated results before candidate pipeline
         run: |
           set -euo pipefail
@@ -447,22 +511,16 @@ jobs:
 
           python scripts/27_score_growth.py
           python scripts/28_construct_growth_pillar.py
-          python scripts/12_download_productivity_data.py
           python scripts/15_score_productivity_p1.py
-          python scripts/16_download_productivity_p2.py
           python scripts/19_score_productivity_p2.py
           python scripts/20_construct_productivity_pillar.py
-          python scripts/21_download_connectivity_data.py
           python scripts/22_download_connectivity_data.py
           python scripts/23_analyze_connectivity_distribution.py
           python scripts/24_score_connectivity.py
           python scripts/25_construct_connectivity_pillar.py
-          python scripts/08_download_resilience_data.py
           python scripts/09_validate_resilience_data.py
           python scripts/10_analyze_resilience_distribution.py
           python scripts/11_score_resilience_pillar.py
-          python scripts/29_download_autonomy_data.py
-          python scripts/31_download_import_concentration.py
           python scripts/30_validate_autonomy_data.py
           python scripts/32_validate_autonomy_data.py
           python scripts/33_analyze_autonomy_distribution.py
@@ -536,8 +594,8 @@ jobs:
             echo "Commit: ${GITHUB_SHA}"
             echo
             echo "Frozen Python baseline: 3.10"
-            echo "Reference pytest: 8.3.5"
-            echo "Compatibility candidates: 8.3.5, 9.0.3, 9.1.1"
+            echo "Reference pytest: 9.0.3"
+            echo "Compatibility candidates: 9.0.3, 9.1.1"
             echo "Full-pipeline candidates: 9.0.3, 9.1.1"
             echo
             echo "This workflow is read-only and produces audit evidence."
