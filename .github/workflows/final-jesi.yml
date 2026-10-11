@@ -387,11 +387,13 @@ jobs:
   #
   # This job is intentionally separated from the computational job.
   # It is the ONLY job that receives contents: write permission.
+  # It runs only on push / workflow_dispatch to main branch (bypassed on PRs).
   #
   # ==============================================================
 
   commit-results:
     needs: final-jesi
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
