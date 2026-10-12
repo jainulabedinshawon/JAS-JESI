@@ -30,7 +30,8 @@ jobs:
       - name: Install lock generator
         run: |
           set -euo pipefail
-          python -m pip install "pip-tools==7.4.1"
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip-tools
 
       - name: Generate a fresh hashed lock file
         run: |
