@@ -20,12 +20,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
 
       - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@0b93645e9fea7318edeed242847239ef87b00344
         with:
           python-version: "3.10"
 
@@ -87,50 +87,9 @@ jobs:
           .audit-venv/bin/pip-audit -r requirements.lock
 
       - name: Upload validated lock file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
           name: jesi-validated-requirements-lock
           path: requirements.lock
           if-no-files-found: error
           retention-days: 7
-
-  commit-lock:
-    name: Commit validated lock file
-    needs: generate-and-validate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: true
-
-      - name: Download validated lock artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: jesi-validated-requirements-lock
-          path: validated-lock
-
-      - name: Install validated lock file
-        run: |
-          set -euo pipefail
-          test -s validated-lock/requirements.lock
-          cp validated-lock/requirements.lock requirements.lock
-
-      - name: Commit and push validated lock
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add requirements.lock
-          if git diff --cached --quiet; then
-            echo "requirements.lock is already up to date."
-            exit 0
-          fi
-          git commit -m "chore: update validated requirements lock"
-          git push origin HEAD:main
