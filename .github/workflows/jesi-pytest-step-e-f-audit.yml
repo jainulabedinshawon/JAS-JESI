@@ -248,8 +248,9 @@ jobs:
       - name: Download and freeze external inputs once
         run: |
           set -euo pipefail
-          # Activate the Python 3.10 baseline environment
+          # Activate the Python 3.10 baseline environment and set PYTHONPATH
           . .venv/bin/activate
+          export PYTHONPATH="${GITHUB_WORKSPACE}"
           
           mkdir -p audit/master
 
