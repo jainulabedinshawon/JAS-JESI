@@ -1,4 +1,4 @@
-Name: JAS-JESI Step E + Step F Audit
+name: JAS-JESI Step E + Step F Audit
 
 on:
   workflow_dispatch:
