@@ -81,10 +81,40 @@ jobs:
           set -euo pipefail
           .audit-venv/bin/pip-audit -r requirements.lock
 
-      - name: Upload perfect lock file artifact
+      - name: Upload validated lock artifact
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
           name: jesi-validated-requirements-lock
           path: requirements.lock
           if-no-files-found: error
           retention-days: 7
+
+  create-pull-request:
+    name: Create Pull Request for Validated Lock
+    needs: generate-and-validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: true
+
+      - name: Download validated lock artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: jesi-validated-requirements-lock
+          path: .
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e
+        with:
+          commit-message: "chore: update validated requirements lock"
+          title: "chore: auto-update requirements.lock with verified hashes"
+          body: "This PR contains automatically generated and verified cryptographic SHA-256 hashes for requirements.lock."
+          branch: "auto-update-requirements-lock"
+          delete-branch: true
