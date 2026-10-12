@@ -2,124 +2,123 @@ name: New Economic Indicator Proposal
 description: Propose an economic indicator for research and evaluation in JAS-JESI.
 title: "[Indicator Proposal]: "
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for proposing an economic indicator for JAS-JESI.
+        
+        Submitting a proposal does not guarantee acceptance. Each indicator will be evaluated for conceptual validity, data quality, coverage, redundancy, and methodological compatibility.
 
-- type: markdown
-  attributes:
-  value: |
-  Thank you for proposing an economic indicator for JAS-JESI.
-  
-  Submitting a proposal does not guarantee acceptance. Each indicator will be evaluated for conceptual validity, data quality, coverage, redundancy, and methodological compatibility.
+  - type: input
+    id: indicator_name
+    attributes:
+      label: Indicator name
+      description: Provide the official or commonly used name.
+      placeholder: Gross capital formation (% of GDP)
+    validations:
+      required: true
 
-- type: input
-  id: indicator_name
-  attributes:
-  label: Indicator name
-  description: Provide the official or commonly used name.
-  placeholder: Gross capital formation (% of GDP)
-  validations:
-  required: true
+  - type: textarea
+    id: definition
+    attributes:
+      label: Definition and measurement
+      description: Explain what the indicator measures, its unit, and how it is calculated.
+      placeholder: Describe the operational definition and measurement unit.
+    validations:
+      required: true
 
-- type: textarea
-  id: definition
-  attributes:
-  label: Definition and measurement
-  description: Explain what the indicator measures, its unit, and how it is calculated.
-  placeholder: Describe the operational definition and measurement unit.
-  validations:
-  required: true
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Economic justification
+      description: Explain why this indicator may be relevant to economic strength. Include supporting evidence or research.
+      placeholder: Provide the theoretical or empirical rationale.
+    validations:
+      required: true
 
-- type: textarea
-  id: rationale
-  attributes:
-  label: Economic justification
-  description: Explain why this indicator may be relevant to economic strength. Include supporting evidence or research.
-  placeholder: Provide the theoretical or empirical rationale.
-  validations:
-  required: true
+  - type: input
+    id: source_name
+    attributes:
+      label: Primary data source
+      description: Name the data provider, such as the World Bank, IMF, or a national statistical agency.
+      placeholder: World Bank
+    validations:
+      required: true
 
-- type: input
-  id: source_name
-  attributes:
-  label: Primary data source
-  description: Name the data provider, such as the World Bank, IMF, or a national statistical agency.
-  placeholder: World Bank
-  validations:
-  required: true
+  - type: input
+    id: source_url
+    attributes:
+      label: Source URL or dataset identifier
+      description: Link to the dataset or official documentation.
+      placeholder: https://...
+    validations:
+      required: true
 
-- type: input
-  id: source_url
-  attributes:
-  label: Source URL or dataset identifier
-  description: Link to the dataset or official documentation.
-  placeholder: https://...
-  validations:
-  required: true
+  - type: textarea
+    id: coverage
+    attributes:
+      label: Geographic and temporal coverage
+      description: Identify available countries or regions, years, and data frequency.
+      placeholder: Describe country coverage, time period, and update frequency.
+    validations:
+      required: true
 
-- type: textarea
-  id: coverage
-  attributes:
-  label: Geographic and temporal coverage
-  description: Identify available countries or regions, years, and data frequency.
-  placeholder: Describe country coverage, time period, and update frequency.
-  validations:
-  required: true
+  - type: dropdown
+    id: direction
+    attributes:
+      label: Expected relationship with economic strength
+      description: Select the expected interpretation and explain any uncertainty in the rationale field.
+      options:
+        - Positive
+        - Negative
+        - Context-dependent or uncertain
+    validations:
+      required: true
 
-- type: dropdown
-  id: direction
-  attributes:
-  label: Expected relationship with economic strength
-  description: Select the expected interpretation and explain any uncertainty in the rationale field.
-  options:
-  - Positive
-  - Negative
-  - Context-dependent or uncertain
-  validations:
-  required: true
+  - type: textarea
+    id: data_quality
+    attributes:
+      label: Data quality and limitations
+      description: Describe missing observations, revisions, estimation methods, comparability concerns, or known limitations.
+      placeholder: Explain any known data quality issues.
+    validations:
+      required: true
 
-- type: textarea
-  id: data_quality
-  attributes:
-  label: Data quality and limitations
-  description: Describe missing observations, revisions, estimation methods, comparability concerns, or known limitations.
-  placeholder: Explain any known data quality issues.
-  validations:
-  required: true
+  - type: textarea
+    id: redundancy
+    attributes:
+      label: Potential overlap with existing indicators
+      description: Identify existing JESI indicators that may measure a similar concept, if known.
+      placeholder: List potentially related indicators or write "Unknown".
+    validations:
+      required: true
 
-- type: textarea
-  id: redundancy
-  attributes:
-  label: Potential overlap with existing indicators
-  description: Identify existing JESI indicators that may measure a similar concept, if known.
-  placeholder: List potentially related indicators or write "Unknown".
-  validations:
-  required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: Research references
+      description: Provide peer-reviewed publications, official methodology documents, or other authoritative evidence.
+      placeholder: Include citations, DOI links, or official URLs.
+    validations:
+      required: true
 
-- type: textarea
-  id: references
-  attributes:
-  label: Research references
-  description: Provide peer-reviewed publications, official methodology documents, or other authoritative evidence.
-  placeholder: Include citations, DOI links, or official URLs.
-  validations:
-  required: true
+  - type: textarea
+    id: methodology
+    attributes:
+      label: Proposed treatment and additional notes
+      description: Suggest transformations, normalization, missing-data treatment, or robustness checks, if appropriate. These are proposals, not approved methodology changes.
+      placeholder: Describe proposed treatment or write "Not yet determined".
+    validations:
+      required: true
 
-- type: textarea
-  id: methodology
-  attributes:
-  label: Proposed treatment and additional notes
-  description: Suggest transformations, normalization, missing-data treatment, or robustness checks, if appropriate. These are proposals, not approved methodology changes.
-  placeholder: Describe proposed treatment or write "Not yet determined".
-  validations:
-  required: true
-
-- type: checkboxes
-  id: confirmations
-  attributes:
-  label: Research integrity confirmations
-  options:
-  - label: I have identified the source of the data and provided supporting references to the best of my ability.
-  required: true
-  - label: I understand that this proposal does not automatically change the JESI methodology, scores, rankings, or validated baseline.
-  required: true
-  - label: I have disclosed known limitations and have not knowingly fabricated data or references.
-  required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Research integrity confirmations
+      options:
+        - label: I have identified the source of the data and provided supporting references to the best of my ability.
+          required: true
+        - label: I understand that this proposal does not automatically change the JESI methodology, scores, rankings, or validated baseline.
+          required: true
+        - label: I have disclosed known limitations and have not knowingly fabricated data or references.
+          required: true
