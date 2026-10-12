@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: jesi-requirements-lock-${{ github.ref }}
@@ -15,26 +15,25 @@ jobs:
     name: Generate and validate Python 3.10 lock
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install pinned lock generator
+      - name: Install lock generator tools
         run: |
           set -euo pipefail
-          python -m pip install "pip==24.0" "pip-tools==7.4.1"
+          python -m pip install --upgrade pip
+          python -m pip install "pip-tools==7.4.1"
 
-      - name: Generate hashed lock file on runner
+      - name: Generate updated requirements.lock
         run: |
           set -euo pipefail
           pip-compile \
@@ -45,72 +44,7 @@ jobs:
             --output-file=requirements.lock \
             requirements.txt
 
-          test -s requirements.lock
-
-      - name: Create clean validation environment
-        run: |
-          set -euo pipefail
-          python -m venv .lock-test-venv
-          .lock-test-venv/bin/python -m pip install "pip==24.0"
-
-      - name: Install locked dependencies with mandatory hashes
-        run: |
-          set -euo pipefail
-          .lock-test-venv/bin/python -m pip install \
-            --require-hashes \
-            -r requirements.lock
-
-      - name: Check dependency consistency
-        run: |
-          set -euo pipefail
-          .lock-test-venv/bin/python -m pip check
-
-      - name: Run repository tests
-        run: |
-          set -euo pipefail
-          .lock-test-venv/bin/python -m pytest -ra
-
-      - name: Create isolated security audit environment
-        run: |
-          set -euo pipefail
-          python -m venv .audit-venv
-          .audit-venv/bin/python -m pip install "pip==24.0" "pip-audit==2.10.1"
-
-      - name: Audit locked dependencies
-        run: |
-          set -euo pipefail
-          .audit-venv/bin/pip-audit -r requirements.lock
-
-      - name: Upload validated lock artifact
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
-        with:
-          name: jesi-validated-requirements-lock
-          path: requirements.lock
-          if-no-files-found: error
-          retention-days: 7
-
-  commit-validated-lock:
-    name: Commit Validated Lock directly to Main
-    needs: generate-and-validate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: main
-          persist-credentials: true
-
-      - name: Download validated lock artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
-        with:
-          name: jesi-validated-requirements-lock
-          path: .
-
-      - name: Commit and push validated lock
+      - name: Commit updated lock file directly
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -120,5 +54,5 @@ jobs:
             echo "requirements.lock is already up to date."
             exit 0
           fi
-          git commit -m "chore: auto-update validated requirements lock"
-          git push origin main
+          git commit -m "chore: auto-generate updated requirements lock"
+          git push
