@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: jesi-requirements-lock-${{ github.ref }}
@@ -20,39 +20,49 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.10"
 
-      - name: Install lock generator tools
+      - name: Install lock generator
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
           python -m pip install "pip-tools==7.4.1"
 
-      - name: Generate updated requirements.lock
+      - name: Generate a fresh hashed lock file
         run: |
           set -euo pipefail
+
+          test -f requirements.txt
+
           pip-compile \
             --resolver=backtracking \
             --generate-hashes \
             --no-emit-index-url \
             --allow-unsafe \
-            --output-file=requirements.lock \
+            --output-file=requirements.generated.lock \
             requirements.txt
 
-      - name: Commit updated lock file directly
+          test -s requirements.generated.lock
+
+      - name: Validate locked dependency hashes
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add requirements.lock
-          if git diff --cached --quiet; then
-            echo "requirements.lock is already up to date."
-            exit 0
-          fi
-          git commit -m "chore: auto-generate updated requirements lock"
-          git push
+
+          python -m pip install \
+            --require-hashes \
+            --dry-run \
+            --no-cache-dir \
+            -r requirements.generated.lock
+
+      - name: Upload generated lock for review
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jesi-python310-generated-lock
+          path: requirements.generated.lock
+          if-no-files-found: warn
+          retention-days: 7
