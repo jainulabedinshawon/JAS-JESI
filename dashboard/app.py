@@ -1,13 +1,16 @@
 from __future__ import annotations
+
 from pathlib import Path
 import re
 
 import pandas as pd
 import streamlit as st
 
+
 # ============================================================
 # JAS-JESI Interactive Dashboard
-# Reads existing validated CSV outputs; does not recalculate JESI.
+# Reads existing JESI CSV outputs.
+# Does NOT recalculate JESI scores or change the methodology.
 # ============================================================
 
 st.set_page_config(
@@ -18,16 +21,23 @@ st.set_page_config(
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-CSV_CANDIDATES = [
-    ROOT_DIR / "final_jesi_country_results.csv",
-    ROOT_DIR / "data" / "final_jesi_country_results.csv",
-    ROOT_DIR / "outputs" / "final_jesi_country_results.csv",
-    ROOT_DIR / "results" / "final_jesi_country_results.csv",
-]
+COUNTRY_CSV = (
+    ROOT_DIR / "data" / "results" / "final_jesi_country_results.csv"
+)
+
+HISTORICAL_CSV = (
+    ROOT_DIR / "data" / "results" / "jesi_country_year_2016_2023.csv"
+)
+
+
+# ============================================================
+# Helpers
+# ============================================================
 
 def normalize_column_name(name: object) -> str:
-    """Normalize a column name for flexible matching."""
+    """Normalize column names for flexible matching."""
     return re.sub(r"[^a-z0-9]", "", str(name).lower())
+
 
 def find_column(
     columns: list[str],
@@ -35,213 +45,272 @@ def find_column(
 ) -> str | None:
     """Find a column using common alternative names."""
     normalized = {
-        normalize_column_name(column): column for column in columns
+        normalize_column_name(column): column
+        for column in columns
     }
+
     for alias in aliases:
         match = normalized.get(normalize_column_name(alias))
         if match is not None:
             return match
+
     return None
 
-def load_csv(path: Path) -> pd.DataFrame:
-    """Read CSV using common text encodings."""
-    errors = []
+
+def read_csv_file(path: Path) -> pd.DataFrame:
+    """Read a repository CSV with common encodings."""
+    if not path.is_file():
+        raise FileNotFoundError(f"CSV file not found: {path}")
+
+    errors: list[str] = []
+
     for encoding in ("utf-8-sig", "utf-8", "latin-1"):
         try:
             return pd.read_csv(path, encoding=encoding)
         except (UnicodeDecodeError, pd.errors.ParserError) as exc:
-            errors.append(str(exc))
+            errors.append(f"{encoding}: {exc}")
+
     raise ValueError(
-        f"Could not read CSV: {path}\n" + "\n".join(errors)
+        f"Could not read CSV file: {path}\n"
+        + "\n".join(errors)
     )
 
-def discover_csv() -> Path | None:
-    """Locate the expected results file."""
-    for candidate in CSV_CANDIDATES:
-        if candidate.is_file():
-            return candidate
-    return None
+
+def prepare_dataframe(
+    source: pd.DataFrame,
+    source_name: str,
+) -> tuple[pd.DataFrame, str, str, str | None, str | None]:
+    """Identify and validate the basic dashboard columns."""
+    df = source.copy()
+    df.columns = [str(column).strip() for column in df.columns]
+    df = df.dropna(how="all").copy()
+
+    if df.empty:
+        raise ValueError(f"{source_name} contains no data rows.")
+
+    columns = list(df.columns)
+
+    country_col = find_column(
+        columns,
+        [
+            "country",
+            "country_name",
+            "country name",
+            "economy",
+            "economy_name",
+            "nation",
+        ],
+    )
+
+    score_col = find_column(
+        columns,
+        [
+            "JESI",
+            "JESI_score_100",
+            "JESI_score",
+            "JESI score",
+            "final_jesi_score",
+            "economic_strength_score",
+            "economic strength",
+            "composite_score",
+            "overall_score",
+            "score",
+        ],
+    )
+
+    year_col = find_column(
+        columns,
+        [
+            "year",
+            "year_id",
+            "observation_year",
+            "reference_year",
+        ],
+    )
+
+    rank_col = find_column(
+        columns,
+        [
+            "rank",
+            "ranking",
+            "JESI_rank",
+            "country_rank",
+            "position",
+        ],
+    )
+
+    if country_col is None:
+        raise ValueError(
+            f"{source_name}: country column not found. "
+            f"Available columns: {columns}"
+        )
+
+    if score_col is None:
+        raise ValueError(
+            f"{source_name}: JESI score column not found. "
+            f"Available columns: {columns}"
+        )
+
+    # Convert score values for display and sorting only.
+    df[score_col] = pd.to_numeric(
+        df[score_col],
+        errors="coerce",
+    )
+
+    df[country_col] = (
+        df[country_col]
+        .astype("string")
+        .str.strip()
+    )
+
+    df = df.dropna(subset=[country_col, score_col]).copy()
+    df = df[df[country_col] != ""]
+
+    if df.empty:
+        raise ValueError(
+            f"{source_name}: no usable country/score records."
+        )
+
+    if year_col is not None:
+        df["_dashboard_year"] = pd.to_numeric(
+            df[year_col],
+            errors="coerce",
+        )
+
+    return df, country_col, score_col, year_col, rank_col
+
+
+def calculate_display_rank(
+    df: pd.DataFrame,
+    country_col: str,
+    score_col: str,
+    year_col: str | None = None,
+) -> pd.DataFrame:
+    """
+    Calculate a display-only ranking.
+    This does not modify JESI scores or official source results.
+    """
+    result = df.copy()
+
+    if year_col is not None:
+        result["_dashboard_rank"] = (
+            result.groupby("_dashboard_year")[score_col]
+            .rank(method="min", ascending=False)
+        )
+    else:
+        result["_dashboard_rank"] = result[score_col].rank(
+            method="min",
+            ascending=False,
+        )
+
+    result["_dashboard_rank"] = (
+        result["_dashboard_rank"].astype("Int64")
+    )
+
+    return result
+
+
+# ============================================================
+# Header
+# ============================================================
 
 st.title("🌐 JAS-JESI Economic Strength Dashboard")
+
 st.caption(
-    "Explore published JESI results, country rankings, "
-    "and historical trends from available research outputs."
+    "Explore country rankings, score comparisons and historical "
+    "trends using the existing JAS-JESI research outputs."
 )
 
 st.info(
-    "This dashboard displays existing results. It does not "
-    "recalculate scores or independently validate the research."
+    "Research integrity: this dashboard reads existing JESI results. "
+    "It does not recalculate JESI scores, weights, normalization "
+    "or aggregation."
 )
 
+
 # ============================================================
-# Load data
+# Load repository data
 # ============================================================
-
-default_csv = discover_csv()
-
-with st.sidebar:
-    st.header("Data source")
-    if default_csv:
-        st.success(f"Found results file: {default_csv.name}")
-        use_uploaded_file = st.checkbox(
-            "Upload a different CSV instead",
-            value=False,
-        )
-    else:
-        st.warning(
-            "The expected results CSV was not found in the "
-            "standard locations."
-        )
-        use_uploaded_file = True
-
-    uploaded_file = st.file_uploader(
-        "Upload a JESI results CSV",
-        type=["csv"],
-        help=(
-            "Upload final_jesi_country_results.csv or another "
-            "compatible results file."
-        ),
-    )
 
 try:
-    if use_uploaded_file:
-        if uploaded_file is None:
-            st.warning("Upload a CSV file to start exploring the results.")
-            st.stop()
-        df = pd.read_csv(uploaded_file)
-        data_source = uploaded_file.name
-    else:
-        if default_csv is None:
-            st.error(
-                "No results CSV is available. Place the file in "
-                "the repository root, data/, outputs/, or results/ "
-                "folder, or upload it using the sidebar."
-            )
-            st.stop()
-        df = load_csv(default_csv)
-        data_source = str(default_csv.relative_to(ROOT_DIR))
+    country_source = read_csv_file(COUNTRY_CSV)
+    country_df, country_name_col, country_score_col, _, country_rank_col = (
+        prepare_dataframe(country_source, "Country results CSV")
+    )
 except (OSError, ValueError, pd.errors.ParserError) as exc:
-    st.error(f"Could not load the CSV: {exc}")
+    st.error(f"Could not load country results: {exc}")
+    st.code(str(COUNTRY_CSV))
     st.stop()
 
-if df.empty:
-    st.warning("The selected CSV contains no rows.")
-    st.stop()
+historical_df: pd.DataFrame | None = None
+historical_country_col: str | None = None
+historical_score_col: str | None = None
+historical_year_col: str | None = None
 
-df.columns = [str(column).strip() for column in df.columns]
-df = df.dropna(how="all").copy()
+historical_error: str | None = None
 
-if df.empty:
-    st.warning("The CSV contains no usable records.")
-    st.stop()
+try:
+    historical_source = read_csv_file(HISTORICAL_CSV)
 
-st.caption(f"Data source: {data_source}")
-
-# ============================================================
-# Detect common column names
-# ============================================================
-
-columns = list(df.columns)
-
-country_col = find_column(
-    columns,
-    [
-        "country",
-        "country_name",
-        "country name",
-        "economy",
-        "economy_name",
-        "nation",
-    ],
-)
-
-score_col = find_column(
-    columns,
-    [
-        "JESI",
-        "JESI_score",
-        "JESI score",
-        "final_jesi_score",
-        "economic_strength_score",
-        "economic strength",
-        "composite_score",
-        "overall_score",
-        "score",
-    ],
-)
-
-year_col = find_column(
-    columns,
-    [
-        "year",
-        "year_id",
-        "observation_year",
-        "reference_year",
-        "time",
-        "date",
-    ],
-)
-
-rank_col = find_column(
-    columns,
-    [
-        "rank",
-        "ranking",
-        "JESI_rank",
-        "JESI ranking",
-        "country_rank",
-        "position",
-    ],
-)
-
-if country_col is None:
-    st.error(
-        "Could not identify the country column automatically. "
-        "Expected a column such as country or country_name."
+    (
+        historical_df,
+        historical_country_col,
+        historical_score_col,
+        historical_year_col,
+        _,
+    ) = prepare_dataframe(
+        historical_source,
+        "Historical results CSV",
     )
-    st.write("Available columns:", columns)
-    st.dataframe(df, use_container_width=True)
-    st.stop()
 
-if score_col is None:
-    st.error(
-        "Could not identify the JESI score column automatically. "
-        "Expected a column such as JESI_score or score."
+    if historical_year_col is None:
+        raise ValueError(
+            "Historical CSV does not contain a recognized year column."
+        )
+
+    historical_df = historical_df.dropna(
+        subset=["_dashboard_year"]
+    ).copy()
+
+    historical_df["_dashboard_year"] = (
+        historical_df["_dashboard_year"].astype(int)
     )
-    st.write("Available columns:", columns)
-    st.dataframe(df, use_container_width=True)
-    st.stop()
 
-# Convert only the display copy of the score to numeric.
-df[score_col] = pd.to_numeric(df[score_col], errors="coerce")
-df[country_col] = df[country_col].astype("string").str.strip()
+except (OSError, ValueError, pd.errors.ParserError) as exc:
+    historical_error = str(exc)
 
-df = df.dropna(subset=[country_col, score_col]).copy()
-df = df[df[country_col] != ""]
-
-if df.empty:
-    st.error(
-        "No usable country/score records remain after parsing. "
-        "Check the country and score columns in the source CSV."
-    )
-    st.stop()
-
-if year_col is not None:
-    df["_dashboard_year"] = df[year_col].astype("string").str.strip()
-    df.loc[
-        df["_dashboard_year"].isin(["", "nan", "None"]),
-        "_dashboard_year",
-    ] = pd.NA
 
 # ============================================================
 # Sidebar filters
 # ============================================================
 
 with st.sidebar:
-    st.header("Filters")
-    available_countries = sorted(
-        df[country_col].dropna().astype(str).unique().tolist()
+    st.header("Data sources")
+
+    st.success("Country results CSV loaded")
+
+    st.caption(
+        "Country file: "
+        "data/results/final_jesi_country_results.csv"
     )
+
+    if historical_error is None:
+        st.success("Historical results CSV loaded")
+    else:
+        st.warning("Historical results are unavailable")
+        st.caption(historical_error)
+
+    st.divider()
+    st.header("Filters")
+
+    available_countries = sorted(
+        country_df[country_name_col]
+        .dropna()
+        .astype(str)
+        .unique()
+        .tolist()
+    )
+
     selected_countries = st.multiselect(
         "Countries",
         options=available_countries,
@@ -249,72 +318,67 @@ with st.sidebar:
         help="Leave empty to include all countries.",
     )
 
-    selected_years = None
-    if year_col is not None:
+    selected_years: list[int] = []
+
+    if historical_df is not None:
         available_years = sorted(
-            df["_dashboard_year"].dropna().unique().tolist()
+            historical_df["_dashboard_year"]
+            .dropna()
+            .unique()
+            .tolist()
         )
+
         selected_years = st.multiselect(
-            "Years",
+            "Historical years",
             options=available_years,
             default=[],
             help="Leave empty to include all available years.",
         )
 
-filtered = df.copy()
+
+# ============================================================
+# Filter country-level data
+# ============================================================
+
+country_filtered = country_df.copy()
 
 if selected_countries:
-    filtered = filtered[
-        filtered[country_col].astype(str).isin(selected_countries)
+    country_filtered = country_filtered[
+        country_filtered[country_name_col]
+        .astype(str)
+        .isin(selected_countries)
     ]
 
-if year_col is not None and selected_years:
-    filtered = filtered[
-        filtered["_dashboard_year"].isin(selected_years)
-    ]
-
-if filtered.empty:
-    st.warning("No records match the selected filters.")
+if country_filtered.empty:
+    st.warning("No country results match the selected filters.")
     st.stop()
 
-# ============================================================
-# Ranking
-# ============================================================
-
-if rank_col is not None:
-    filtered["_dashboard_rank"] = pd.to_numeric(
-        filtered[rank_col],
-        errors="coerce",
-    )
-else:
-    filtered["_dashboard_rank"] = (
-        filtered.groupby(
-            "_dashboard_year" if year_col is not None else lambda _: 0
-        )[score_col]
-        .rank(method="min", ascending=False)
-    )
 
 # ============================================================
-# Summary metrics
+# Overview
 # ============================================================
 
 st.subheader("Overview")
+
 metric1, metric2, metric3 = st.columns(3)
 
 metric1.metric(
     "Countries represented",
-    f"{filtered[country_col].nunique():,}",
+    f"{country_filtered[country_name_col].nunique():,}",
 )
+
 metric2.metric(
-    "Records displayed",
-    f"{len(filtered):,}",
+    "Country records displayed",
+    f"{len(country_filtered):,}",
 )
+
 metric3.metric(
-    "Mean displayed score",
-    f"{filtered[score_col].mean():.4f}",
+    "Mean country-level JESI",
+    f"{country_filtered[country_score_col].mean():.4f}",
 )
 
 st.divider()
+
 
 # ============================================================
 # Country ranking
@@ -322,140 +386,190 @@ st.divider()
 
 st.subheader("🏆 Country Ranking")
 
-ranking = filtered.sort_values(
-    [score_col, country_col],
-    ascending=[False, True],
-).copy()
+ranking = country_filtered.copy()
 
-ranking_display = ranking.copy()
-if year_col is not None and not selected_years:
-    numeric_years = pd.to_numeric(
-        ranking_display["_dashboard_year"],
-        errors="coerce",
-    )
-    if numeric_years.notna().any():
-        latest_year = numeric_years.max()
-        ranking_display = ranking_display[
-            numeric_years == latest_year
-        ].copy()
-
-display_columns = [country_col]
-if year_col is not None:
-    display_columns.append(year_col)
-display_columns.append(score_col)
-
-if rank_col is not None:
-    display_columns.append(rank_col)
-else:
-    display_columns.append("_dashboard_rank")
-
-if rank_col is None:
-    display_columns[-1] = "_dashboard_rank"
-
-ranking_display = ranking_display.sort_values(
-    score_col,
+# Calculate ranking from the displayed country-level scores.
+# The source JESI score values remain unchanged.
+ranking["_dashboard_rank"] = ranking[country_score_col].rank(
+    method="min",
     ascending=False,
-).copy()
+).astype("Int64")
 
-ranking_display = ranking_display.rename(
-    columns={"_dashboard_rank": "Calculated display rank"}
+ranking = ranking.sort_values(
+    [country_score_col, country_name_col],
+    ascending=[False, True],
 )
 
-display_columns = [
-    "Calculated display rank"
-    if column == "_dashboard_rank"
-    else column
-    for column in display_columns
-]
+ranking_display = ranking[
+    [
+        "_dashboard_rank",
+        country_name_col,
+        country_score_col,
+    ]
+].copy()
+
+ranking_display = ranking_display.rename(
+    columns={
+        "_dashboard_rank": "Display rank",
+        country_name_col: "Country",
+        country_score_col: "JESI score",
+    }
+)
+
+st.caption(
+    "Display rank is calculated from the selected country-level "
+    "scores. The official rank, if present in the source file, "
+    "is not overwritten."
+)
 
 st.dataframe(
-    ranking_display[display_columns],
+    ranking_display,
     use_container_width=True,
     hide_index=True,
 )
 
-# ============================================================
-# Score chart
-# ============================================================
+st.subheader("📊 Country Score Comparison")
 
-st.subheader("📊 JESI Score Comparison")
-
-chart_data = ranking_display[
-    [country_col, score_col]
+chart_data = ranking[
+    [country_name_col, country_score_col]
 ].copy()
-chart_data = chart_data.sort_values(score_col, ascending=True)
 
-if not chart_data.empty:
-    st.bar_chart(
-        chart_data.set_index(country_col)[score_col],
-        horizontal=True,
-        use_container_width=True,
-    )
+chart_data = chart_data.sort_values(
+    country_score_col,
+    ascending=True,
+)
+
+st.bar_chart(
+    chart_data.set_index(country_name_col)[country_score_col],
+    horizontal=True,
+    use_container_width=True,
+)
+
 
 # ============================================================
-# Historical trend
+# Historical trends
 # ============================================================
 
+st.divider()
 st.subheader("📈 Historical Trends")
 
-if year_col is None:
-    st.info(
-        "No year column was detected. Historical trends are "
-        "unavailable until year-based results are provided."
+if historical_df is None:
+    st.warning(
+        "Historical trends could not be loaded. "
+        "Check that the year-level CSV exists and contains "
+        "country, year and JESI columns."
     )
 else:
-    trend_df = filtered.dropna(subset=["_dashboard_year"]).copy()
-    numeric_year = pd.to_numeric(
-        trend_df["_dashboard_year"],
-        errors="coerce",
-    )
-    if numeric_year.notna().any():
-        trend_df["_chart_year"] = numeric_year
-        trend_df = trend_df.dropna(subset=["_chart_year"])
-        trend_df = trend_df.groupby(
-            ["_chart_year", country_col],
-            as_index=False,
-        )[score_col].mean()
-        trend_df = trend_df.sort_values("_chart_year")
-        if not trend_df.empty:
-            trend_pivot = trend_df.pivot(
-                index="_chart_year",
-                columns=country_col,
-                values=score_col,
-            )
-            st.line_chart(
-                trend_pivot,
-                use_container_width=True,
-            )
-        else:
-            st.info("There are no usable year-based records.")
+    trend_df = historical_df.copy()
+
+    if selected_countries:
+        trend_df = trend_df[
+            trend_df[historical_country_col]
+            .astype(str)
+            .isin(selected_countries)
+        ]
+
+    if selected_years:
+        trend_df = trend_df[
+            trend_df["_dashboard_year"].isin(selected_years)
+        ]
+
+    if trend_df.empty:
+        st.info("No historical records match the selected filters.")
     else:
-        st.info(
-            "The detected year column could not be interpreted "
-            "as numeric years. Check the source data format."
+        # Use the source year-level JESI values directly.
+        # No JESI score recalculation is performed.
+        trend_df = trend_df[
+            [
+                "_dashboard_year",
+                historical_country_col,
+                historical_score_col,
+            ]
+        ].copy()
+
+        trend_df = trend_df.rename(
+            columns={
+                "_dashboard_year": "Year",
+                historical_country_col: "Country",
+                historical_score_col: "JESI",
+            }
         )
 
+        trend_pivot = trend_df.pivot_table(
+            index="Year",
+            columns="Country",
+            values="JESI",
+            aggfunc="first",
+        ).sort_index()
+
+        st.line_chart(
+            trend_pivot,
+            use_container_width=True,
+        )
+
+        with st.expander("View historical source records"):
+            st.dataframe(
+                trend_df.sort_values(["Year", "Country"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+
 # ============================================================
-# Data preview and download
+# Source data and download
 # ============================================================
 
 st.divider()
 st.subheader("📄 Source Data")
 
-with st.expander("View loaded source records"):
-    st.dataframe(df, use_container_width=True, hide_index=True)
+with st.expander("View country-level source records"):
+    st.dataframe(
+        country_filtered,
+        use_container_width=True,
+        hide_index=True,
+    )
 
-csv_bytes = filtered.to_csv(index=False).encode("utf-8")
+country_csv_bytes = country_filtered.to_csv(
+    index=False,
+).encode("utf-8")
 
 st.download_button(
-    label="Download filtered data as CSV",
-    data=csv_bytes,
-    file_name="jesi_filtered_results.csv",
+    label="Download country results as CSV",
+    data=country_csv_bytes,
+    file_name="jesi_country_results.csv",
     mime="text/csv",
 )
 
+if historical_df is not None:
+    historical_download = historical_df.copy()
+
+    if selected_countries:
+        historical_download = historical_download[
+            historical_download[historical_country_col]
+            .astype(str)
+            .isin(selected_countries)
+        ]
+
+    if selected_years:
+        historical_download = historical_download[
+            historical_download["_dashboard_year"].isin(selected_years)
+        ]
+
+    historical_csv_bytes = historical_download.to_csv(
+        index=False,
+    ).encode("utf-8")
+
+    st.download_button(
+        label="Download historical results as CSV",
+        data=historical_csv_bytes,
+        file_name="jesi_historical_results.csv",
+        mime="text/csv",
+    )
+
 st.caption(
-    "Research note: a calculated display rank is not an official "
-    "JESI rank. Confirm the ranking methodology and source columns "
-    "before using these results in research or publication."
+    "JAS-JESI research note: dashboard rankings are for display "
+    "and exploration. Interpret results alongside observation "
+    "coverage, missing-data limitations and the validated research "
+    "methodology. This dashboard does not independently validate "
+    "the research findings."
 )
