@@ -89,19 +89,19 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  create-pull-request:
-    name: Create Pull Request for Validated Lock
+  commit-validated-lock:
+    name: Commit Validated Lock directly to Main
     needs: generate-and-validate
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
-      pull-requests: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: main
           persist-credentials: true
 
       - name: Download validated lock artifact
@@ -110,11 +110,15 @@ jobs:
           name: jesi-validated-requirements-lock
           path: .
 
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e
-        with:
-          commit-message: "chore: update validated requirements lock"
-          title: "chore: auto-update requirements.lock with verified hashes"
-          body: "This PR contains automatically generated and verified cryptographic SHA-256 hashes for requirements.lock."
-          branch: "auto-update-requirements-lock"
-          delete-branch: true
+      - name: Commit and push validated lock
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add requirements.lock
+          if git diff --cached --quiet; then
+            echo "requirements.lock is already up to date."
+            exit 0
+          fi
+          git commit -m "chore: auto-update validated requirements lock"
+          git push origin main
