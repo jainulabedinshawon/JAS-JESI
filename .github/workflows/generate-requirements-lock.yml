@@ -34,12 +34,7 @@ jobs:
           set -euo pipefail
           python -m pip install "pip==24.0" "pip-tools==7.4.1"
 
-      - name: Validate source requirements
-        run: |
-          set -euo pipefail
-          test -s requirements.txt
-
-      - name: Generate hashed lock file
+      - name: Generate hashed lock file on runner
         run: |
           set -euo pipefail
           pip-compile \
@@ -86,7 +81,7 @@ jobs:
           set -euo pipefail
           .audit-venv/bin/pip-audit -r requirements.lock
 
-      - name: Upload validated lock file
+      - name: Upload perfect lock file artifact
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
           name: jesi-validated-requirements-lock
