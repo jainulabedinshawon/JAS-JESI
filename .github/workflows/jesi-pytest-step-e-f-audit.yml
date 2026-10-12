@@ -1,4 +1,4 @@
-name: JAS-JESI Step E + Step F Audit
+Name: JAS-JESI Step E + Step F Audit
 
 on:
   workflow_dispatch:
@@ -248,6 +248,9 @@ jobs:
       - name: Download and freeze external inputs once
         run: |
           set -euo pipefail
+          # Activate the Python 3.10 baseline environment
+          . .venv/bin/activate
+          
           mkdir -p audit/master
 
           # Download each external input only once for this audit run.
