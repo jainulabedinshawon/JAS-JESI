@@ -82,15 +82,15 @@ jobs:
 
           python -m pip install --upgrade pip
 
-          if [ ! -s requirements.txt ]; then
+          test -s requirements.txt || {
             echo "ERROR: requirements.txt is missing or empty."
             exit 1
-          fi
+          }
 
-          if [ ! -s requirements.lock ]; then
-            echo "ERROR: Reviewed requirements.lock is missing or empty."
+          test -s requirements.lock || {
+            echo "ERROR: requirements.lock is missing or empty."
             exit 1
-          fi
+          }
 
           python -m pip install --require-hashes -r requirements.lock
           python -m pip check
@@ -286,38 +286,31 @@ jobs:
         run: |
           set -euo pipefail
           test -f data/processed/growth_pillar_scores_2015_2024.csv
-          echo "Growth pillar output: OK"
 
       - name: verify productivity pillar output
         run: |
           set -euo pipefail
           test -f data/processed/productivity_pillar_scores_2016_2023.csv
-          echo "Productivity pillar output: OK"
 
       - name: verify connectivity pillar output
         run: |
           set -euo pipefail
           test -f data/processed/connectivity_pillar_scores_2015_2024.csv
-          echo "Connectivity pillar output: OK"
 
       - name: verify resilience pillar output
         run: |
           set -euo pipefail
           test -f data/processed/resilience_pillar_scores_2015_2024.csv
-          echo "Resilience pillar output: OK"
 
       - name: verify strategic autonomy pillar output
         run: |
           set -euo pipefail
           test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
-          echo "Strategic Autonomy pillar output: OK"
 
       - name: verify all pillar outputs
         run: |
           set -euo pipefail
-          echo "=============================================="
           echo "ALL FIVE JESI PILLAR OUTPUTS ARE PRESENT"
-          echo "=============================================="
 
       # ==============================================================
       # FINAL JESI CALCULATION
@@ -367,14 +360,9 @@ jobs:
       - name: verify balanced-panel outputs
         run: |
           set -euo pipefail
-
           test -f data/results/jesi_balanced_panel_country_results.csv
           test -f data/results/jesi_balanced_panel_country_means.csv
           test -f data/results/jesi_balanced_panel_summary.csv
-
-          echo "Balanced-panel country coverage: OK"
-          echo "Balanced-panel country means: OK"
-          echo "Balanced-panel summary: OK"
           echo "BALANCED-PANEL OUTPUT VERIFICATION: PASSED"
 
       # ==============================================================
@@ -414,10 +402,7 @@ jobs:
           test -d data/results
           test -f docs/JESI_Final_Results_Report.md
           test -f README.md
-
-          echo "=============================================="
           echo "FINAL JESI OUTPUT VERIFICATION: PASSED"
-          echo "=============================================="
 
       # ==============================================================
       # UPLOAD FINAL ARTIFACT
@@ -441,25 +426,22 @@ jobs:
       - name: final pipeline success
         run: |
           set -euo pipefail
-          echo "=================================================="
           echo "JAS-JESI FINAL PIPELINE COMPUTATION COMPLETED"
-          echo "=================================================="
-          echo "Growth:              COMPLETE"
-          echo "Productivity P1/P2:  COMPLETE"
-          echo "Connectivity:        COMPLETE"
-          echo "Resilience:          COMPLETE"
+          echo "Growth: COMPLETE"
+          echo "Productivity P1/P2: COMPLETE"
+          echo "Connectivity: COMPLETE"
+          echo "Resilience: COMPLETE"
           echo "Strategic Autonomy: COMPLETE"
-          echo "JESI Calculation:    COMPLETE"
-          echo "Robustness Tests:    COMPLETE"
-          echo "Balanced-Panel Sens: COMPLETE"
-          echo "Final Validation:    COMPLETE"
-          echo "Research Report:     COMPLETE"
-          echo "Repository Audit:    COMPLETE"
-          echo "=================================================="
+          echo "JESI Calculation: COMPLETE"
+          echo "Robustness Tests: COMPLETE"
+          echo "Balanced-Panel Sensitivity: COMPLETE"
+          echo "Final Validation: COMPLETE"
+          echo "Research Report: COMPLETE"
+          echo "Repository Audit: COMPLETE"
 
 
   # ==============================================================
-  # COMMIT GENERATED OUTPUTS VIA AUTOMATED PULL REQUEST
+  # COMMIT GENERATED OUTPUTS THROUGH A PULL REQUEST
   # ==============================================================
 
   commit-results:
@@ -500,32 +482,31 @@ jobs:
           test -d data/results
           test -f docs/JESI_Final_Results_Report.md
           test -f README.md
-
           echo "Generated JESI outputs verified."
 
       - name: verify source commit is still current
+        env:
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
           git fetch origin main
 
-          SOURCE_SHA="${{ github.sha }}"
           REMOTE_SHA="$(git rev-parse origin/main)"
 
           echo "Workflow source SHA: ${SOURCE_SHA}"
           echo "Current remote main: ${REMOTE_SHA}"
 
           if [ "${REMOTE_SHA}" != "${SOURCE_SHA}" ]; then
-            echo "ERROR: Remote main changed while this JESI pipeline was running."
-            echo "The generated outputs will NOT be committed."
-            echo "This protects the repository from stale-result overwrites."
+            echo "ERROR: Remote main changed while JESI pipeline was running."
+            echo "Generated outputs will NOT be submitted."
             exit 1
           fi
 
-          echo "Remote main is unchanged. Safe to create automated pull request."
+          echo "Remote main is unchanged."
 
       - name: create pull request for updated jesi results
-        uses: peter-evans/create-pull-request@70a41ce788ad7bc22f5c231737f2a1f1a5b035a2 # v7.0.6
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "Update final JESI results with balanced-panel analysis"
@@ -546,16 +527,13 @@ jobs:
 
             Source workflow run: #${{ github.run_number }}
 
-            Please review the generated data, ranking, coverage caveats,
+            Please review generated data, ranking, coverage caveats,
             and report before merging into main.
           signoff: false
 
       - name: final pipeline success
         run: |
           set -euo pipefail
-          echo "=================================================="
           echo "JAS-JESI RESULTS AUTOMATION STEP COMPLETED"
-          echo "=================================================="
-          echo "Check the preceding step logs for PR creation or update."
+          echo "Review the preceding step logs for PR creation or update."
           echo "Review the Pull Request before merging into main."
-          echo "=================================================="
