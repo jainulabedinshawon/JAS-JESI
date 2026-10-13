@@ -505,37 +505,37 @@ jobs:
 
           echo "Remote main is unchanged."
 
-      - name: create pull request for updated jesi results
-        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Update final JESI results with balanced-panel analysis"
-          committer: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
-          author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
-          branch: data-update/jesi-results-auto
-          base: main
-          delete-branch: true
-          add-paths: |
-            data/processed/
-            data/results/
-            docs/JESI_Final_Results_Report.md
-            README.md
-          title: "Automated JESI Results & Balanced-Panel Update"
-          body: |
-            This automated pull request contains generated JAS-JESI results,
-            balanced-panel sensitivity outputs, and the updated research report.
+      - name: create pull request via git cli
+        run: |
+          set -euo pipefail
 
-            Source workflow run: #${{ github.run_number }}
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com>"
 
-            Please review generated data, ranking, coverage caveats,
-            and report before merging into main.
-          signoff: false
-          # Fix for duplicate authorization header / prune issue:
-          push-to-fork: false
+          BRANCH_NAME="data-update/jesi-results-auto"
+          git checkout -b "$BRANCH_NAME"
+
+          git add data/processed/ data/results/ docs/JESI_Final_Results_Report.md README.md
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update final JESI results with balanced-panel analysis"
+
+          git push origin "$BRANCH_NAME" --force
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "Automated JESI Results & Balanced-Panel Update" \
+            --body "This automated pull request contains generated JAS-JESI results, balanced-panel sensitivity outputs, and the updated research report. Source workflow run: #${{ github.run_number }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: final pipeline success
         run: |
           set -euo pipefail
           echo "JAS-JESI RESULTS AUTOMATION STEP COMPLETED"
-          echo "Review the preceding step logs for PR creation or update."
           echo "Review the Pull Request before merging into main."
