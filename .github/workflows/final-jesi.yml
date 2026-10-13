@@ -525,7 +525,7 @@ jobs:
           echo "Remote main is unchanged. Safe to create automated pull request."
 
       - name: create pull request for updated jesi results
-        uses: peter-evans/create-pull-request@70a41ce788ad7bc22f5c231737f2a1f1a5b035a2 # v7.0.6
+        uses: peter-evans/create-pull-request@v7.0.8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "Update final JESI results with balanced-panel analysis"
