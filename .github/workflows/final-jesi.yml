@@ -530,6 +530,8 @@ jobs:
             Please review generated data, ranking, coverage caveats,
             and report before merging into main.
           signoff: false
+          # Fix for duplicate authorization header / prune issue:
+          push-to-fork: false
 
       - name: final pipeline success
         run: |
