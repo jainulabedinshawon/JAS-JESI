@@ -1,0 +1,2 @@
+period,countries,theoretical_observations,complete_case_observations,balanced_panel_countries,balanced_panel_observations,balanced_panel_retention_pct,production_methodology_changed,imputation_used,reweighting_used
+2016-2023,5,40,34,4,32,80.0,False,False,False
