@@ -44,7 +44,7 @@ jobs:
       # CHECKOUT
       # ============================================================
 
-      - name: Checkout repository
+      - name: checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -54,7 +54,7 @@ jobs:
       # RECORD SOURCE COMMIT
       # ============================================================
 
-      - name: Record workflow source commit
+      - name: record workflow source commit
         run: |
           echo "JESI_SOURCE_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
           echo "JESI_SOURCE_SHA=${GITHUB_SHA}"
@@ -65,7 +65,7 @@ jobs:
       # PYTHON
       # ============================================================
 
-      - name: Set up Python
+      - name: set up python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.10"
@@ -76,7 +76,7 @@ jobs:
       # DEPENDENCIES
       # ==============================================================
 
-      - name: Install reviewed hash-locked dependencies
+      - name: install reviewed hash-locked dependencies
         run: |
           set -euo pipefail
 
@@ -101,12 +101,12 @@ jobs:
       # PYTHON PATH
       # ==============================================================
 
-      - name: Configure Python path
+      - name: configure python path
         run: |
           set -euo pipefail
           echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
 
-      - name: Verify Python environment
+      - name: verify python environment
         run: |
           set -euo pipefail
           python --version
@@ -120,7 +120,7 @@ jobs:
       # PYTHON SYNTAX VALIDATION
       # ==============================================================
 
-      - name: Validate Python syntax
+      - name: validate python syntax
         run: |
           set -euo pipefail
           python -m compileall -q scripts src
@@ -130,7 +130,7 @@ jobs:
       # TEST SUITE
       # ==============================================================
 
-      - name: Run JESI test suite
+      - name: run jesi test suite
         run: |
           set -euo pipefail
           PYTHONPATH=. pytest
@@ -139,12 +139,12 @@ jobs:
       # GROWTH
       # ==============================================================
 
-      - name: Score Growth indicators
+      - name: score growth indicators
         run: |
           set -euo pipefail
           python scripts/27_score_growth.py
 
-      - name: Construct Growth pillar
+      - name: construct growth pillar
         run: |
           set -euo pipefail
           python scripts/28_construct_growth_pillar.py
@@ -153,12 +153,12 @@ jobs:
       # PRODUCTIVITY P1
       # ==============================================================
 
-      - name: Download Productivity P1 data
+      - name: download productivity p1 data
         run: |
           set -euo pipefail
           python scripts/12_download_productivity_data.py
 
-      - name: Score Productivity P1
+      - name: score productivity p1
         run: |
           set -euo pipefail
           python scripts/15_score_productivity_p1.py
@@ -167,12 +167,12 @@ jobs:
       # PRODUCTIVITY P2
       # ==============================================================
 
-      - name: Download Productivity P2 data
+      - name: download productivity p2 data
         run: |
           set -euo pipefail
           python scripts/16_download_productivity_p2.py
 
-      - name: Score Productivity P2
+      - name: score productivity p2
         run: |
           set -euo pipefail
           python scripts/19_score_productivity_p2.py
@@ -181,7 +181,7 @@ jobs:
       # PRODUCTIVITY PILLAR
       # ==============================================================
 
-      - name: Construct Productivity pillar
+      - name: construct productivity pillar
         run: |
           set -euo pipefail
           python scripts/20_construct_productivity_pillar.py
@@ -190,27 +190,27 @@ jobs:
       # CONNECTIVITY
       # ==============================================================
 
-      - name: Download Connectivity data
+      - name: download connectivity data
         run: |
           set -euo pipefail
           python scripts/21_download_connectivity_data.py
 
-      - name: Download Connectivity source data
+      - name: download connectivity source data
         run: |
           set -euo pipefail
           python scripts/22_download_connectivity_data.py
 
-      - name: Analyze Connectivity distribution
+      - name: analyze connectivity distribution
         run: |
           set -euo pipefail
           python scripts/23_analyze_connectivity_distribution.py
 
-      - name: Score Connectivity indicators
+      - name: score connectivity indicators
         run: |
           set -euo pipefail
           python scripts/24_score_connectivity.py
 
-      - name: Construct Connectivity pillar
+      - name: construct connectivity pillar
         run: |
           set -euo pipefail
           python scripts/25_construct_connectivity_pillar.py
@@ -219,22 +219,22 @@ jobs:
       # RESILIENCE
       # ==============================================================
 
-      - name: Download Resilience data
+      - name: download resilience data
         run: |
           set -euo pipefail
           python scripts/08_download_resilience_data.py
 
-      - name: Validate Resilience data
+      - name: validate resilience data
         run: |
           set -euo pipefail
           python scripts/09_validate_resilience_data.py
 
-      - name: Analyze Resilience distribution
+      - name: analyze resilience distribution
         run: |
           set -euo pipefail
           python scripts/10_analyze_resilience_distribution.py
 
-      - name: Score Resilience pillar
+      - name: score resilience pillar
         run: |
           set -euo pipefail
           python scripts/11_score_resilience_pillar.py
@@ -243,37 +243,37 @@ jobs:
       # STRATEGIC AUTONOMY
       # ==============================================================
 
-      - name: Download Strategic Autonomy data
+      - name: download strategic autonomy data
         run: |
           set -euo pipefail
           python scripts/29_download_autonomy_data.py
 
-      - name: Download Import Concentration data
+      - name: download import concentration data
         run: |
           set -euo pipefail
           python scripts/31_download_import_concentration.py
 
-      - name: Validate Strategic Autonomy data
+      - name: validate strategic autonomy data
         run: |
           set -euo pipefail
           python scripts/30_validate_autonomy_data.py
 
-      - name: Validate Autonomy data integration
+      - name: validate autonomy data integration
         run: |
           set -euo pipefail
           python scripts/32_validate_autonomy_data.py
 
-      - name: Analyze Autonomy distribution
+      - name: analyze autonomy distribution
         run: |
           set -euo pipefail
           python scripts/33_analyze_autonomy_distribution.py
 
-      - name: Score Strategic Autonomy indicators
+      - name: score strategic autonomy indicators
         run: |
           set -euo pipefail
           python scripts/34_score_autonomy.py
 
-      - name: Construct Strategic Autonomy pillar
+      - name: construct strategic autonomy pillar
         run: |
           set -euo pipefail
           python scripts/35_construct_autonomy_pillar.py
@@ -282,37 +282,37 @@ jobs:
       # VERIFY ALL PILLAR OUTPUTS
       # ==============================================================
 
-      - name: Verify Growth pillar output
+      - name: verify growth pillar output
         run: |
           set -euo pipefail
           test -f data/processed/growth_pillar_scores_2015_2024.csv
           echo "Growth pillar output: OK"
 
-      - name: Verify Productivity pillar output
+      - name: verify productivity pillar output
         run: |
           set -euo pipefail
           test -f data/processed/productivity_pillar_scores_2016_2023.csv
           echo "Productivity pillar output: OK"
 
-      - name: Verify Connectivity pillar output
+      - name: verify connectivity pillar output
         run: |
           set -euo pipefail
           test -f data/processed/connectivity_pillar_scores_2015_2024.csv
           echo "Connectivity pillar output: OK"
 
-      - name: Verify Resilience pillar output
+      - name: verify resilience pillar output
         run: |
           set -euo pipefail
           test -f data/processed/resilience_pillar_scores_2015_2024.csv
           echo "Resilience pillar output: OK"
 
-      - name: Verify Strategic Autonomy pillar output
+      - name: verify strategic autonomy pillar output
         run: |
           set -euo pipefail
           test -f data/processed/strategic_autonomy_pillar_2015_2024.csv
           echo "Strategic Autonomy pillar output: OK"
 
-      - name: Verify all pillar outputs
+      - name: verify all pillar outputs
         run: |
           set -euo pipefail
           echo "=============================================="
@@ -323,7 +323,7 @@ jobs:
       # FINAL JESI CALCULATION
       # ==============================================================
 
-      - name: Calculate JESI
+      - name: calculate jesi
         run: |
           set -euo pipefail
           python scripts/36_calculate_jesi.py
@@ -332,7 +332,7 @@ jobs:
       # ROBUSTNESS TESTS
       # ==============================================================
 
-      - name: Run JESI robustness tests
+      - name: run jesi robustness tests
         run: |
           set -euo pipefail
           python scripts/37_robustness_tests.py
@@ -341,7 +341,7 @@ jobs:
       # FINAL RESULTS
       # ==============================================================
 
-      - name: Generate final JESI results
+      - name: generate final jesi results
         run: |
           set -euo pipefail
           python scripts/38_generate_final_jesi_results.py
@@ -350,7 +350,7 @@ jobs:
       # FINAL VALIDATION
       # ==============================================================
 
-      - name: Validate final JESI results
+      - name: validate final jesi results
         run: |
           set -euo pipefail
           python scripts/39_validate_final_jesi.py
@@ -359,12 +359,12 @@ jobs:
       # BALANCED-PANEL SENSITIVITY ANALYSIS
       # ==============================================================
 
-      - name: Run balanced-panel sensitivity analysis
+      - name: run balanced-panel sensitivity analysis
         run: |
           set -euo pipefail
           python scripts/50_balanced_panel_sensitivity.py
 
-      - name: Verify balanced-panel outputs
+      - name: verify balanced-panel outputs
         run: |
           set -euo pipefail
 
@@ -381,7 +381,7 @@ jobs:
       # RESEARCH REPORT
       # ==============================================================
 
-      - name: Generate JESI research report
+      - name: generate jesi research report
         run: |
           set -euo pipefail
           python scripts/40_generate_jesi_report.py
@@ -390,7 +390,7 @@ jobs:
       # README
       # ==============================================================
 
-      - name: Update README
+      - name: update readme
         run: |
           set -euo pipefail
           python scripts/41_update_readme_jesi.py
@@ -399,7 +399,7 @@ jobs:
       # FINAL REPOSITORY AUDIT
       # ==============================================================
 
-      - name: Run final repository audit
+      - name: run final repository audit
         run: |
           set -euo pipefail
           python scripts/42_final_repository_audit.py
@@ -408,7 +408,7 @@ jobs:
       # FINAL OUTPUT VERIFICATION
       # ==============================================================
 
-      - name: Verify final JESI outputs
+      - name: verify final jesi outputs
         run: |
           set -euo pipefail
           test -d data/results
@@ -423,7 +423,7 @@ jobs:
       # UPLOAD FINAL ARTIFACT
       # ==============================================================
 
-      - name: Upload final JESI outputs
+      - name: upload final jesi outputs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: JESI-final-results
@@ -438,7 +438,7 @@ jobs:
       # SUCCESS SUMMARY
       # ==============================================================
 
-      - name: Final pipeline success
+      - name: final pipeline success
         run: |
           set -euo pipefail
           echo "=================================================="
@@ -459,13 +459,7 @@ jobs:
 
 
   # ==============================================================
-  # COMMIT GENERATED OUTPUTS
-  # ==============================================================
-  #
-  # This job is intentionally separated from the computational job.
-  # It is the ONLY job that receives contents: write permission.
-  # It runs only on push / workflow_dispatch to main branch (bypassed on PRs).
-  #
+  # COMMIT GENERATED OUTPUTS VIA AUTOMATED PULL REQUEST
   # ==============================================================
 
   commit-results:
@@ -482,23 +476,24 @@ jobs:
 
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
 
-      - name: Checkout repository
+      - name: checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Download generated JESI outputs
+      - name: download generated jesi outputs
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: JESI-final-results
           path: .
 
-      - name: Verify generated outputs
+      - name: verify generated outputs
         run: |
           set -euo pipefail
           test -d data/results
@@ -507,7 +502,7 @@ jobs:
 
           echo "Generated JESI outputs downloaded successfully."
 
-      - name: Verify source commit is still current
+      - name: verify source commit is still current
         run: |
           set -euo pipefail
 
@@ -521,37 +516,44 @@ jobs:
 
           if [ "${REMOTE_SHA}" != "${SOURCE_SHA}" ]; then
             echo "ERROR: Remote main changed while this JESI pipeline was running."
-            echo "The generated outputs will NOT be pushed."
+            echo "The generated outputs will NOT be committed."
             echo "This protects the repository from stale-result overwrites."
             exit 1
           fi
 
-          echo "Remote main is unchanged. Safe to commit generated outputs."
+          echo "Remote main is unchanged. Safe to create automated pull request."
 
-      - name: Commit generated JESI outputs
-        run: |
-          set -euo pipefail
+      - name: create pull request for updated jesi results
+        uses: peter-evans/create-pull-request@70a41ce788ad7bc22f5c231737f2a1f1a5b035a2 # v7.0.6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Update final JESI results with balanced-panel analysis"
+          committer: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          branch: data-update/jesi-results-auto
+          base: main
+          delete-branch: true
+          add-paths: |
+            data/processed/
+            data/results/
+            docs/JESI_Final_Results_Report.md
+            README.md
+          title: "Automated JESI Results & Balanced-Panel Update"
+          body: |
+            This automated pull request contains generated JAS-JESI results,
+            balanced-panel sensitivity outputs, and the updated research report.
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            Source workflow run: #${{ github.run_number }}
 
-          git add data/processed
-          git add data/results
-          git add docs/JESI_Final_Results_Report.md
-          git add README.md
+            Please review the generated data, ranking, coverage caveats,
+            and report before merging into main.
+          signoff: false
 
-          if git diff --cached --quiet; then
-            echo "No generated changes to commit."
-          else
-            git commit -m "Update final JESI results with balanced-panel analysis"
-            git push origin HEAD:main
-          fi
-
-      - name: Final pipeline success
+      - name: final pipeline success
         run: |
           set -euo pipefail
           echo "=================================================="
-          echo "JAS-JESI FINAL PIPELINE COMPLETED SUCCESSFULLY"
+          echo "JAS-JESI AUTOMATED PR PIPELINE COMPLETED SUCCESSFULLY"
           echo "=================================================="
-          echo "Generated outputs committed successfully."
+          echo "Generated outputs submitted via Pull Request."
           echo "=================================================="
