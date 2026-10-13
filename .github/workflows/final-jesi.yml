@@ -356,6 +356,28 @@ jobs:
           python scripts/39_validate_final_jesi.py
 
       # ==============================================================
+      # BALANCED-PANEL SENSITIVITY ANALYSIS
+      # ==============================================================
+
+      - name: Run balanced-panel sensitivity analysis
+        run: |
+          set -euo pipefail
+          python scripts/50_balanced_panel_sensitivity.py
+
+      - name: Verify balanced-panel outputs
+        run: |
+          set -euo pipefail
+
+          test -f data/results/jesi_balanced_panel_country_results.csv
+          test -f data/results/jesi_balanced_panel_country_means.csv
+          test -f data/results/jesi_balanced_panel_summary.csv
+
+          echo "Balanced-panel country coverage: OK"
+          echo "Balanced-panel country means: OK"
+          echo "Balanced-panel summary: OK"
+          echo "BALANCED-PANEL OUTPUT VERIFICATION: PASSED"
+
+      # ==============================================================
       # RESEARCH REPORT
       # ==============================================================
 
@@ -429,6 +451,7 @@ jobs:
           echo "Strategic Autonomy: COMPLETE"
           echo "JESI Calculation:    COMPLETE"
           echo "Robustness Tests:    COMPLETE"
+          echo "Balanced-Panel Sens: COMPLETE"
           echo "Final Validation:    COMPLETE"
           echo "Research Report:     COMPLETE"
           echo "Repository Audit:    COMPLETE"
@@ -520,7 +543,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No generated changes to commit."
           else
-            git commit -m "Update final JESI results"
+            git commit -m "Update final JESI results with balanced-panel analysis"
             git push origin HEAD:main
           fi
 
