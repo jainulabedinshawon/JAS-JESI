@@ -121,7 +121,7 @@ AUTONOMY_FILE = (
 # Output files
 # ---------------------------------------------------------------------
 
-OUTPUT_DIR = ROOT / "data" / "results"
+OUTPUT_DIR = ROOT / "artifacts" / "normalization_audit" / "phase_3"
 
 COUNTRY_YEAR_OUTPUT = (
     OUTPUT_DIR
