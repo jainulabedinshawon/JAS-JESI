@@ -1,3 +1,4 @@
+
 name: JESI Normalization Sensitivity
 
 on:
@@ -42,20 +43,20 @@ jobs:
       - name: Verify normalization sensitivity outputs
         run: |
           set -euo pipefail
-          test -s data/results/jesi_normalization_sensitivity_country_year.csv
-          test -s data/results/jesi_normalization_sensitivity_country_summary.csv
-          test -s data/results/jesi_normalization_sensitivity_rank_correlations.csv
-          test -s data/results/jesi_normalization_sensitivity_summary.csv
-          test -s data/results/jesi_normalization_sensitivity_report.md
+          test -s artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_country_year.csv
+          test -s artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_country_summary.csv
+          test -s artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_rank_correlations.csv
+          test -s artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_summary.csv
+          test -s artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_report.md
 
       - name: Display analysis summary
         run: |
           set -euo pipefail
           echo "=== Normalization Sensitivity Summary ==="
-          cat data/results/jesi_normalization_sensitivity_summary.csv
+          cat artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_summary.csv
           echo
           echo "=== Rank Correlations ==="
-          cat data/results/jesi_normalization_sensitivity_rank_correlations.csv
+          cat artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_rank_correlations.csv
 
       - name: Upload normalization sensitivity outputs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -63,8 +64,8 @@ jobs:
           name: jesi-normalization-sensitivity-analysis
           if-no-files-found: error
           path: |
-            data/results/jesi_normalization_sensitivity_country_year.csv
-            data/results/jesi_normalization_sensitivity_country_summary.csv
-            data/results/jesi_normalization_sensitivity_rank_correlations.csv
-            data/results/jesi_normalization_sensitivity_summary.csv
-            data/results/jesi_normalization_sensitivity_report.md
+            artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_country_year.csv
+            artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_country_summary.csv
+            artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_rank_correlations.csv
+            artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_summary.csv
+            artifacts/normalization_audit/phase_3/jesi_normalization_sensitivity_report.md
