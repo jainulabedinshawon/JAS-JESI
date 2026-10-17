@@ -91,6 +91,10 @@ REPORT_OUTPUT = (
     OUTPUT_DIR / "jesi_normalization_sensitivity_report.md"
 )
 
+ZERO_SCORE_OUTPUT = (
+    OUTPUT_DIR / "jesi_normalization_zero_score_diagnostics.csv"
+)
+
 # Production outputs are READ ONLY.
 PRODUCTION_JESI_FILE = (
     ROOT / "data" / "results" / "jesi_country_year_2016_2023.csv"
@@ -982,7 +986,7 @@ def build_specification(raw, baseline, name):
         ["country_code", "year"]
     ).reset_index(drop=True)
 
-      # Calculate JESI only for complete country-year cases.
+    # Calculate JESI only for complete country-year cases.
     # Never impute missing pillar scores.
     if name != "baseline":
         result["JESI"] = np.nan
@@ -1222,6 +1226,71 @@ def build_sensitivity_summary(all_results):
     return pd.DataFrame(rows)
 
 
+def build_zero_score_diagnostics(all_results):
+    """
+    Identify alternative specifications where any pillar score is
+    exactly zero and therefore forces geometric JESI to zero.
+
+    This is diagnostic only. No score is modified or imputed.
+    """
+    rows = []
+
+    for _, row in all_results.iterrows():
+        zero_pillars = [
+            pillar
+            for pillar in PILLARS
+            if pd.notna(row[pillar])
+            and float(row[pillar]) == 0.0
+        ]
+
+        if not zero_pillars:
+            continue
+
+        jesi = row["JESI"]
+
+        rows.append({
+            "specification": row["specification"],
+            "country_code": row["country_code"],
+            "country": row["country"],
+            "year": int(row["year"]),
+            "zero_pillar_count": len(zero_pillars),
+            "zero_pillars": ";".join(zero_pillars),
+            "G": row["G"],
+            "P": row["P"],
+            "C": row["C"],
+            "R": row["R"],
+            "A": row["A"],
+            "JESI": jesi,
+            "jesi_is_zero": bool(
+                pd.notna(jesi)
+                and float(jesi) == 0.0
+            ),
+            "interpretation": (
+                "A zero pillar mathematically forces weighted-geometric "
+                "JESI to zero; no artificial adjustment applied."
+            ),
+        })
+
+    columns = [
+        "specification",
+        "country_code",
+        "country",
+        "year",
+        "zero_pillar_count",
+        "zero_pillars",
+        "G",
+        "P",
+        "C",
+        "R",
+        "A",
+        "JESI",
+        "jesi_is_zero",
+        "interpretation",
+    ]
+
+    return pd.DataFrame(rows, columns=columns)
+
+
 # ================================================================
 # REPORT
 # ================================================================
@@ -1232,10 +1301,24 @@ def build_report(
     rank_results,
     country_summary,
     baseline,
+    zero_diagnostics,
 ):
     baseline_country = country_summary[
         country_summary["specification"] == "baseline"
     ].sort_values("rank")
+
+    zero_count = len(zero_diagnostics)
+
+    if zero_count:
+        zero_table = zero_diagnostics.to_markdown(
+            index=False,
+            floatfmt=".6f",
+        )
+    else:
+        zero_table = (
+            "No zero-valued pillar scores were detected in the "
+            "complete-case results for the tested specifications."
+        )
 
     lines = [
         "# JESI Normalization Sensitivity Analysis",
@@ -1269,6 +1352,31 @@ def build_report(
         "## Rank correlations",
         "",
         rank_results.to_markdown(index=False, floatfmt=".6f"),
+        "",
+        "## Zero-score diagnostic",
+        "",
+        f"Number of complete-case rows with at least one zero pillar: "
+        f"{zero_count}.",
+        "",
+        zero_table,
+        "",
+        "Under weighted-geometric aggregation, a zero value in any "
+        "pillar makes the composite JESI equal to zero. This is a "
+        "mathematical property of the aggregation rule, not by itself "
+        "evidence of a coding error.",
+        "",
+        "Alternative min-max normalizations can assign an exact zero "
+        "to the lowest observed indicator value. Because indicator "
+        "scores are combined into pillar scores before aggregation, "
+        "a pillar may also reach zero under an alternative specification. "
+        "The diagnostic records observed zero pillars and does not "
+        "change, replace, or impute any score.",
+        "",
+        "These zero-driven results can increase the absolute difference "
+        "between an alternative JESI value and the production baseline. "
+        "They should therefore be disclosed when interpreting sensitivity "
+        "results. Alternative-specification scores are research diagnostics "
+        "and are not production JESI results.",
         "",
         "## Interpretation and limitations",
         "",
@@ -1343,12 +1451,14 @@ def main():
     sensitivity_summary = build_sensitivity_summary(all_results)
     correlations = rank_correlations(all_results)
     country_summary = build_country_summary(all_results)
+    zero_diagnostics = build_zero_score_diagnostics(all_results)
 
     print("[6/7] Writing isolated audit outputs...")
     all_results.to_csv(COUNTRY_YEAR_OUTPUT, index=False)
     country_summary.to_csv(COUNTRY_SUMMARY_OUTPUT, index=False)
     correlations.to_csv(RANK_OUTPUT, index=False)
     sensitivity_summary.to_csv(SUMMARY_OUTPUT, index=False)
+    zero_diagnostics.to_csv(ZERO_SCORE_OUTPUT, index=False)
 
     report = build_report(
         equivalence,
@@ -1356,6 +1466,7 @@ def main():
         correlations,
         country_summary,
         baseline,
+        zero_diagnostics,
     )
 
     REPORT_OUTPUT.write_text(
@@ -1373,6 +1484,7 @@ def main():
     print(f"  {COUNTRY_SUMMARY_OUTPUT}")
     print(f"  {RANK_OUTPUT}")
     print(f"  {SUMMARY_OUTPUT}")
+    print(f"  {ZERO_SCORE_OUTPUT}")
     print(f"  {REPORT_OUTPUT}")
     print()
     print("STATUS: COMPLETED")
