@@ -1,0 +1,54 @@
+
+name: JESI Normalization Sensitivity — Phase 3
+
+on:
+  push:
+    branches:
+      - research/normalization-audit-phase-3
+    paths:
+      - "scripts/45_normalization_sensitivity.py"
+      - ".github/workflows/normalization-phase-3.yml"
+      - "requirements.txt"
+      - "data/processed/**"
+      - "data/results/jesi_country_year_2016_2023.csv"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  normalization-sensitivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Check syntax
+        run: python -m py_compile scripts/45_normalization_sensitivity.py
+
+      - name: Run Phase 3 audit
+        run: python scripts/45_normalization_sensitivity.py
+
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: JESI-normalization-phase-3
+          if-no-files-found: warn
+          path: artifacts/normalization_audit/phase_3/
