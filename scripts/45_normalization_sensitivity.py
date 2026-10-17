@@ -1,42 +1,21 @@
+#!/usr/bin/env python3
 """
 JAS Unified Economic Strength Index (JESI)
 Normalization Sensitivity Analysis
-Master Version 1.0
+Master Version 1.0 — Phase 3 Audit
 
 Purpose
 -------
-Evaluate whether JESI results are materially sensitive to
-alternative normalization specifications without modifying
-the production JESI pipeline.
+1. Use persisted production pillar scores as the authoritative baseline.
+2. Compare baseline pillar scores and JESI with production outputs.
+3. Evaluate three alternative monotonic normalization methods.
+4. Evaluate Resilience reference-zone alternatives.
+5. Report country-year coverage, numerical differences and ranking
+   stability.
+6. Keep every audit output isolated from production outputs.
 
-Design
-------
-1. Reconstructs indicator scores from the persisted raw
-   indicator values.
-2. Preserves the current production specification as BASELINE.
-3. Tests alternative monotonic normalization methods:
-       - full-sample min-max
-       - winsorized min-max (5th-95th percentile)
-       - pooled percentile rank
-4. Separately tests the nonlinear Resilience reference-zone
-   specification:
-       - baseline P10-P90
-       - alternative P5-P95
-       - alternative P20-P80
-5. Keeps pillar aggregation and JESI strategic weights fixed.
-6. Uses the same 2016-2023 complete-case benchmark panel
-   used by the final JESI validation.
-7. Does NOT modify any production JESI output.
-
-Important
----------
-This is a sensitivity-analysis module, not a replacement
-for the production normalization/scoring pipeline.
-
-The baseline specification is reproduced from the current
-repository implementation.
-
-Production files are never overwritten.
+Production methodology is not modified.
+No imputation is performed.
 """
 
 from pathlib import Path
@@ -46,11 +25,11 @@ import pandas as pd
 from scipy.stats import spearmanr
 
 
-ROOT = Path(__file__).resolve().parents[1]
+# ================================================================
+# CONFIGURATION
+# ================================================================
 
-# ---------------------------------------------------------------------
-# Benchmark definition
-# ---------------------------------------------------------------------
+ROOT = Path(__file__).resolve().parents[1]
 
 COUNTRIES = {
     "BGD": "Bangladesh",
@@ -61,99 +40,12 @@ COUNTRIES = {
 }
 
 FINAL_YEARS = set(range(2016, 2024))
+DISTRIBUTION_YEARS = set(range(2015, 2025))
 
-# Production benchmark periods
-GROWTH_YEARS = set(range(2015, 2025))
-PRODUCTIVITY_YEARS = set(range(2016, 2024))
-CONNECTIVITY_YEARS = set(range(2015, 2025))
-RESILIENCE_YEARS = set(range(2015, 2025))
-AUTONOMY_YEARS = set(range(2015, 2025))
+EXPECTED_PANEL_SIZE = 40
+EXPECTED_COMPLETE_CASES = 34
 
-
-# ---------------------------------------------------------------------
-# Production input files
-# ---------------------------------------------------------------------
-
-GROWTH_FILE = (
-    ROOT
-    / "data"
-    / "processed"
-    / "growth_pillar_scores_2015_2024.csv"
-)
-
-P1_FILE = (
-    ROOT
-    / "data"
-    / "processed"
-    / "productivity_p1_scores_2016_2023.csv"
-)
-
-P2_FILE = (
-    ROOT
-    / "data"
-    / "processed"
-    / "productivity_p2_scores_2016_2023.csv"
-)
-
-CONNECTIVITY_FILE = (
-    ROOT
-    / "data"
-    / "processed"
-    / "connectivity_indicator_scores_2015_2024.csv"
-)
-
-RESILIENCE_FILE = (
-    ROOT
-    / "data"
-    / "processed"
-    / "resilience_pillar_scores_2015_2024.csv"
-)
-
-AUTONOMY_FILE = (
-    ROOT
-    / "data"
-    / "processed"
-    / "autonomy_indicator_scores_2015_2024.csv"
-)
-
-
-# ---------------------------------------------------------------------
-# Output files
-# ---------------------------------------------------------------------
-
-OUTPUT_DIR = ROOT / "data" / "results"
-
-COUNTRY_YEAR_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_normalization_sensitivity_country_year.csv"
-)
-
-COUNTRY_SUMMARY_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_normalization_sensitivity_country_summary.csv"
-)
-
-RANK_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_normalization_sensitivity_rank_correlations.csv"
-)
-
-SUMMARY_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_normalization_sensitivity_summary.csv"
-)
-
-REPORT_OUTPUT = (
-    OUTPUT_DIR
-    / "jesi_normalization_sensitivity_report.md"
-)
-
-
-# ---------------------------------------------------------------------
-# JESI strategic weights
-# ---------------------------------------------------------------------
-
-JESI_WEIGHTS = {
+WEIGHTS = {
     "G": 0.20,
     "P": 0.25,
     "C": 0.20,
@@ -161,43 +53,129 @@ JESI_WEIGHTS = {
     "A": 0.15,
 }
 
+PILLARS = ["G", "P", "C", "R", "A"]
+NUMERIC_OUTPUTS = PILLARS + ["JESI"]
 
-# ---------------------------------------------------------------------
-# Valid sensitivity specifications
-# ---------------------------------------------------------------------
+TOLERANCE = 1e-7
 
-VALID_SPECIFICATIONS = {
+DEBT_LOWER = 29.287000
+DEBT_UPPER = 77.458300
+
+CURRENT_ACCOUNT_LOWER = -2.427516
+CURRENT_ACCOUNT_UPPER = 3.881556
+
+OUTPUT_DIR = (
+    ROOT
+    / "artifacts"
+    / "normalization_audit"
+    / "phase_3"
+)
+
+COUNTRY_YEAR_OUTPUT = (
+    OUTPUT_DIR / "jesi_normalization_sensitivity_country_year.csv"
+)
+
+COUNTRY_SUMMARY_OUTPUT = (
+    OUTPUT_DIR / "jesi_normalization_sensitivity_country_summary.csv"
+)
+
+RANK_OUTPUT = (
+    OUTPUT_DIR / "jesi_normalization_sensitivity_rank_correlations.csv"
+)
+
+SUMMARY_OUTPUT = (
+    OUTPUT_DIR / "jesi_normalization_sensitivity_summary.csv"
+)
+
+REPORT_OUTPUT = (
+    OUTPUT_DIR / "jesi_normalization_sensitivity_report.md"
+)
+
+# Production outputs are READ ONLY.
+PRODUCTION_JESI_FILE = (
+    ROOT / "data" / "results" / "jesi_country_year_2016_2023.csv"
+)
+
+GROWTH_FILE = (
+    ROOT / "data" / "processed"
+    / "growth_pillar_scores_2015_2024.csv"
+)
+
+PRODUCTIVITY_P1_FILE = (
+    ROOT / "data" / "processed"
+    / "productivity_p1_scores_2016_2023.csv"
+)
+
+PRODUCTIVITY_P2_FILE = (
+    ROOT / "data" / "processed"
+    / "productivity_p2_scores_2016_2023.csv"
+)
+
+CONNECTIVITY_FILE = (
+    ROOT / "data" / "processed"
+    / "connectivity_indicator_scores_2015_2024.csv"
+)
+
+RESILIENCE_FILE = (
+    ROOT / "data" / "processed"
+    / "resilience_pillar_scores_2015_2024.csv"
+)
+
+AUTONOMY_FILE = (
+    ROOT / "data" / "processed"
+    / "autonomy_indicator_scores_2015_2024.csv"
+)
+
+PRODUCTIVITY_PILLAR_FILE = (
+    ROOT / "data" / "processed"
+    / "productivity_pillar_scores_2016_2023.csv"
+)
+
+CONNECTIVITY_PILLAR_FILE = (
+    ROOT / "data" / "processed"
+    / "connectivity_pillar_scores_2015_2024.csv"
+)
+
+AUTONOMY_PILLAR_FILE = (
+    ROOT / "data" / "processed"
+    / "strategic_autonomy_pillar_2015_2024.csv"
+)
+
+
+SPECIFICATIONS = [
     "baseline",
     "minmax",
     "winsorized_minmax",
     "percentile",
     "reference_p5_p95",
     "reference_p20_p80",
-}
+]
 
 
-# ---------------------------------------------------------------------
-# Utility functions
-# ---------------------------------------------------------------------
+# ================================================================
+# GENERAL VALIDATION
+# ================================================================
 
-def fail(message: str) -> None:
-    """Raise a clear analysis failure."""
+def fail(message):
     raise RuntimeError(message)
 
 
-def require_file(path: Path) -> None:
-    """Require an input file to exist."""
-    if not path.exists():
+def require_file(path):
+    if not path.is_file():
         fail(f"Required input file not found: {path}")
 
 
-def standardize_country_code(value):
-    """Map country names/codes to JESI ISO3 codes."""
+def read_csv(path):
+    require_file(path)
+    return pd.read_csv(path)
 
+
+def country_code(value):
     if pd.isna(value):
         return np.nan
 
     text = str(value).strip().lower()
+    text = text.replace("_", " ").replace("-", " ")
 
     mapping = {
         "bangladesh": "BGD",
@@ -210,2264 +188,1167 @@ def standardize_country_code(value):
         "mys": "MYS",
         "vietnam": "VNM",
         "viet nam": "VNM",
-        "viet_nam": "VNM",
         "vnm": "VNM",
     }
 
     return mapping.get(text, np.nan)
 
 
-def validate_country_year(
-    df: pd.DataFrame,
-    name: str,
-    years,
-) -> None:
-    """Validate country/year coverage."""
+def standardize_keys(df, name, country_column="country_code"):
+    df = df.copy()
 
-    if df.empty:
-        fail(f"{name} dataset is empty.")
+    if country_column not in df.columns:
+        fail(f"{name}: missing country column {country_column!r}.")
 
-    actual_countries = set(
-        df["country_code"]
-        .dropna()
-        .astype(str)
+    if "year" not in df.columns:
+        fail(f"{name}: missing year column.")
+
+    df["country_code"] = df[country_column].apply(country_code)
+
+    df["year"] = pd.to_numeric(
+        df["year"],
+        errors="coerce",
     )
 
-    unexpected = actual_countries - set(COUNTRIES)
+    if df["year"].isna().any():
+        fail(f"{name}: invalid or missing year values.")
 
-    if unexpected:
-        fail(
-            f"{name} contains unexpected countries: "
-            f"{sorted(unexpected)}"
-        )
+    if not np.isfinite(df["year"].to_numpy(dtype=float)).all():
+        fail(f"{name}: non-finite year values.")
 
-    actual_years = set(
-        pd.to_numeric(
-            df["year"],
-            errors="coerce",
-        )
-        .dropna()
-        .astype(int)
-    )
+    if not df["year"].mod(1).eq(0).all():
+        fail(f"{name}: non-integer year values.")
 
-    unexpected_years = actual_years - set(years)
+    df["year"] = df["year"].astype(int)
 
-    if unexpected_years:
-        fail(
-            f"{name} contains unexpected years: "
-            f"{sorted(unexpected_years)}"
-        )
+    df = df[
+        df["country_code"].isin(COUNTRIES)
+    ].copy()
 
     duplicates = df.duplicated(
-        subset=["country_code", "year"],
+        ["country_code", "year"],
         keep=False,
     )
 
     if duplicates.any():
-        fail(
-            f"{name} contains duplicate country-year "
-            "observations."
-        )
+        sample = df.loc[
+            duplicates,
+            ["country_code", "year"],
+        ].to_string(index=False)
+
+        fail(f"{name}: duplicate country-year keys:\n{sample}")
+
+    return df
 
 
-def numeric_series(
-    df: pd.DataFrame,
-    column: str,
-    name: str,
-) -> pd.Series:
-    """Convert a required indicator column to numeric."""
-
+def numeric_column(df, column, name):
     if column not in df.columns:
-        fail(
-            f"{name} is missing required column: {column}"
-        )
+        fail(f"{name}: required column {column!r} is missing.")
 
     result = pd.to_numeric(
         df[column],
         errors="coerce",
     )
 
-    if result.notna().sum() == 0:
-        fail(
-            f"{name}.{column} contains no valid numeric values."
+    invalid = df[column].notna() & result.isna()
+
+    if invalid.any():
+        fail(f"{name}.{column}: non-numeric values found.")
+
+    result = result.replace(
+        [np.inf, -np.inf],
+        np.nan,
+    )
+
+    return result
+
+
+def validate_weights():
+    if not np.isclose(sum(WEIGHTS.values()), 1.0):
+        fail("JESI weights do not sum to 1.")
+
+    if WEIGHTS != {
+        "G": 0.20,
+        "P": 0.25,
+        "C": 0.20,
+        "R": 0.20,
+        "A": 0.15,
+    }:
+        fail("Unexpected change to Master Version 1.0 weights.")
+
+
+def expected_panel():
+    return pd.DataFrame(
+        [
+            {
+                "country_code": code,
+                "country": name,
+                "year": year,
+            }
+            for code, name in COUNTRIES.items()
+            for year in sorted(FINAL_YEARS)
+        ]
+    )
+
+
+# ================================================================
+# NORMALIZATION FUNCTIONS
+# ================================================================
+
+def percentile_score(series):
+    """
+    Average-rank percentile scoring, matching the pandas ranking
+    convention used by the Growth and Productivity scoring scripts.
+    """
+    values = pd.to_numeric(series, errors="coerce")
+
+    return values.rank(
+        method="average",
+        pct=True,
+        na_option="keep",
+    ).clip(lower=0.001, upper=1.0)
+
+
+def minmax_positive(series):
+    values = pd.to_numeric(series, errors="coerce")
+    low = values.min()
+    high = values.max()
+
+    if pd.isna(low) or pd.isna(high):
+        return pd.Series(np.nan, index=series.index)
+
+    if np.isclose(high, low):
+        return pd.Series(1.0, index=series.index)
+
+    return ((values - low) / (high - low)).clip(0.0, 1.0)
+
+
+def minmax_negative(series):
+    values = pd.to_numeric(series, errors="coerce")
+    low = values.min()
+    high = values.max()
+
+    if pd.isna(low) or pd.isna(high):
+        return pd.Series(np.nan, index=series.index)
+
+    if np.isclose(high, low):
+        return pd.Series(1.0, index=series.index)
+
+    return ((high - values) / (high - low)).clip(0.0, 1.0)
+
+
+def winsorized_minmax_positive(series):
+    values = pd.to_numeric(series, errors="coerce")
+    low = values.quantile(0.05)
+    high = values.quantile(0.95)
+
+    if pd.isna(low) or pd.isna(high):
+        return pd.Series(np.nan, index=series.index)
+
+    if np.isclose(high, low):
+        return pd.Series(1.0, index=series.index)
+
+    clipped = values.clip(lower=low, upper=high)
+
+    return ((clipped - low) / (high - low)).clip(0.0, 1.0)
+
+
+def winsorized_minmax_negative(series):
+    values = pd.to_numeric(series, errors="coerce")
+    low = values.quantile(0.05)
+    high = values.quantile(0.95)
+
+    if pd.isna(low) or pd.isna(high):
+        return pd.Series(np.nan, index=series.index)
+
+    if np.isclose(high, low):
+        return pd.Series(1.0, index=series.index)
+
+    clipped = values.clip(lower=low, upper=high)
+
+    return ((high - clipped) / (high - low)).clip(0.0, 1.0)
+
+
+def normalize_monotonic(series, method, direction="positive"):
+    if direction not in {"positive", "negative"}:
+        fail(f"Unknown indicator direction: {direction}")
+
+    if method == "percentile":
+        scored = percentile_score(series)
+
+        if direction == "negative":
+            valid = pd.to_numeric(series, errors="coerce").notna()
+            scored.loc[valid] = (
+                1.0
+                - percentile_score(series.loc[valid])
+                + 1.0 / max(int(valid.sum()), 1)
+            ).clip(0.001, 1.0)
+
+        return scored
+
+    if method == "minmax":
+        return (
+            minmax_positive(series)
+            if direction == "positive"
+            else minmax_negative(series)
+        )
+
+    if method == "winsorized_minmax":
+        return (
+            winsorized_minmax_positive(series)
+            if direction == "positive"
+            else winsorized_minmax_negative(series)
+        )
+
+    fail(f"Unknown monotonic normalization: {method}")
+
+
+def reference_zone_score(series, lower, upper):
+    """
+    JESI nonlinear reference-zone scoring:
+    1 inside the zone; exponential penalty outside it.
+    """
+    if not lower < upper:
+        fail("Reference-zone lower bound must be below upper bound.")
+
+    values = pd.to_numeric(series, errors="coerce")
+    width = upper - lower
+    lam = np.log(2.0)
+
+    distance_below = (lower - values).clip(lower=0.0) / width
+    distance_above = (values - upper).clip(lower=0.0) / width
+
+    distance = distance_below + distance_above
+
+    return np.exp(-lam * distance).clip(0.0, 1.0)
+
+
+def weighted_geometric_jesi(df, allow_zero=False):
+    values = df[PILLARS].to_numpy(dtype=float)
+
+    if not np.isfinite(values).all():
+        fail("Pillar values contain missing or non-finite values.")
+
+    lower_bound_invalid = (
+        (values < 0.0).any()
+        if allow_zero
+        else (values <= 0.0).any()
+    )
+
+    if lower_bound_invalid or (values > 1.0).any():
+        allowed = "[0, 1]" if allow_zero else "(0, 1]"
+        fail(f"Pillar scores must be within {allowed}.")
+
+    # Preserve the production weighted-geometric formulation.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = (
+            100.0
+            * np.power(df["G"], WEIGHTS["G"])
+            * np.power(df["P"], WEIGHTS["P"])
+            * np.power(df["C"], WEIGHTS["C"])
+            * np.power(df["R"], WEIGHTS["R"])
+            * np.power(df["A"], WEIGHTS["A"])
         )
 
     return result
 
 
-# ---------------------------------------------------------------------
-# Normalization functions
-# ---------------------------------------------------------------------
+def arithmetic_mean(df, columns):
+    if not columns:
+        fail("Cannot aggregate an empty indicator list.")
 
-def minmax_positive(series: pd.Series) -> pd.Series:
-    """Standard full-sample positive-direction min-max."""
-
-    numeric = pd.to_numeric(
-        series,
-        errors="coerce",
-    )
-
-    minimum = numeric.min()
-    maximum = numeric.max()
-
-    if pd.isna(minimum) or pd.isna(maximum):
-        return pd.Series(
-            np.nan,
-            index=series.index,
-        )
-
-    if maximum == minimum:
-        return pd.Series(
-            1.0,
-            index=series.index,
-        )
-
-    result = (
-        (numeric - minimum)
-        / (maximum - minimum)
-    )
-
-    return result.clip(0.0, 1.0)
+    return df[columns].mean(axis=1, skipna=False)
 
 
-def minmax_negative(series: pd.Series) -> pd.Series:
-    """Standard full-sample negative-direction min-max."""
+# ================================================================
+# LOAD AUTHORITATIVE PRODUCTION BASELINE
+# ================================================================
 
-    numeric = pd.to_numeric(
-        series,
-        errors="coerce",
-    )
+def load_pillar_file(path, score_column, pillar, country_column="country_code"):
+    df = read_csv(path)
 
-    minimum = numeric.min()
-    maximum = numeric.max()
-
-    if pd.isna(minimum) or pd.isna(maximum):
-        return pd.Series(
-            np.nan,
-            index=series.index,
-        )
-
-    if maximum == minimum:
-        return pd.Series(
-            1.0,
-            index=series.index,
-        )
-
-    result = (
-        (maximum - numeric)
-        / (maximum - minimum)
-    )
-
-    return result.clip(0.0, 1.0)
-
-
-def winsorized_minmax_positive(
-    series: pd.Series,
-) -> pd.Series:
-    """5th-95th percentile winsorized positive min-max."""
-
-    numeric = pd.to_numeric(
-        series,
-        errors="coerce",
-    )
-
-    lower = numeric.quantile(0.05)
-    upper = numeric.quantile(0.95)
-
-    if pd.isna(lower) or pd.isna(upper):
-        return pd.Series(
-            np.nan,
-            index=series.index,
-        )
-
-    if upper == lower:
-        return pd.Series(
-            1.0,
-            index=series.index,
-        )
-
-    clipped = numeric.clip(
-        lower=lower,
-        upper=upper,
-    )
-
-    result = (
-        (clipped - lower)
-        / (upper - lower)
-    )
-
-    return result.clip(0.0, 1.0)
-
-
-def winsorized_minmax_negative(
-    series: pd.Series,
-) -> pd.Series:
-    """5th-95th percentile winsorized negative min-max."""
-
-    numeric = pd.to_numeric(
-        series,
-        errors="coerce",
-    )
-
-    lower = numeric.quantile(0.05)
-    upper = numeric.quantile(0.95)
-
-    if pd.isna(lower) or pd.isna(upper):
-        return pd.Series(
-            np.nan,
-            index=series.index,
-        )
-
-    if upper == lower:
-        return pd.Series(
-            1.0,
-            index=series.index,
-        )
-
-    clipped = numeric.clip(
-        lower=lower,
-        upper=upper,
-    )
-
-    result = (
-        (upper - clipped)
-        / (upper - lower)
-    )
-
-    return result.clip(0.0, 1.0)
-
-
-def percentile_score(
-    series: pd.Series,
-) -> pd.Series:
-    """
-    Pooled empirical percentile rank.
-
-    Matches the production percentile-rank approach.
-    """
-
-    numeric = pd.to_numeric(
-        series,
-        errors="coerce",
-    )
-
-    result = numeric.rank(
-        method="average",
-        pct=True,
-        na_option="keep",
-    )
-
-    return result.clip(
-        lower=0.001,
-        upper=1.0,
-    )
-
-
-def reference_zone_score(
-    series: pd.Series,
-    lower: float,
-    upper: float,
-) -> pd.Series:
-    """
-    Smooth nonlinear reference-zone score.
-
-    Matches the production JESI resilience formulation:
-    score = 1 inside the zone and exponential penalty
-    outside the zone.
-
-    lambda = ln(2)
-    """
-
-    if upper <= lower:
+    if score_column not in df.columns:
         fail(
-            "Reference-zone upper bound must exceed lower bound."
+            f"{path.name}: expected production score column "
+            f"{score_column!r} was not found."
         )
 
-    values = pd.to_numeric(
-        series,
-        errors="coerce",
-    )
+    if country_column not in df.columns:
+        # Resilience production output uses country names.
+        if "country" in df.columns:
+            country_column = "country"
+        else:
+            fail(f"{path.name}: no usable country column.")
 
-    width = upper - lower
-    lam = np.log(2.0)
-
-    below = (
-        np.maximum(
-            lower - values,
-            0.0,
-        )
-        / width
-    )
-
-    above = (
-        np.maximum(
-            values - upper,
-            0.0,
-        )
-        / width
-    )
-
-    distance = below + above
-
-    result = np.exp(
-        -lam * distance
-    )
-
-    return result.clip(
-        lower=0.0,
-        upper=1.0,
-    )
-
-
-def reference_zone_from_quantiles(
-    series: pd.Series,
-    lower_q: float,
-    upper_q: float,
-) -> pd.Series:
-    """Construct a reference-zone score from empirical quantiles."""
-
-    numeric = pd.to_numeric(
-        series,
-        errors="coerce",
-    )
-
-    lower = numeric.quantile(
-        lower_q
-    )
-
-    upper = numeric.quantile(
-        upper_q
-    )
-
-    return reference_zone_score(
-        numeric,
-        lower=lower,
-        upper=upper,
-    )
-
-
-# ---------------------------------------------------------------------
-# Data loading
-# ---------------------------------------------------------------------
-
-def load_growth() -> pd.DataFrame:
-    require_file(GROWTH_FILE)
-
-    df = pd.read_csv(GROWTH_FILE)
-
-    required = [
-        "country_code",
-        "year",
-        "real_gdp_growth",
-        "gni_per_capita_growth",
-    ]
-
-    for column in required:
-        if column not in df.columns:
-            fail(
-                f"Growth file missing column: {column}"
-            )
-
-    df["country_code"] = (
-        df["country_code"]
-        .apply(standardize_country_code)
-    )
-
-    df["year"] = pd.to_numeric(
-        df["year"],
-        errors="coerce",
-    )
-
-    df = df[
-        df["country_code"].isin(COUNTRIES)
-        & df["year"].isin(GROWTH_YEARS)
-    ].copy()
-
-    df["year"] = df["year"].astype(int)
-
-    for column in [
-        "real_gdp_growth",
-        "gni_per_capita_growth",
-    ]:
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce",
-        )
-
-    validate_country_year(
+    df = standardize_keys(
         df,
-        "Growth",
-        GROWTH_YEARS,
+        path.name,
+        country_column=country_column,
     )
 
-    return df[
-        [
-            "country_code",
-            "year",
-            "real_gdp_growth",
-            "gni_per_capita_growth",
-        ]
+    result = df[
+        ["country_code", "year"]
     ].copy()
 
+    result[pillar] = numeric_column(
+        df,
+        score_column,
+        path.name,
+    ).to_numpy()
 
-def load_productivity() -> pd.DataFrame:
-    require_file(P1_FILE)
-    require_file(P2_FILE)
+    return result
 
-    p1 = pd.read_csv(P1_FILE)
-    p2 = pd.read_csv(P2_FILE)
 
-    for column in [
+def load_production_baseline():
+    """
+    The persisted pillar outputs are authoritative for the baseline.
+    This prevents a reconstructed approximation from being mislabeled
+    as production-equivalent.
+    """
+    growth = load_pillar_file(
+        GROWTH_FILE,
+        "growth_score",
+        "G",
+    )
+
+    productivity = load_pillar_file(
+        PRODUCTIVITY_PILLAR_FILE,
+        "productivity_score",
+        "P",
+    )
+
+    connectivity = load_pillar_file(
+        CONNECTIVITY_PILLAR_FILE,
+        "connectivity_score",
+        "C",
+    )
+
+    resilience = load_pillar_file(
+        RESILIENCE_FILE,
+        "resilience_score",
+        "R",
+        country_column="country",
+    )
+
+    autonomy = load_pillar_file(
+        AUTONOMY_PILLAR_FILE,
+        "strategic_autonomy_arithmetic",
+        "A",
+    )
+
+    baseline = expected_panel()
+
+    for pillar_df in [
+        growth,
+        productivity,
+        connectivity,
+        resilience,
+        autonomy,
+    ]:
+        baseline = baseline.merge(
+            pillar_df,
+            on=["country_code", "year"],
+            how="left",
+            validate="one_to_one",
+        )
+
+    baseline["JESI"] = np.nan
+
+    complete = baseline[PILLARS].notna().all(axis=1)
+
+    if complete.sum() != EXPECTED_COMPLETE_CASES:
+        fail(
+            "Production pillar files do not yield the expected "
+            f"{EXPECTED_COMPLETE_CASES} complete cases; "
+            f"found {int(complete.sum())}. No imputation was performed."
+        )
+
+    baseline.loc[complete, "JESI"] = weighted_geometric_jesi(
+        baseline.loc[complete],
+        allow_zero=False,
+    )
+
+    return baseline
+
+
+def compare_with_production_csv(baseline):
+    production = read_csv(PRODUCTION_JESI_FILE)
+
+    required = {
         "country_code",
         "year",
-        "gdp_per_person_employed",
-    ]:
-        if column not in p1.columns:
-            fail(
-                f"P1 file missing column: {column}"
-            )
+        *PILLARS,
+        "JESI",
+    }
 
-    for column in [
-        "country_code",
-        "year",
-        "tfp_growth",
-    ]:
-        if column not in p2.columns:
-            fail(
-                f"P2 file missing column: {column}"
-            )
+    missing = required - set(production.columns)
 
-    p1["country_code"] = (
-        p1["country_code"]
-        .apply(standardize_country_code)
+    if missing:
+        fail(
+            "Production JESI CSV is missing required columns: "
+            f"{sorted(missing)}"
+        )
+
+    production = standardize_keys(
+        production,
+        PRODUCTION_JESI_FILE.name,
     )
 
-    p2["country_code"] = (
-        p2["country_code"]
-        .apply(standardize_country_code)
-    )
+    for column in NUMERIC_OUTPUTS:
+        production[column] = numeric_column(
+            production,
+            column,
+            PRODUCTION_JESI_FILE.name,
+        )
 
-    p1["year"] = pd.to_numeric(
-        p1["year"],
-        errors="coerce",
-    )
-
-    p2["year"] = pd.to_numeric(
-        p2["year"],
-        errors="coerce",
-    )
-
-    p1 = p1[
-        p1["country_code"].isin(COUNTRIES)
-        & p1["year"].isin(PRODUCTIVITY_YEARS)
+    production = production[
+        production["year"].isin(FINAL_YEARS)
     ].copy()
 
-    p2 = p2[
-        p2["country_code"].isin(COUNTRIES)
-        & p2["year"].isin(PRODUCTIVITY_YEARS)
+    production_complete = production[
+        NUMERIC_OUTPUTS
+    ].notna().all(axis=1)
+
+    production_complete = production.loc[
+        production_complete
     ].copy()
 
-    p1["year"] = p1["year"].astype(int)
-    p2["year"] = p2["year"].astype(int)
+    baseline_complete = baseline[
+        baseline[NUMERIC_OUTPUTS].notna().all(axis=1)
+    ].copy()
 
-    p1["gdp_per_person_employed"] = pd.to_numeric(
-        p1["gdp_per_person_employed"],
-        errors="coerce",
-    )
-
-    p2["tfp_growth"] = pd.to_numeric(
-        p2["tfp_growth"],
-        errors="coerce",
-    )
-
-    validate_country_year(
-        p1,
-        "Productivity P1",
-        PRODUCTIVITY_YEARS,
-    )
-
-    validate_country_year(
-        p2,
-        "Productivity P2",
-        PRODUCTIVITY_YEARS,
-    )
-
-    merged = pd.merge(
-        p1[
-            [
-                "country_code",
-                "year",
-                "gdp_per_person_employed",
-            ]
-        ],
-        p2[
-            [
-                "country_code",
-                "year",
-                "tfp_growth",
-            ]
-        ],
-        on=[
-            "country_code",
-            "year",
-        ],
+    merged = baseline_complete.merge(
+        production_complete,
+        on=["country_code", "year"],
         how="outer",
+        suffixes=("_reconstructed", "_production"),
+        indicator=True,
         validate="one_to_one",
     )
+
+    if not merged["_merge"].eq("both").all():
+        counts = merged["_merge"].value_counts().to_dict()
+        fail(
+            "Production/baseline country-year key mismatch: "
+            f"{counts}"
+        )
+
+    rows = []
+
+    for column in NUMERIC_OUTPUTS:
+        reconstructed = merged[f"{column}_reconstructed"]
+        persisted = merged[f"{column}_production"]
+
+        diff = (reconstructed - persisted).abs()
+
+        rows.append(
+            {
+                "field": column,
+                "n": int(diff.notna().sum()),
+                "max_absolute_difference": float(diff.max()),
+                "mean_absolute_difference": float(diff.mean()),
+                "within_tolerance": bool(
+                    (diff <= TOLERANCE).all()
+                ),
+            }
+        )
+
+    differences = pd.DataFrame(rows)
+
+    if not differences["within_tolerance"].all():
+        failed = differences.loc[
+            ~differences["within_tolerance"]
+        ].to_dict("records")
+
+        fail(
+            "Production equivalence check FAILED. "
+            "Do not interpret the reconstructed baseline as verified. "
+            f"Differences: {failed}"
+        )
+
+    return differences
+
+
+# ================================================================
+# LOAD RAW INDICATORS FOR ALTERNATIVE SPECIFICATIONS
+# ================================================================
+
+def load_indicator_table(path, name, columns, country_column="country_code"):
+    df = read_csv(path)
+
+    if country_column not in df.columns and "country" in df.columns:
+        country_column = "country"
+
+    df = standardize_keys(
+        df,
+        name,
+        country_column=country_column,
+    )
+
+    for column in columns:
+        df[column] = numeric_column(df, column, name)
+
+    return df[
+        ["country_code", "year", *columns]
+    ].copy()
+
+
+def load_raw_indicators():
+    growth = load_indicator_table(
+        GROWTH_FILE,
+        "Growth",
+        ["real_gdp_growth", "gni_per_capita_growth"],
+    )
+
+    p1 = load_indicator_table(
+        PRODUCTIVITY_P1_FILE,
+        "Productivity P1",
+        ["gdp_per_person_employed"],
+    )
+
+    p2 = load_indicator_table(
+        PRODUCTIVITY_P2_FILE,
+        "Productivity P2",
+        ["tfp_growth"],
+    )
+
+    connectivity = load_indicator_table(
+        CONNECTIVITY_FILE,
+        "Connectivity",
+        ["trade_openness", "fdi_inflows", "internet_use"],
+    )
+
+    resilience = load_indicator_table(
+        RESILIENCE_FILE,
+        "Resilience",
+        [
+            "fx_reserves_months",
+            "government_debt_gdp",
+            "current_account_gdp",
+        ],
+        country_column="country",
+    )
+
+    autonomy = load_indicator_table(
+        AUTONOMY_FILE,
+        "Strategic Autonomy",
+        ["eci", "high_tech_exports", "import_product_concentration"],
+    )
+
+    # Merge raw indicators by country-code/year, never country-name text.
+    frames = [
+        growth,
+        p1,
+        p2,
+        connectivity,
+        resilience,
+        autonomy,
+    ]
+
+    merged = frames[0]
+
+    for frame in frames[1:]:
+        merged = merged.merge(
+            frame,
+            on=["country_code", "year"],
+            how="outer",
+            validate="one_to_one",
+        )
+
+    merged["country"] = merged["country_code"].map(COUNTRIES)
 
     return merged
 
 
-def load_connectivity() -> pd.DataFrame:
-    require_file(CONNECTIVITY_FILE)
+# ================================================================
+# BUILD ALTERNATIVE SCORES
+# ================================================================
 
-    df = pd.read_csv(
-        CONNECTIVITY_FILE
-    )
-
-    required = [
-        "country_code",
-        "year",
-        "trade_openness",
-        "fdi_inflows",
-        "internet_use",
-    ]
-
-    for column in required:
-        if column not in df.columns:
-            fail(
-                f"Connectivity file missing column: {column}"
-            )
-
-    df["country_code"] = (
-        df["country_code"]
-        .apply(standardize_country_code)
-    )
-
-    df["year"] = pd.to_numeric(
-        df["year"],
-        errors="coerce",
-    )
-
-    df = df[
-        df["country_code"].isin(COUNTRIES)
-        & df["year"].isin(CONNECTIVITY_YEARS)
+def score_alternative_indicators(raw, method):
+    scored = raw[
+        ["country_code", "country", "year"]
     ].copy()
 
-    df["year"] = df["year"].astype(int)
+    # Growth: two positively directed indicators.
+    scored["G1"] = normalize_monotonic(
+        raw["real_gdp_growth"], method
+    )
+    scored["G2"] = normalize_monotonic(
+        raw["gni_per_capita_growth"], method
+    )
+    scored["G"] = arithmetic_mean(scored, ["G1", "G2"])
 
-    for column in [
-        "trade_openness",
-        "fdi_inflows",
-        "internet_use",
-    ]:
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce",
-        )
+    # Productivity: two positively directed indicators.
+    scored["P1"] = normalize_monotonic(
+        raw["gdp_per_person_employed"], method
+    )
+    scored["P2"] = normalize_monotonic(
+        raw["tfp_growth"], method
+    )
+    scored["P"] = arithmetic_mean(scored, ["P1", "P2"])
 
-    validate_country_year(
-        df,
-        "Connectivity",
-        CONNECTIVITY_YEARS,
+    # Connectivity: three positively directed indicators.
+    scored["C1"] = normalize_monotonic(
+        raw["trade_openness"], method
+    )
+    scored["C2"] = normalize_monotonic(
+        raw["fdi_inflows"], method
+    )
+    scored["C3"] = normalize_monotonic(
+        raw["internet_use"], method
+    )
+    scored["C"] = arithmetic_mean(scored, ["C1", "C2", "C3"])
+
+    # Resilience:
+    # R1 is positively directed; R2/R3 retain nonlinear
+    # reference-zone scoring except in the dedicated zone tests.
+    scored["R1"] = normalize_monotonic(
+        raw["fx_reserves_months"], method
     )
 
-    return df[
-        [
-            "country_code",
-            "year",
-            "trade_openness",
-            "fdi_inflows",
-            "internet_use",
-        ]
-    ].copy()
-
-
-def load_resilience() -> pd.DataFrame:
-    require_file(RESILIENCE_FILE)
-
-    df = pd.read_csv(
-        RESILIENCE_FILE
+    scored["R2"] = reference_zone_score(
+        raw["government_debt_gdp"],
+        DEBT_LOWER,
+        DEBT_UPPER,
     )
 
-    required = [
-        "country",
-        "year",
-        "fx_reserves_months",
-        "government_debt_gdp",
-        "current_account_gdp",
-    ]
-
-    for column in required:
-        if column not in df.columns:
-            fail(
-                f"Resilience file missing column: {column}"
-            )
-
-    df["country_code"] = (
-        df["country"]
-        .apply(standardize_country_code)
+    scored["R3"] = reference_zone_score(
+        raw["current_account_gdp"],
+        CURRENT_ACCOUNT_LOWER,
+        CURRENT_ACCOUNT_UPPER,
     )
 
-    df["year"] = pd.to_numeric(
-        df["year"],
-        errors="coerce",
+    scored["R"] = arithmetic_mean(
+        scored,
+        ["R1", "R2", "R3"],
     )
 
-    df = df[
-        df["country_code"].isin(COUNTRIES)
-        & df["year"].isin(RESILIENCE_YEARS)
-    ].copy()
-
-    df["year"] = df["year"].astype(int)
-
-    for column in [
-        "fx_reserves_months",
-        "government_debt_gdp",
-        "current_account_gdp",
-    ]:
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce",
-        )
-
-    validate_country_year(
-        df,
-        "Resilience",
-        RESILIENCE_YEARS,
+    # Strategic Autonomy: ECI and high-tech exports positive;
+    # import concentration negative.
+    scored["A1"] = normalize_monotonic(
+        raw["eci"], method
+    )
+    scored["A2"] = normalize_monotonic(
+        raw["high_tech_exports"], method
+    )
+    scored["A3"] = normalize_monotonic(
+        raw["import_product_concentration"],
+        method,
+        direction="negative",
     )
 
-    return df[
-        [
-            "country_code",
-            "year",
-            "fx_reserves_months",
-            "government_debt_gdp",
-            "current_account_gdp",
-        ]
-    ].copy()
-
-
-def load_autonomy() -> pd.DataFrame:
-    require_file(AUTONOMY_FILE)
-
-    df = pd.read_csv(
-        AUTONOMY_FILE
+    scored["A"] = arithmetic_mean(
+        scored,
+        ["A1", "A2", "A3"],
     )
-
-    required = [
-        "country_code",
-        "year",
-        "eci",
-        "high_tech_exports",
-        "import_product_concentration",
-    ]
-
-    for column in required:
-        if column not in df.columns:
-            fail(
-                f"Autonomy file missing column: {column}"
-            )
-
-    df["country_code"] = (
-        df["country_code"]
-        .apply(standardize_country_code)
-    )
-
-    df["year"] = pd.to_numeric(
-        df["year"],
-        errors="coerce",
-    )
-
-    df = df[
-        df["country_code"].isin(COUNTRIES)
-        & df["year"].isin(AUTONOMY_YEARS)
-    ].copy()
-
-    df["year"] = df["year"].astype(int)
-
-    for column in [
-        "eci",
-        "high_tech_exports",
-        "import_product_concentration",
-    ]:
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce",
-        )
-
-    validate_country_year(
-        df.dropna(
-            subset=["country_code", "year"]
-        ),
-        "Strategic Autonomy",
-        AUTONOMY_YEARS,
-    )
-
-    return df[
-        [
-            "country_code",
-            "year",
-            "eci",
-            "high_tech_exports",
-            "import_product_concentration",
-        ]
-    ].copy()
-
-
-# ---------------------------------------------------------------------
-# Score construction
-# ---------------------------------------------------------------------
-
-def build_indicator_scores():
-    """Build all baseline and alternative indicator scores."""
-
-    growth = load_growth()
-    productivity = load_productivity()
-    connectivity = load_connectivity()
-    resilience = load_resilience()
-    autonomy = load_autonomy()
-
-    # ---------------------------------------------------------------
-    # Growth
-    #
-    # Production baseline = pooled percentile.
-    # ---------------------------------------------------------------
-
-    growth_scores = growth[
-        [
-            "country_code",
-            "year",
-        ]
-    ].copy()
-
-    growth_scores["G_real_gdp_baseline"] = (
-        percentile_score(
-            growth["real_gdp_growth"]
-        )
-    )
-
-    growth_scores["G_gni_baseline"] = (
-        percentile_score(
-            growth["gni_per_capita_growth"]
-        )
-    )
-
-    for method in [
-        "minmax",
-        "winsorized_minmax",
-        "percentile",
-    ]:
-        if method == "minmax":
-            gdp = minmax_positive(
-                growth["real_gdp_growth"]
-            )
-            gni = minmax_positive(
-                growth["gni_per_capita_growth"]
-            )
-
-        elif method == "winsorized_minmax":
-            gdp = winsorized_minmax_positive(
-                growth["real_gdp_growth"]
-            )
-            gni = winsorized_minmax_positive(
-                growth["gni_per_capita_growth"]
-            )
-
-        else:
-            gdp = percentile_score(
-                growth["real_gdp_growth"]
-            )
-            gni = percentile_score(
-                growth["gni_per_capita_growth"]
-            )
-
-        growth_scores[
-            f"G_real_gdp_{method}"
-        ] = gdp
-
-        growth_scores[
-            f"G_gni_{method}"
-        ] = gni
-
-    # ---------------------------------------------------------------
-    # Productivity
-    # ---------------------------------------------------------------
-
-    productivity_scores = productivity[
-        [
-            "country_code",
-            "year",
-        ]
-    ].copy()
-
-    productivity_scores[
-        "P_p1_baseline"
-    ] = percentile_score(
-        productivity[
-            "gdp_per_person_employed"
-        ]
-    )
-
-    productivity_scores[
-        "P_p2_baseline"
-    ] = percentile_score(
-        productivity[
-            "tfp_growth"
-        ]
-    )
-
-    for method in [
-        "minmax",
-        "winsorized_minmax",
-        "percentile",
-    ]:
-        if method == "minmax":
-            p1 = minmax_positive(
-                productivity[
-                    "gdp_per_person_employed"
-                ]
-            )
-            p2 = minmax_positive(
-                productivity[
-                    "tfp_growth"
-                ]
-            )
-
-        elif method == "winsorized_minmax":
-            p1 = winsorized_minmax_positive(
-                productivity[
-                    "gdp_per_person_employed"
-                ]
-            )
-            p2 = winsorized_minmax_positive(
-                productivity[
-                    "tfp_growth"
-                ]
-            )
-
-        else:
-            p1 = percentile_score(
-                productivity[
-                    "gdp_per_person_employed"
-                ]
-            )
-            p2 = percentile_score(
-                productivity[
-                    "tfp_growth"
-                ]
-            )
-
-        productivity_scores[
-            f"P_p1_{method}"
-        ] = p1
-
-        productivity_scores[
-            f"P_p2_{method}"
-        ] = p2
-
-    # ---------------------------------------------------------------
-    # Connectivity
-    # ---------------------------------------------------------------
-
-    connectivity_scores = connectivity[
-        [
-            "country_code",
-            "year",
-        ]
-    ].copy()
-
-    connectivity_indicators = [
-        "trade_openness",
-        "fdi_inflows",
-        "internet_use",
-    ]
-
-    for indicator in connectivity_indicators:
-        connectivity_scores[
-            f"C_{indicator}_baseline"
-        ] = percentile_score(
-            connectivity[indicator]
-        )
-
-    for method in [
-        "minmax",
-        "winsorized_minmax",
-        "percentile",
-    ]:
-        for indicator in connectivity_indicators:
-
-            if method == "minmax":
-                score = minmax_positive(
-                    connectivity[indicator]
-                )
-
-            elif method == "winsorized_minmax":
-                score = winsorized_minmax_positive(
-                    connectivity[indicator]
-                )
-
-            else:
-                score = percentile_score(
-                    connectivity[indicator]
-                )
-
-            connectivity_scores[
-                f"C_{indicator}_{method}"
-            ] = score
-
-    # ---------------------------------------------------------------
-    # Resilience
-    #
-    # R1 baseline = full-sample min-max.
-    # R2/R3 baseline = P10-P90 nonlinear reference zone.
-    #
-    # Alternative monotonic normalization specifications are NOT
-    # forced onto R2/R3 because those indicators are explicitly
-    # target/reference-zone indicators in the methodology.
-    # ---------------------------------------------------------------
-
-    resilience_scores = resilience[
-        [
-            "country_code",
-            "year",
-        ]
-    ].copy()
-
-    resilience_scores[
-        "R_fx_baseline"
-    ] = minmax_positive(
-        resilience[
-            "fx_reserves_months"
-        ]
-    )
-
-    resilience_scores[
-        "R_debt_baseline"
-    ] = reference_zone_from_quantiles(
-        resilience[
-            "government_debt_gdp"
-        ],
-        0.10,
-        0.90,
-    )
-
-    resilience_scores[
-        "R_ca_baseline"
-    ] = reference_zone_from_quantiles(
-        resilience[
-            "current_account_gdp"
-        ],
-        0.10,
-        0.90,
-    )
-
-    # Reference-zone sensitivity.
-    for label, lower_q, upper_q in [
-        (
-            "reference_p5_p95",
-            0.05,
-            0.95,
-        ),
-        (
-            "reference_p20_p80",
-            0.20,
-            0.80,
-        ),
-    ]:
-        resilience_scores[
-            f"R_debt_{label}"
-        ] = reference_zone_from_quantiles(
-            resilience[
-                "government_debt_gdp"
-            ],
-            lower_q,
-            upper_q,
-        )
-
-        resilience_scores[
-            f"R_ca_{label}"
-        ] = reference_zone_from_quantiles(
-            resilience[
-                "current_account_gdp"
-            ],
-            lower_q,
-            upper_q,
-        )
-
-    # R1 alternative normalization.
-    for method in [
-        "minmax",
-        "winsorized_minmax",
-        "percentile",
-    ]:
-        if method == "minmax":
-            score = minmax_positive(
-                resilience[
-                    "fx_reserves_months"
-                ]
-            )
-
-        elif method == "winsorized_minmax":
-            score = winsorized_minmax_positive(
-                resilience[
-                    "fx_reserves_months"
-                ]
-            )
-
-        else:
-            score = percentile_score(
-                resilience[
-                    "fx_reserves_months"
-                ]
-            )
-
-        resilience_scores[
-            f"R_fx_{method}"
-        ] = score
-
-    # ---------------------------------------------------------------
-    # Strategic Autonomy
-    #
-    # Production baseline = P10-P90 reference-bound min-max.
-    # ECI and high-tech exports are positive direction.
-    # Import concentration is negative direction.
-    # ---------------------------------------------------------------
-
-    autonomy_scores = autonomy[
-        [
-            "country_code",
-            "year",
-        ]
-    ].copy()
-
-    complete_autonomy = autonomy[
-        [
-            "eci",
-            "high_tech_exports",
-            "import_product_concentration",
-        ]
-    ].notna().all(axis=1)
-
-    eci_complete = autonomy.loc[
-        complete_autonomy,
-        "eci",
-    ]
-
-    hightech_complete = autonomy.loc[
-        complete_autonomy,
-        "high_tech_exports",
-    ]
-
-    concentration_complete = autonomy.loc[
-        complete_autonomy,
-        "import_product_concentration",
-    ]
-
-    eci_lower = eci_complete.quantile(0.10)
-    eci_upper = eci_complete.quantile(0.90)
-
-    hightech_lower = hightech_complete.quantile(0.10)
-    hightech_upper = hightech_complete.quantile(0.90)
-
-    concentration_lower = concentration_complete.quantile(0.10)
-    concentration_upper = concentration_complete.quantile(0.90)
-
-    autonomy_scores[
-        "A_eci_baseline"
-    ] = np.nan
-
-    autonomy_scores[
-        "A_hightech_baseline"
-    ] = np.nan
-
-    autonomy_scores[
-        "A_concentration_baseline"
-    ] = np.nan
-
-    valid = complete_autonomy
-
-    autonomy_scores.loc[
-        valid,
-        "A_eci_baseline",
-    ] = minmax_positive(
-        eci_complete
-    ).to_numpy()
-
-    autonomy_scores.loc[
-        valid,
-        "A_hightech_baseline",
-    ] = minmax_positive(
-        hightech_complete
-    ).to_numpy()
-
-    autonomy_scores.loc[
-        valid,
-        "A_concentration_baseline",
-    ] = minmax_negative(
-        concentration_complete
-    ).to_numpy()
-
-    for method in [
-        "minmax",
-        "winsorized_minmax",
-        "percentile",
-    ]:
-        autonomy_scores[
-            f"A_eci_{method}"
-        ] = np.nan
-
-        autonomy_scores[
-            f"A_hightech_{method}"
-        ] = np.nan
-
-        autonomy_scores[
-            f"A_concentration_{method}"
-        ] = np.nan
-
-        if method == "minmax":
-            eci_score = minmax_positive(
-                eci_complete
-            )
-            hightech_score = minmax_positive(
-                hightech_complete
-            )
-            concentration_score = minmax_negative(
-                concentration_complete
-            )
-
-        elif method == "winsorized_minmax":
-            eci_score = winsorized_minmax_positive(
-                eci_complete
-            )
-            hightech_score = winsorized_minmax_positive(
-                hightech_complete
-            )
-            concentration_score = winsorized_minmax_negative(
-                concentration_complete
-            )
-
-        else:
-            eci_score = percentile_score(
-                eci_complete
-            )
-            hightech_score = percentile_score(
-                hightech_complete
-            )
-            concentration_score = percentile_score(
-                -concentration_complete
-            )
-
-        autonomy_scores.loc[
-            valid,
-            f"A_eci_{method}",
-        ] = eci_score.to_numpy()
-
-        autonomy_scores.loc[
-            valid,
-            f"A_hightech_{method}",
-        ] = hightech_score.to_numpy()
-
-        autonomy_scores.loc[
-            valid,
-            f"A_concentration_{method}",
-        ] = concentration_score.to_numpy()
-
-    # ---------------------------------------------------------------
-    # Merge all indicator score tables
-    # ---------------------------------------------------------------
-
-    result = growth_scores.merge(
-        productivity_scores,
-        on=[
-            "country_code",
-            "year",
-        ],
-        how="outer",
-    )
-
-    result = result.merge(
-        connectivity_scores,
-        on=[
-            "country_code",
-            "year",
-        ],
-        how="outer",
-    )
-
-    result = result.merge(
-        resilience_scores,
-        on=[
-            "country_code",
-            "year",
-        ],
-        how="outer",
-    )
-
-    result = result.merge(
-        autonomy_scores,
-        on=[
-            "country_code",
-            "year",
-        ],
-        how="outer",
-    )
-
-    result["country"] = (
-        result["country_code"]
-        .map(COUNTRIES)
-    )
-
-    return result
-
-
-# ---------------------------------------------------------------------
-# Pillar/JESI construction
-# ---------------------------------------------------------------------
-
-def arithmetic_mean(
-    frame: pd.DataFrame,
-    columns,
-) -> pd.Series:
-    """Equal-weight arithmetic pillar aggregation."""
-
-    return frame[
-        columns
-    ].mean(
-        axis=1,
-        skipna=False,
-    )
-
-
-def geometric_jesi(
-    frame: pd.DataFrame,
-) -> pd.Series:
-    """Master JESI geometric aggregation."""
-
-    safe = frame[
-        [
-            "G",
-            "P",
-            "C",
-            "R",
-            "A",
-        ]
-    ].clip(
-        lower=1e-12,
-        upper=1.0,
-    )
-
-    return (
-        100.0
-        * safe["G"].pow(
-            JESI_WEIGHTS["G"]
-        )
-        * safe["P"].pow(
-            JESI_WEIGHTS["P"]
-        )
-        * safe["C"].pow(
-            JESI_WEIGHTS["C"]
-        )
-        * safe["R"].pow(
-            JESI_WEIGHTS["R"]
-        )
-        * safe["A"].pow(
-            JESI_WEIGHTS["A"]
-        )
-    )
-
-
-def build_specification(
-    scores: pd.DataFrame,
-    name: str,
-) -> pd.DataFrame:
-    """
-    Construct one normalization specification.
-
-    Baseline:
-        Production normalization for every pillar.
-
-    Monotonic sensitivity specifications:
-        minmax
-        winsorized_minmax
-        percentile
-
-    For these three specifications, alternative normalization
-    is applied to the monotonic indicators in Growth,
-    Productivity, Connectivity, Strategic Autonomy, and
-    Resilience R1. Resilience R2/R3 retain their baseline
-    nonlinear reference-zone formulation.
-
-    Resilience reference-zone specifications:
-        reference_p5_p95
-        reference_p20_p80
-
-    These specifications change ONLY the Resilience R2/R3
-    reference-zone bounds. All other pillars retain their
-    baseline normalization. This prevents the reference-zone
-    sensitivity labels from being incorrectly interpreted as
-    full-panel normalization methods.
-    """
-
-    if name not in VALID_SPECIFICATIONS:
-        fail(
-            f"Unknown normalization specification: {name}"
-        )
-
-    df = scores[
-        [
-            "country_code",
-            "country",
-            "year",
-        ]
-    ].copy()
-
-    reference_zone_specifications = {
-        "reference_p5_p95",
-        "reference_p20_p80",
-    }
-
-    monotonic_specifications = {
-        "minmax",
-        "winsorized_minmax",
-        "percentile",
-    }
-
-    # ---------------------------------------------------------------
-    # Growth
-    #
-    # Reference-zone specifications do NOT apply to Growth.
-    # They retain the production baseline.
-    # ---------------------------------------------------------------
-
-    if (
-        name == "baseline"
-        or name in reference_zone_specifications
-    ):
-        g_cols = [
-            "G_real_gdp_baseline",
-            "G_gni_baseline",
-        ]
-    elif name in monotonic_specifications:
-        g_cols = [
-            f"G_real_gdp_{name}",
-            f"G_gni_{name}",
-        ]
-    else:
-        fail(
-            f"Invalid Growth normalization specification: {name}"
-        )
-
-    df["G"] = arithmetic_mean(
-        scores,
-        g_cols,
-    )
-
-    # ---------------------------------------------------------------
-    # Productivity
-    #
-    # Reference-zone specifications do NOT apply to Productivity.
-    # They retain the production baseline.
-    # ---------------------------------------------------------------
-
-    if (
-        name == "baseline"
-        or name in reference_zone_specifications
-    ):
-        p_cols = [
-            "P_p1_baseline",
-            "P_p2_baseline",
-        ]
-    elif name in monotonic_specifications:
-        p_cols = [
-            f"P_p1_{name}",
-            f"P_p2_{name}",
-        ]
-    else:
-        fail(
-            f"Invalid Productivity normalization specification: {name}"
-        )
-
-    df["P"] = arithmetic_mean(
-        scores,
-        p_cols,
-    )
-
-    # ---------------------------------------------------------------
-    # Connectivity
-    #
-    # Reference-zone specifications do NOT apply to Connectivity.
-    # They retain the production baseline.
-    # ---------------------------------------------------------------
-
-    connectivity_names = [
-        "trade_openness",
-        "fdi_inflows",
-        "internet_use",
-    ]
-
-    if (
-        name == "baseline"
-        or name in reference_zone_specifications
-    ):
-        c_cols = [
-            f"C_{item}_baseline"
-            for item in connectivity_names
-        ]
-    elif name in monotonic_specifications:
-        c_cols = [
-            f"C_{item}_{name}"
-            for item in connectivity_names
-        ]
-    else:
-        fail(
-            f"Invalid Connectivity normalization specification: {name}"
-        )
-
-    df["C"] = arithmetic_mean(
-        scores,
-        c_cols,
-    )
-
-    # ---------------------------------------------------------------
-    # Resilience
-    #
-    # Monotonic sensitivity:
-    #   R1 changes.
-    #   R2/R3 retain P10-P90 baseline.
-    #
-    # Reference-zone sensitivity:
-    #   R1 retains baseline.
-    #   R2/R3 change to P5-P95 or P20-P80.
-    # ---------------------------------------------------------------
-
-    if name in {
-        "baseline",
-        "minmax",
-        "winsorized_minmax",
-        "percentile",
-    }:
-        r_cols = [
-            f"R_fx_{name}",
-            "R_debt_baseline",
-            "R_ca_baseline",
-        ]
-
-    elif name == "reference_p5_p95":
-        r_cols = [
-            "R_fx_baseline",
-            "R_debt_reference_p5_p95",
-            "R_ca_reference_p5_p95",
-        ]
-
-    elif name == "reference_p20_p80":
-        r_cols = [
-            "R_fx_baseline",
-            "R_debt_reference_p20_p80",
-            "R_ca_reference_p20_p80",
-        ]
-
-    else:
-        fail(
-            f"Invalid Resilience normalization specification: {name}"
-        )
-
-    df["R"] = arithmetic_mean(
-        scores,
-        r_cols,
-    )
-
-    # ---------------------------------------------------------------
-    # Strategic Autonomy
-    #
-    # Reference-zone specifications do NOT apply to Autonomy.
-    # Strategic Autonomy retains its production baseline.
-    # ---------------------------------------------------------------
-
-    if (
-        name == "baseline"
-        or name in reference_zone_specifications
-    ):
-        a_cols = [
-            "A_eci_baseline",
-            "A_hightech_baseline",
-            "A_concentration_baseline",
-        ]
-    elif name in monotonic_specifications:
-        a_cols = [
-            f"A_eci_{name}",
-            f"A_hightech_{name}",
-            f"A_concentration_{name}",
-        ]
-    else:
-        fail(
-            f"Invalid Strategic Autonomy normalization specification: {name}"
-        )
-
-    df["A"] = arithmetic_mean(
-        scores,
-        a_cols,
-    )
-
-    # ---------------------------------------------------------------
-    # JESI
-    # ---------------------------------------------------------------
-
-    df["JESI"] = geometric_jesi(
-        df
-    )
-
-    df["specification"] = name
-
-    return df[
-        [
-            "country_code",
-            "country",
-            "year",
-            "G",
-            "P",
-            "C",
-            "R",
-            "A",
-            "JESI",
-            "specification",
-        ]
-    ]
-
-
-# ---------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------
-
-def validate_complete_case(
-    df: pd.DataFrame,
-    specification: str,
-) -> pd.DataFrame:
-    """
-    Restrict to the final 2016-2023 complete-case panel.
-
-    Expected theoretical panel:
-        5 countries × 8 years = 40
-
-    Expected complete-case panel:
-        34 observations
-
-    Expected exclusions:
-        6 observations
-    """
-
-    final = df[
-        df["year"].isin(FINAL_YEARS)
-        & df["country_code"].isin(COUNTRIES)
-    ].copy()
-
-    theoretical = (
-        len(COUNTRIES)
-        * len(FINAL_YEARS)
-    )
-
-    if len(
-        final[
-            [
-                "country_code",
-                "year",
-            ]
-        ].drop_duplicates()
-    ) != theoretical:
-        fail(
-            f"{specification}: final panel does not contain "
-            f"theoretical {theoretical} country-year combinations."
-        )
-
-    complete = final[
-        [
-            "G",
-            "P",
-            "C",
-            "R",
-            "A",
-            "JESI",
-        ]
-    ].notna().all(axis=1)
-
-    scored = final.loc[
-        complete
-    ].copy()
-
-    if len(scored) != 34:
-        fail(
-            f"{specification}: expected 34 complete-case "
-            f"observations, found {len(scored)}."
-        )
-
-    if (
-        scored[
-            [
-                "G",
-                "P",
-                "C",
-                "R",
-                "A",
-            ]
-        ]
-        .lt(0)
-        .any()
-        .any()
-    ):
-        fail(
-            f"{specification}: negative pillar scores detected."
-        )
-
-    if (
-        scored[
-            [
-                "G",
-                "P",
-                "C",
-                "R",
-                "A",
-            ]
-        ]
-        .gt(1)
-        .any()
-        .any()
-    ):
-        fail(
-            f"{specification}: pillar scores above 1 detected."
-        )
 
     return scored
 
 
-# ---------------------------------------------------------------------
-# Rank analysis
-# ---------------------------------------------------------------------
+def apply_reference_zone_alternative(raw, name):
+    scored = raw[
+        ["country_code", "country", "year"]
+    ].copy()
 
-def rank_correlation(
-    baseline: pd.DataFrame,
-    alternative: pd.DataFrame,
-    level: str,
-    specification: str,
-) -> dict:
-    """Calculate Spearman rank correlation."""
+    # Other pillars retain their current production baseline.
+    baseline = load_production_baseline()
 
-    merged = pd.merge(
+    scored = scored.merge(
         baseline[
-            [
-                "country_code",
-                "year",
-                "JESI",
-            ]
+            ["country_code", "year", "G", "P", "C", "R", "A"]
         ],
-        alternative[
-            [
-                "country_code",
-                "year",
-                "JESI",
-            ]
-        ],
-        on=[
-            "country_code",
-            "year",
-        ],
-        suffixes=(
-            "_baseline",
-            "_alternative",
-        ),
-        how="inner",
+        on=["country_code", "year"],
+        how="left",
+        validate="one_to_one",
     )
 
-    if level == "country_year":
-        x = merged["JESI_baseline"]
-        y = merged["JESI_alternative"]
+    # Recompute only Resilience R2/R3 bounds.
+    if name == "reference_p5_p95":
+        lower_q, upper_q = 0.05, 0.95
+    elif name == "reference_p20_p80":
+        lower_q, upper_q = 0.20, 0.80
+    else:
+        fail(f"Invalid reference-zone specification: {name}")
 
-        n = len(merged)
+    debt = raw["government_debt_gdp"]
+    current_account = raw["current_account_gdp"]
 
-    elif level == "country_mean":
-        x_country = (
-            merged.groupby(
-                "country_code"
-            )["JESI_baseline"]
-            .mean()
+    debt_lower = debt.quantile(lower_q)
+    debt_upper = debt.quantile(upper_q)
+
+    ca_lower = current_account.quantile(lower_q)
+    ca_upper = current_account.quantile(upper_q)
+
+    debt_score = reference_zone_score(
+        debt,
+        debt_lower,
+        debt_upper,
+    )
+
+    ca_score = reference_zone_score(
+        current_account,
+        ca_lower,
+        ca_upper,
+    )
+
+    # Use the same R1 production score and replace only R2/R3.
+    resilience_source = read_csv(RESILIENCE_FILE)
+    resilience_source = standardize_keys(
+        resilience_source,
+        "Resilience production file",
+        country_column="country",
+    )
+
+    if "R1_fx_reserves_score" not in resilience_source.columns:
+        fail("Resilience file missing R1_fx_reserves_score.")
+
+    resilience_source["R1_fx_reserves_score"] = numeric_column(
+        resilience_source,
+        "R1_fx_reserves_score",
+        "Resilience",
+    )
+
+    r1 = resilience_source[
+        ["country_code", "year", "R1_fx_reserves_score"]
+    ].rename(columns={"R1_fx_reserves_score": "R1"})
+
+    zone_data = raw[
+        ["country_code", "year"]
+    ].copy()
+
+    zone_data["R2"] = debt_score.to_numpy()
+    zone_data["R3"] = ca_score.to_numpy()
+
+    zone_data = zone_data.merge(
+        r1,
+        on=["country_code", "year"],
+        how="left",
+        validate="one_to_one",
+    )
+
+    zone_data["R_new"] = arithmetic_mean(
+        zone_data,
+        ["R1", "R2", "R3"],
+    )
+
+    scored = scored.drop(columns=["R"]).merge(
+        zone_data[
+            ["country_code", "year", "R_new"]
+        ],
+        on=["country_code", "year"],
+        how="left",
+        validate="one_to_one",
+    )
+
+    scored = scored.rename(columns={"R_new": "R"})
+
+    return scored
+
+
+def build_specification(raw, baseline, name):
+    if name == "baseline":
+        result = baseline.copy()
+
+    elif name in {
+        "minmax",
+        "winsorized_minmax",
+        "percentile",
+    }:
+        result = score_alternative_indicators(
+            raw,
+            name,
         )
 
-        y_country = (
-            merged.groupby(
-                "country_code"
-            )["JESI_alternative"]
-            .mean()
+    elif name in {
+        "reference_p5_p95",
+        "reference_p20_p80",
+    }:
+        result = apply_reference_zone_alternative(
+            raw,
+            name,
         )
 
-        joined = pd.concat(
+    else:
+        fail(f"Unknown specification: {name}")
+
+    result = result[
+        result["year"].isin(FINAL_YEARS)
+        & result["country_code"].isin(COUNTRIES)
+    ].copy()
+
+    result["specification"] = name
+
+    result = result.sort_values(
+        ["country_code", "year"]
+    ).reset_index(drop=True)
+
+    # For alternatives, allow exact zero scores; do not replace zero
+    # with an artificial epsilon. Production baseline remains strict.
+    if name != "baseline":
+        result["JESI"] = weighted_geometric_jesi(
+            result,
+            allow_zero=True,
+        )
+
+    return result
+
+
+# ================================================================
+# PANEL / EQUIVALENCE VALIDATION
+# ================================================================
+
+def validate_complete_case_panel(frame, name):
+    theoretical = expected_panel()
+
+    keys = frame[
+        ["country_code", "year"]
+    ].drop_duplicates()
+
+    if len(keys) != EXPECTED_PANEL_SIZE:
+        fail(
+            f"{name}: expected {EXPECTED_PANEL_SIZE} theoretical "
+            f"country-year keys, found {len(keys)}."
+        )
+
+    if len(keys.merge(
+        theoretical[["country_code", "year"]],
+        on=["country_code", "year"],
+        how="inner",
+    )) != EXPECTED_PANEL_SIZE:
+        fail(f"{name}: unexpected country-year panel coverage.")
+
+    complete_mask = frame[PILLARS].notna().all(axis=1)
+    complete = frame.loc[complete_mask].copy()
+
+    if len(complete) != EXPECTED_COMPLETE_CASES:
+        fail(
+            f"{name}: expected {EXPECTED_COMPLETE_CASES} complete "
+            f"cases, found {len(complete)}. No imputation permitted."
+        )
+
+    if complete.duplicated(["country_code", "year"]).any():
+        fail(f"{name}: duplicate complete-case country-year keys.")
+
+    return complete
+
+
+# ================================================================
+# RANKING / SENSITIVITY SUMMARIES
+# ================================================================
+
+def rank_correlations(all_results):
+    rows = []
+
+    baseline = all_results[
+        all_results["specification"] == "baseline"
+    ][["country_code", "year", "JESI"]].rename(
+        columns={"JESI": "JESI_baseline"}
+    )
+
+    for specification in SPECIFICATIONS:
+        if specification == "baseline":
+            continue
+
+        alternative = all_results[
+            all_results["specification"] == specification
+        ][["country_code", "year", "JESI"]].rename(
+            columns={"JESI": "JESI_alternative"}
+        )
+
+        joined = baseline.merge(
+            alternative,
+            on=["country_code", "year"],
+            how="inner",
+            validate="one_to_one",
+        ).dropna()
+
+        rho = (
+            float(
+                spearmanr(
+                    joined["JESI_baseline"],
+                    joined["JESI_alternative"],
+                ).statistic
+            )
+            if len(joined) >= 2
+            else np.nan
+        )
+
+        rows.append(
+            {
+                "specification": specification,
+                "analysis_level": "country_year",
+                "pairwise_n": len(joined),
+                "spearman_rho": rho,
+            }
+        )
+
+        base_country = (
+            joined.groupby("country_code")["JESI_baseline"].mean()
+        )
+
+        alt_country = (
+            joined.groupby("country_code")["JESI_alternative"].mean()
+        )
+
+        country_join = pd.concat(
             [
-                x_country.rename(
-                    "baseline"
-                ),
-                y_country.rename(
-                    "alternative"
-                ),
+                base_country.rename("baseline"),
+                alt_country.rename("alternative"),
             ],
             axis=1,
             join="inner",
         ).dropna()
 
-        x = joined["baseline"]
-        y = joined["alternative"]
-
-        n = len(joined)
-
-    else:
-        fail(
-            f"Unknown rank-analysis level: {level}"
-        )
-
-    if n < 2:
-        rho = np.nan
-        p_value = np.nan
-    else:
-        rho, p_value = spearmanr(
-            x,
-            y,
-        )
-
-    return {
-        "specification": specification,
-        "analysis_level": level,
-        "pairwise_n": n,
-        "spearman_rho": rho,
-        "spearman_p_value": p_value,
-    }
-
-
-# ---------------------------------------------------------------------
-# Country summary
-# ---------------------------------------------------------------------
-
-def build_country_summary(
-    all_specs: pd.DataFrame,
-) -> pd.DataFrame:
-    """Build country-level mean JESI and ranking for every specification."""
-
-    summary = (
-        all_specs
-        .groupby(
-            [
-                "specification",
-                "country_code",
-                "country",
-            ],
-            as_index=False,
-        )
-        .agg(
-            mean_jesi=(
-                "JESI",
-                "mean",
-            ),
-            observations=(
-                "JESI",
-                "count",
-            ),
-        )
-    )
-
-    summary["rank"] = (
-        summary
-        .groupby(
-            "specification"
-        )["mean_jesi"]
-        .rank(
-            method="min",
-            ascending=False,
-        )
-        .astype(int)
-    )
-
-    return summary.sort_values(
-        [
-            "specification",
-            "rank",
-            "country_code",
-        ]
-    ).reset_index(drop=True)
-
-
-# ---------------------------------------------------------------------
-# Summary diagnostics
-# ---------------------------------------------------------------------
-
-def build_sensitivity_summary(
-    baseline: pd.DataFrame,
-    alternatives: dict,
-) -> pd.DataFrame:
-    """Calculate score/rank stability diagnostics."""
-
-    rows = []
-
-    for specification, alternative in alternatives.items():
-
-        merged = pd.merge(
-            baseline[
-                [
-                    "country_code",
-                    "year",
-                    "JESI",
-                ]
-            ],
-            alternative[
-                [
-                    "country_code",
-                    "year",
-                    "JESI",
-                ]
-            ],
-            on=[
-                "country_code",
-                "year",
-            ],
-            suffixes=(
-                "_baseline",
-                "_alternative",
-            ),
-            how="inner",
-        )
-
-        absolute_difference = (
-            merged["JESI_alternative"]
-            - merged["JESI_baseline"]
-        ).abs()
-
-        country_base = (
-            merged.groupby(
-                "country_code"
-            )["JESI_baseline"]
-            .mean()
-        )
-
-        country_alt = (
-            merged.groupby(
-                "country_code"
-            )["JESI_alternative"]
-            .mean()
-        )
-
-        country_rank_base = (
-            country_base.rank(
-                method="min",
-                ascending=False,
+        country_rho = (
+            float(
+                spearmanr(
+                    country_join["baseline"],
+                    country_join["alternative"],
+                ).statistic
             )
+            if len(country_join) >= 2
+            else np.nan
         )
-
-        country_rank_alt = (
-            country_alt.rank(
-                method="min",
-                ascending=False,
-            )
-        )
-
-        rank_change = (
-            country_rank_alt
-            - country_rank_base
-        ).abs()
-
-        if len(country_base) >= 2:
-            country_rank_spearman = spearmanr(
-                country_base,
-                country_alt,
-            ).statistic
-        else:
-            country_rank_spearman = np.nan
 
         rows.append(
             {
                 "specification": specification,
-                "country_year_n": len(merged),
-                "mean_absolute_jesi_difference": (
-                    absolute_difference.mean()
-                ),
-                "max_absolute_jesi_difference": (
-                    absolute_difference.max()
-                ),
-                "mean_country_jesi_difference": (
-                    (
-                        country_alt
-                        - country_base
-                    )
-                    .abs()
-                    .mean()
-                ),
-                "max_country_rank_change": (
-                    rank_change.max()
-                ),
-                "countries_with_rank_change": int(
-                    (
-                        rank_change > 0
-                    ).sum()
-                ),
-                "country_rank_spearman": (
-                    country_rank_spearman
-                ),
+                "analysis_level": "country_mean",
+                "pairwise_n": len(country_join),
+                "spearman_rho": country_rho,
             }
         )
 
     return pd.DataFrame(rows)
 
 
-# ---------------------------------------------------------------------
-# Research report
-# ---------------------------------------------------------------------
-
-def build_report(
-    sensitivity_summary: pd.DataFrame,
-    rank_results: pd.DataFrame,
-    baseline: pd.DataFrame,
-) -> str:
-    """Create a reproducible Markdown research report."""
-
-    baseline_country = (
-        baseline
+def build_country_summary(all_results):
+    summary = (
+        all_results
         .groupby(
-            [
-                "country_code",
-                "country",
-            ],
+            ["specification", "country_code", "country"],
             as_index=False,
-        )["JESI"]
-        .mean()
-        .sort_values(
-            "JESI",
+        )
+        .agg(
+            mean_jesi=("JESI", "mean"),
+            observations=("JESI", "count"),
+        )
+    )
+
+    summary["rank"] = (
+        summary.groupby("specification")["mean_jesi"]
+        .rank(method="min", ascending=False)
+    )
+
+    summary["rank"] = summary["rank"].astype("Int64")
+
+    return summary.sort_values(
+        ["specification", "rank", "country_code"]
+    ).reset_index(drop=True)
+
+
+def build_sensitivity_summary(all_results):
+    baseline = all_results[
+        all_results["specification"] == "baseline"
+    ][["country_code", "year", *PILLARS, "JESI"]]
+
+    rows = []
+
+    for specification in SPECIFICATIONS:
+        if specification == "baseline":
+            continue
+
+        alternative = all_results[
+            all_results["specification"] == specification
+        ][["country_code", "year", *PILLARS, "JESI"]]
+
+        joined = baseline.merge(
+            alternative,
+            on=["country_code", "year"],
+            how="inner",
+            suffixes=("_baseline", "_alternative"),
+            validate="one_to_one",
+        )
+
+        row = {
+            "specification": specification,
+            "country_year_n": len(joined),
+        }
+
+        for column in NUMERIC_OUTPUTS:
+            difference = (
+                joined[f"{column}_alternative"]
+                - joined[f"{column}_baseline"]
+            ).abs()
+
+            row[f"{column}_mean_absolute_difference"] = (
+                float(difference.mean())
+            )
+            row[f"{column}_max_absolute_difference"] = (
+                float(difference.max())
+            )
+
+        baseline_country = (
+            joined.groupby("country_code")["JESI_baseline"].mean()
+        )
+        alternative_country = (
+            joined.groupby("country_code")["JESI_alternative"].mean()
+        )
+
+        base_rank = baseline_country.rank(
+            method="min",
             ascending=False,
         )
-    )
+        alt_rank = alternative_country.rank(
+            method="min",
+            ascending=False,
+        )
 
-    lines = []
+        rank_diff = (alt_rank - base_rank).abs()
 
-    lines.append(
-        "# JESI Normalization Sensitivity Analysis"
-    )
-    lines.append("")
-    lines.append(
-        "## Purpose"
-    )
-    lines.append(
-        "This analysis evaluates whether the JESI results are "
-        "materially sensitive to alternative normalization "
-        "specifications while preserving the production JESI "
-        "pillar definitions, strategic weights, missing-data "
-        "rules, and geometric final aggregation."
-    )
-    lines.append("")
-    lines.append(
-        "## Benchmark"
-    )
-    lines.append(
-        "- Countries: Bangladesh, India, Indonesia, Malaysia, Vietnam"
-    )
-    lines.append(
-        "- Final comparison period: 2016–2023"
-    )
-    lines.append(
-        "- Theoretical observations: 40"
-    )
-    lines.append(
-        "- Complete-case observations: 34"
-    )
-    lines.append(
-        "- Imputation: none"
-    )
-    lines.append("")
-    lines.append(
-        "## Baseline"
-    )
-    lines.append(
-        "- Growth, Productivity and Connectivity: pooled "
-        "percentile-rank scoring"
-    )
-    lines.append(
-        "- Resilience R1: full-sample min-max"
-    )
-    lines.append(
-        "- Resilience R2/R3: nonlinear P10-P90 reference-zone scoring"
-    )
-    lines.append(
-        "- Strategic Autonomy: P10-P90 reference-bound min-max scoring"
-    )
-    lines.append(
-        "- Pillar aggregation: equal-weight arithmetic mean"
-    )
-    lines.append(
-        "- JESI aggregation: weighted geometric formulation"
-    )
-    lines.append("")
-    lines.append(
-        "## Alternative specifications"
-    )
-    lines.append(
-        "- Full-sample min-max for monotonic indicators"
-    )
-    lines.append(
-        "- 5th-95th percentile winsorized min-max for monotonic indicators"
-    )
-    lines.append(
-        "- Pooled percentile-rank scoring"
-    )
-    lines.append(
-        "- Resilience reference-zone sensitivity using P5-P95"
-    )
-    lines.append(
-        "- Resilience reference-zone sensitivity using P20-P80"
-    )
-    lines.append("")
-    lines.append(
-        "For the P5-P95 and P20-P80 specifications, only "
-        "Resilience R2/R3 reference-zone bounds are changed. "
-        "Growth, Productivity, Connectivity, R1 and Strategic "
-        "Autonomy retain their baseline normalization."
-    )
-    lines.append("")
-    lines.append(
-        "R2 Government Debt and R3 Current Account are not "
-        "mechanically forced into monotonic normalization because "
-        "the current JESI methodology explicitly treats them as "
-        "reference-zone indicators."
-    )
-    lines.append("")
-    lines.append(
-        "## Sensitivity summary"
-    )
-    lines.append("")
-    lines.append(
-        sensitivity_summary.to_markdown(
-            index=False,
-            floatfmt=".6f",
+        row["countries_with_rank_change"] = int(
+            (rank_diff > 0).sum()
         )
-    )
-    lines.append("")
-    lines.append(
-        "## Rank-correlation results"
-    )
-    lines.append("")
-    lines.append(
-        rank_results.to_markdown(
-            index=False,
-            floatfmt=".6f",
-        )
-    )
-    lines.append("")
-    lines.append(
-        "## Baseline country mean JESI"
-    )
-    lines.append("")
-    lines.append(
-        baseline_country.to_markdown(
-            index=False,
-            floatfmt=".6f",
-        )
-    )
-    lines.append("")
-    lines.append(
-        "## Methodological interpretation rule"
-    )
-    lines.append("")
-    lines.append(
-        "High rank correlation and small score/rank changes "
-        "support robustness to the tested normalization "
-        "specifications. Material rank changes or large score "
-        "changes constitute sensitivity signals requiring "
-        "methodological review. No indicator is automatically "
-        "removed, reweighted, or replaced by this analysis."
-    )
-    lines.append("")
-    lines.append(
-        "## Important limitation"
-    )
-    lines.append("")
-    lines.append(
-        "This test evaluates normalization sensitivity using "
-        "the raw indicator values persisted in the JESI repository. "
-        "It does not constitute a new production normalization "
-        "specification and does not alter the Master Version 1.0 "
-        "JESI results."
-    )
-    lines.append("")
+        row["max_country_rank_change"] = float(rank_diff.max())
+
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+# ================================================================
+# REPORT
+# ================================================================
+
+def build_report(
+    equivalence,
+    sensitivity_summary,
+    rank_results,
+    country_summary,
+    baseline,
+):
+    baseline_country = country_summary[
+        country_summary["specification"] == "baseline"
+    ].sort_values("rank")
+
+    lines = [
+        "# JESI Normalization Sensitivity Analysis",
+        "",
+        "## Audit scope",
+        "",
+        "- JESI Master Version 1.0.",
+        "- Five benchmark countries: Bangladesh, India, Indonesia, Malaysia, Vietnam.",
+        "- Final comparison period: 2016–2023.",
+        "- Theoretical panel: 40 country-year observations.",
+        "- Expected complete cases: 34.",
+        "- Missing-data treatment: complete cases only; no imputation.",
+        "- Production formulas, pillar weights, and production outputs are unchanged.",
+        "",
+        "## Production-baseline equivalence",
+        "",
+        "The following table compares reconstructed JESI values based on the "
+        "persisted production pillar scores against the persisted production "
+        "JESI CSV. This comparison was computed at runtime.",
+        "",
+        equivalence.to_markdown(index=False, floatfmt=".10f"),
+        "",
+        "## Baseline country mean JESI",
+        "",
+        baseline_country.to_markdown(index=False, floatfmt=".6f"),
+        "",
+        "## Sensitivity summary",
+        "",
+        sensitivity_summary.to_markdown(index=False, floatfmt=".6f"),
+        "",
+        "## Rank correlations",
+        "",
+        rank_results.to_markdown(index=False, floatfmt=".6f"),
+        "",
+        "## Interpretation and limitations",
+        "",
+        "The baseline uses persisted production pillar scores. Alternative "
+        "specifications are research-only and do not replace the Master "
+        "Version 1.0 production specification.",
+        "",
+        "Pooled percentile scoring and min-max scoring can produce different "
+        "pillar scores and rankings. Resilience P5–P95 and P20–P80 variants "
+        "change the reference-zone bounds for government debt and current "
+        "account balance only.",
+        "",
+        "Country-level rank correlations use only five country means and "
+        "should be interpreted descriptively, not as strong inferential evidence.",
+        "",
+        "The audit does not establish universal validity of JESI. It evaluates "
+        "reproducibility and sensitivity under the tested specifications only.",
+        "",
+        "No production output was written or modified by this script.",
+        "",
+    ]
 
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------
+# ================================================================
+# MAIN
+# ================================================================
 
-def main() -> None:
-    print("=" * 78)
-    print("JESI NORMALIZATION SENSITIVITY ANALYSIS")
-    print("=" * 78)
+def main():
+    print("=" * 72)
+    print("JESI NORMALIZATION SENSITIVITY — PHASE 3")
+    print("=" * 72)
 
-    scores = build_indicator_scores()
+    validate_weights()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    specifications = [
-        "baseline",
-        "minmax",
-        "winsorized_minmax",
-        "percentile",
-        "reference_p5_p95",
-        "reference_p20_p80",
-    ]
+    print("\n[1/7] Loading authoritative production pillar scores...")
+    baseline = load_production_baseline()
 
-    complete_specs = {}
+    print("[2/7] Checking baseline against production JESI output...")
+    equivalence = compare_with_production_csv(baseline)
 
-    for specification in specifications:
-        print(
-            f"Building specification: {specification}"
-        )
+    print("[3/7] Loading persisted raw indicator values...")
+    raw = load_raw_indicators()
 
-        built = build_specification(
-            scores,
+    print("[4/7] Building baseline and alternative specifications...")
+    results = []
+
+    for specification in SPECIFICATIONS:
+        print(f"  - {specification}")
+
+        frame = build_specification(
+            raw,
+            baseline,
             specification,
         )
 
-        complete = validate_complete_case(
-            built,
+        complete = validate_complete_case_panel(
+            frame,
             specification,
         )
 
-        complete_specs[
-            specification
-        ] = complete
+        results.append(complete)
 
-        print(
-            f"  Complete-case observations: {len(complete)}"
-        )
-
-    baseline = complete_specs[
-        "baseline"
-    ]
-
-    alternatives = {
-        key: value
-        for key, value in complete_specs.items()
-        if key != "baseline"
-    }
-
-    # ---------------------------------------------------------------
-    # Combine country-year results
-    # ---------------------------------------------------------------
-
-    country_year = pd.concat(
-        complete_specs.values(),
+    all_results = pd.concat(
+        results,
         ignore_index=True,
     )
 
-    country_year = country_year.sort_values(
-        [
-            "specification",
-            "country_code",
-            "year",
-        ]
-    ).reset_index(drop=True)
+    print("[5/7] Calculating sensitivity and ranking diagnostics...")
+    sensitivity_summary = build_sensitivity_summary(all_results)
+    correlations = rank_correlations(all_results)
+    country_summary = build_country_summary(all_results)
 
-    # ---------------------------------------------------------------
-    # Country summary
-    # ---------------------------------------------------------------
-
-    country_summary = build_country_summary(
-        country_year
-    )
-
-    # ---------------------------------------------------------------
-    # Rank correlations
-    # ---------------------------------------------------------------
-
-    rank_rows = []
-
-    for specification in alternatives:
-
-        for level in [
-            "country_year",
-            "country_mean",
-        ]:
-            rank_rows.append(
-                rank_correlation(
-                    baseline,
-                    alternatives[
-                        specification
-                    ],
-                    level,
-                    specification,
-                )
-            )
-
-    rank_results = pd.DataFrame(
-        rank_rows
-    )
-
-    # ---------------------------------------------------------------
-    # Sensitivity summary
-    # ---------------------------------------------------------------
-
-    sensitivity_summary = (
-        build_sensitivity_summary(
-            baseline,
-            alternatives,
-        )
-    )
-
-    # ---------------------------------------------------------------
-    # Mathematical validation
-    # ---------------------------------------------------------------
-
-    for specification, df in complete_specs.items():
-
-        recalculated = geometric_jesi(
-            df
-        )
-
-        difference = (
-            recalculated
-            - df["JESI"]
-        ).abs().max()
-
-        if difference > 1e-10:
-            fail(
-                f"{specification}: JESI formula "
-                f"validation failed. Max difference={difference}"
-            )
-
-    # ---------------------------------------------------------------
-    # Output directory
-    # ---------------------------------------------------------------
-
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    # ---------------------------------------------------------------
-    # Save outputs
-    # ---------------------------------------------------------------
-
-    country_year.to_csv(
-        COUNTRY_YEAR_OUTPUT,
-        index=False,
-    )
-
-    country_summary.to_csv(
-        COUNTRY_SUMMARY_OUTPUT,
-        index=False,
-    )
-
-    rank_results.to_csv(
-        RANK_OUTPUT,
-        index=False,
-    )
-
-    sensitivity_summary.to_csv(
-        SUMMARY_OUTPUT,
-        index=False,
-    )
+    print("[6/7] Writing isolated audit outputs...")
+    all_results.to_csv(COUNTRY_YEAR_OUTPUT, index=False)
+    country_summary.to_csv(COUNTRY_SUMMARY_OUTPUT, index=False)
+    correlations.to_csv(RANK_OUTPUT, index=False)
+    sensitivity_summary.to_csv(SUMMARY_OUTPUT, index=False)
 
     report = build_report(
+        equivalence,
         sensitivity_summary,
-        rank_results,
+        correlations,
+        country_summary,
         baseline,
     )
 
@@ -2476,63 +1357,22 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    # ---------------------------------------------------------------
-    # Console summary
-    # ---------------------------------------------------------------
-
+    print("[7/7] Audit finished.")
     print()
-    print("=" * 78)
-    print("NORMALIZATION SENSITIVITY SUMMARY")
-    print("=" * 78)
-
-    print(
-        sensitivity_summary.to_string(
-            index=False
-        )
-    )
-
+    print("Production equivalence:")
+    print(equivalence.to_string(index=False))
     print()
-    print(
-        "Rank correlations:"
-    )
-
-    print(
-        rank_results.to_string(
-            index=False
-        )
-    )
-
+    print("Audit outputs:")
+    print(f"  {COUNTRY_YEAR_OUTPUT}")
+    print(f"  {COUNTRY_SUMMARY_OUTPUT}")
+    print(f"  {RANK_OUTPUT}")
+    print(f"  {SUMMARY_OUTPUT}")
+    print(f"  {REPORT_OUTPUT}")
     print()
-    print(
-        "Output files:"
-    )
-
-    print(
-        f"  - {COUNTRY_YEAR_OUTPUT}"
-    )
-
-    print(
-        f"  - {COUNTRY_SUMMARY_OUTPUT}"
-    )
-
-    print(
-        f"  - {RANK_OUTPUT}"
-    )
-
-    print(
-        f"  - {SUMMARY_OUTPUT}"
-    )
-
-    print(
-        f"  - {REPORT_OUTPUT}"
-    )
-
-    print()
-    print(
-        "Normalization sensitivity analysis: PASSED"
-    )
-
-    print("=" * 78)
+    print("STATUS: COMPLETED")
+    print("This status does not mean all alternative methods are robust.")
+    print("Review the equivalence and sensitivity outputs before publication.")
+    print("=" * 72)
 
 
 if __name__ == "__main__":
