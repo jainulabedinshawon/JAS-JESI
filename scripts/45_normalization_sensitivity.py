@@ -982,13 +982,19 @@ def build_specification(raw, baseline, name):
         ["country_code", "year"]
     ).reset_index(drop=True)
 
-    # For alternatives, allow exact zero scores; do not replace zero
-    # with an artificial epsilon. Production baseline remains strict.
+      # Calculate JESI only for complete country-year cases.
+    # Never impute missing pillar scores.
     if name != "baseline":
-        result["JESI"] = weighted_geometric_jesi(
-            result,
-            allow_zero=True,
-        )
+        result["JESI"] = np.nan
+        complete_mask = result[PILLARS].notna().all(axis=1)
+
+        if complete_mask.any():
+            result.loc[complete_mask, "JESI"] = (
+                weighted_geometric_jesi(
+                    result.loc[complete_mask],
+                    allow_zero=True,
+                )
+            )
 
     return result
 
