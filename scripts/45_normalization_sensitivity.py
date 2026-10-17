@@ -100,6 +100,13 @@ PRODUCTION_JESI_FILE = (
     ROOT / "data" / "results" / "jesi_country_year_2016_2023.csv"
 )
 
+OUTPUT_DIR = (
+    ROOT
+    / "artifacts"
+    / "normalization_audit"
+    / "phase_3"
+)
+
 GROWTH_FILE = (
     ROOT / "data" / "processed"
     / "growth_pillar_scores_2015_2024.csv"
