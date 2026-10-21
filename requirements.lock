@@ -550,9 +550,7 @@ packaging==26.3 \
     --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
     # via pytest
 pandas==2.3.3 \
-    --hash=sha256:1a84f37ec2e53ef7bb993081e74ea6d3572d427d2c3df42646d6b2c2865ffb27 \
-    --hash=sha256:98c005b63cfb6d19a9ef1ec830cb85b0d0c43557e4e137f8f903822d551e18cc \
-    --hash=sha256:a21bfb43a216e9196ea87a741be29d59296f8c7e2c9e782e4f00ae98357a7019
+    --hash=sha256:dd7478f1463441ae4ca7308a70e90b33470fa593429f9d4c578dd00d1fa78838
     # via -r requirements.txt
 pluggy==1.7.0 \
     --hash=sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec \
