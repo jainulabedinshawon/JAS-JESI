@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Root Python dependencies — preserve Python 3.10 compatibility
+  # Root Python dependencies — Preserve Python 3.10 baseline & Master 1.0 stability
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
@@ -9,8 +9,14 @@ updates:
       - dependency-name: "pandas"
         update-types:
           - "version-update:semver-major"
+      - dependency-name: "numpy"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "scipy"
+        update-types:
+          - "version-update:semver-major"
 
-  # Dashboard Python dependencies — preserve Python 3.10 compatibility
+  # Dashboard Python dependencies — Preserve Python 3.10 baseline
   - package-ecosystem: "pip"
     directory: "/dashboard"
     schedule:
@@ -19,8 +25,11 @@ updates:
       - dependency-name: "pandas"
         update-types:
           - "version-update:semver-major"
+      - dependency-name: "streamlit"
+        update-types:
+          - "version-update:semver-major"
 
-  # GitHub Actions workflows
+  # GitHub Actions dependencies — Keep workflow actions up-to-date
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
