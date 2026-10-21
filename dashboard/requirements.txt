@@ -1,5 +1,5 @@
 # JAS-JESI Interactive Dashboard dependencies
 # Compatible with Python 3.10 baseline
 
-streamlit==1.54.0
+streamlit==1.66.0
 pandas==2.2.3
