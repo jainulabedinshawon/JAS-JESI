@@ -13,5 +13,5 @@ tabulate==0.10.0
 setuptools==84.0.0
 
 # Test / validation tooling
-pytest==9.1.1
+pytest==9.2.0
 flake8==7.4.1
