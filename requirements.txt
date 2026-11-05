@@ -14,4 +14,4 @@ setuptools==84.0.0
 
 # Test / validation tooling
 pytest==9.1.1
-flake8==7.4.1
+flake8==7.5.0
